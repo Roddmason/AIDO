@@ -4,7 +4,7 @@ Define el esquema de salida que ``build_overview_from_connection`` produce: una 
 slice mas la postura de seguridad y el estado de Open Design. Los alias camelCase fijan el
 contrato JSON que consume el frontend; cada campo reusa el record tipado de su slice de origen.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from local_control_center.governance.models import ArchitectureDecisionRecord, N
 from local_control_center.integrations.models import IdeConnectionRecord, McpServerRecord
 from local_control_center.jobs_approvals.models import ActionRequestRecord, JobRecord, JobRunRecord
 from local_control_center.memory_retrieval.models import MemoryItemRecord
-from local_control_center.pipelines.models import PipelineRecord
 from local_control_center.projects.models import (
     CatalogAgentRecord,
     ProjectRecord,
@@ -41,8 +40,8 @@ from local_control_center.security_policy.models import (
     PolicyRevisionRecord,
     SandboxProfileRecord,
 )
-from local_control_center.sessions_chats.models import ChatRecord, SessionRecord
 from local_control_center.shared.schemas import AuditEventRecord, EventRecord
+from local_control_center.threads.contracts import ThreadRecord
 from local_control_center.workflows.models import (
     WorkflowEventRecord,
     WorkflowRecord,
@@ -73,9 +72,7 @@ class OverviewResponse(BaseModel):
     providers: list[ProviderRecord]
     teams: list[TeamRecord]
     agents: list[CatalogAgentRecord]
-    sessions: list[SessionRecord]
-    chats: list[ChatRecord]
-    pipelines: list[PipelineRecord]
+    threads: list[ThreadRecord]
     jobs: list[JobRecord]
     job_runs: list[JobRunRecord] = Field(alias="jobRuns")
     events: list[EventRecord]

@@ -6,7 +6,7 @@ entorno. Provee helpers de correlación y de medición de latencia, y emisores t
 por dominio (HTTP, decisiones de política, tool/model/agent calls). Garantiza que un
 fallo del exportador externo nunca rompe el runtime local: se captura y se reporta en el estado.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -16,10 +16,30 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
+from .diagnostics import diagnostic_event  # noqa: F401 - public telemetry entry point
 from .event_bus import EventBus
 from .redaction import redact_secrets
+
+HIGH_VOLUME_EVENT_RETENTION_DAYS = 7
+HIGH_VOLUME_EVENT_TYPES = frozenset(
+    {
+        "telemetry.http.request",
+        "worker_idle",
+        "job.resource_wait",
+    }
+)
+"""Tipos de evento de alto volumen y valor decreciente, los unicos que se podan.
+
+Es una lista de **inclusion** a proposito: un tipo nuevo nace conservado. Medido en la
+instalacion real (base de 756,4 MB): `worker_idle` 274.091 filas / 17,0 MB — el worker emite una
+por tick de 5 s para decir que no hizo nada — y `job.resource_wait` 128.400 filas / 21,4 MB.
+Ninguno de los dos tenia poda; `telemetry.http.request` ya la tenia y se suma aca.
+
+Nunca entran eventos de dominio ni `audit_events`: esa historia no se borra por antigua.
+"""
 
 
 class ExternalTelemetryExporter(Protocol):
@@ -313,6 +333,30 @@ def record_http_request(
             "durationMs": duration_ms,
         },
     )
+
+
+def prune_high_volume_events(
+    connection: sqlite3.Connection,
+    *,
+    retention_days: int = HIGH_VOLUME_EVENT_RETENTION_DAYS,
+) -> int:
+    """Borra los eventos de alto volumen mas antiguos que la retencion y devuelve cuantos.
+
+    Solo toca los tipos de ``HIGH_VOLUME_EVENT_TYPES``; jamas eventos de dominio ni
+    ``audit_events``. El cutoff se calcula en el mismo formato ISO-8601 con sufijo ``Z`` de
+    ``utc_now`` para que la comparacion lexicografica sea correcta tambien dentro del mismo dia.
+    """
+    cutoff = (
+        (datetime.now(UTC) - timedelta(days=retention_days))
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    placeholders = ",".join("?" for _ in HIGH_VOLUME_EVENT_TYPES)
+    cursor = connection.execute(
+        f"DELETE FROM events WHERE type IN ({placeholders}) AND created_at < ?",
+        (*sorted(HIGH_VOLUME_EVENT_TYPES), cutoff),
+    )
+    return cursor.rowcount
 
 
 def record_policy_decision(connection: sqlite3.Connection, decision: dict[str, Any]) -> dict[str, Any]:

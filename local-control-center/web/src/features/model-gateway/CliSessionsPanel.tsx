@@ -3,12 +3,12 @@
  * Muestra el estado de cada runtime CLI y el detalle de cada sesión (workspace, agente, comando,
  * artefactos), redactando ejecutables, comandos y errores que puedan contener secretos; al elegir una
  * sesión despliega su bitácora de eventos en streaming (actividad real, no spinner indefinido).
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useState } from 'react';
 
 import type { ModelGatewayCliRuntime, ModelGatewayCliSession } from '../../api/types';
-import { Badge, DataTable, EmptyState } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { CliSessionActivity } from './CliSessionActivity';

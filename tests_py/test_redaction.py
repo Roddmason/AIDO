@@ -4,6 +4,15 @@ import time
 
 from local_control_center.shared.redaction import redact_secrets
 
+
+def test_task_identifier_is_not_mistaken_for_an_embedded_api_key():
+    from local_control_center.shared.redaction import redact_secrets
+
+    identifier = "task-12345678-1234-1234-1234-123456789abc"
+    assert redact_secrets(identifier) == identifier
+    assert redact_secrets("value=sk-testsecret123456") == "value=[redacted]"
+
+
 REDACTED = "[redacted]"
 
 
@@ -21,6 +30,14 @@ def test_known_token_patterns_are_redacted() -> None:
     assert REDACTED in redact_secrets("Authorization: Bearer abc.def.ghi")
     assert REDACTED in redact_secrets("use sk-ABCDEFGH012345 now")
     assert REDACTED in redact_secrets("password=hunter2&next")
+
+
+def test_unterminated_jwt_like_input_stays_linear() -> None:
+    unit = "eyJ" + "A" * 20 + "-"
+    blob = unit * (1_000_000 // len(unit))
+    start = time.perf_counter()
+    assert redact_secrets(blob) == blob
+    assert time.perf_counter() - start < 5.0
 
 
 def test_connection_strings_with_credentials_are_redacted() -> None:
@@ -52,3 +69,13 @@ def test_non_secret_values_are_preserved() -> None:
     assert redact_secrets("a normal sentence with no secrets") == "a normal sentence with no secrets"
     # Token counters are preserved (existing behavior).
     assert redact_secrets(42, key="total_tokens") == 42
+
+
+def test_password_and_private_key_fields_are_redacted_without_hiding_policy() -> None:
+    fields = ("password", "dbPassword", "passwd", "pwd", "private_key")
+    payload = dict.fromkeys(fields, "fixture")
+    payload.update({"password_status": "configured", "password_policy": {"minLength": 12}})
+    cleaned = redact_secrets(payload)
+    assert all(cleaned[field] == REDACTED for field in fields)
+    assert cleaned["password_status"] == "configured"
+    assert cleaned["password_policy"] == {"minLength": 12}

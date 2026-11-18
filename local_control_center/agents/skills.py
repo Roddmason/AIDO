@@ -4,13 +4,14 @@ Parses each skill's required front-matter keys, upserts the skill record, and pi
 immutable content-hashed version row so skill instructions are auditable over time.
 The registry is the source of truth for which skills an agent profile may invoke.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import hashlib
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,20 @@ def row_to_skill(row: sqlite3.Row) -> dict[str, Any]:
         "metadata": json_loads(row["metadata"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _skill_version_row_to_record(skill: dict[str, Any], version: sqlite3.Row | None) -> dict[str, Any]:
+    metadata = skill.get("metadata") or {}
+    return {
+        "id": skill["id"],
+        "name": skill["name"],
+        "description": skill["description"],
+        "riskLevel": skill["riskLevel"],
+        "path": skill["path"],
+        "tools": metadata.get("tools"),
+        "version": version["version"] if version else None,
+        "instructionsHash": version["instructions_hash"] if version else None,
     }
 
 
@@ -137,3 +152,97 @@ class SkillRegistry:
         """Return all catalogued skills ordered by name."""
         rows = self.connection.execute("SELECT * FROM skills ORDER BY name ASC").fetchall()
         return [row_to_skill(row) for row in rows]
+
+    def resolve_for_agent_run(
+        self, *, requested_refs: list[str], allowed_refs: list[str]
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Resolve requested skills to immutable versions and enforce the agent profile allowlist."""
+        if not requested_refs:
+            return [], None
+        allow_all = "*" in allowed_refs
+        allowed = {str(item) for item in allowed_refs if isinstance(item, str) and item}
+        refs = [ref for ref in (str(item).strip() for item in requested_refs) if ref]
+        if not refs:
+            return [], None
+
+        unique_refs = sorted(set(refs))
+        placeholders = ", ".join("?" for _ in unique_refs)
+        skill_rows = self.connection.execute(
+            f"SELECT * FROM skills WHERE id IN ({placeholders}) OR name IN ({placeholders})",
+            (*unique_refs, *unique_refs),
+        ).fetchall()
+        skills_by_ref: dict[str, dict[str, Any]] = {}
+        for row in skill_rows:
+            skill = row_to_skill(row)
+            skills_by_ref.setdefault(skill["id"], skill)
+            skills_by_ref.setdefault(skill["name"], skill)
+
+        skill_ids = sorted({skill["id"] for skill in skills_by_ref.values()})
+        latest_version_by_skill: dict[str, Any] = {}
+        if skill_ids:
+            version_placeholders = ", ".join("?" for _ in skill_ids)
+            version_rows = self.connection.execute(
+                f"""
+                SELECT * FROM skill_versions
+                WHERE skill_id IN ({version_placeholders})
+                ORDER BY created_at DESC, id DESC
+                """,
+                skill_ids,
+            ).fetchall()
+            for version in version_rows:
+                latest_version_by_skill.setdefault(version["skill_id"], version)
+
+        resolved: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for ref in refs:
+            skill = skills_by_ref.get(ref)
+            if skill is None:
+                return [], f"Skill is not cataloged: {ref}."
+            if not allow_all and skill["id"] not in allowed and skill["name"] not in allowed:
+                return [], f"Skill '{skill['name']}' is not allowed by the agent profile."
+            if skill["id"] in seen:
+                continue
+            version = latest_version_by_skill.get(skill["id"])
+            if not version:
+                return [], f"Skill '{skill['name']}' has no immutable version record."
+            resolved.append(_skill_version_row_to_record(skill, version))
+            seen.add(skill["id"])
+        return resolved, None
+
+    def bind_skills_for_run(
+        self,
+        *,
+        skills: list[dict[str, Any]],
+        agent_profile_id: str,
+        workflow_id: str | None,
+        agent_run_id: str,
+        task_id: str,
+    ) -> None:
+        """Persist a per-run skill binding so skill use is queryable outside evidence packages."""
+        if not skills:
+            return
+        timestamp = utc_now()
+        for skill in skills:
+            self.connection.execute(
+                """
+                INSERT INTO skill_bindings
+                    (id, skill_id, agent_profile_id, workflow_id, status, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"skill-binding-{uuid.uuid4()}",
+                    skill["id"],
+                    agent_profile_id,
+                    workflow_id,
+                    "resolved",
+                    json_dumps(
+                        {
+                            "agentRunId": agent_run_id,
+                            "taskId": task_id,
+                            "instructionsHash": skill.get("instructionsHash"),
+                            "version": skill.get("version"),
+                        }
+                    ),
+                    timestamp,
+                ),
+            )

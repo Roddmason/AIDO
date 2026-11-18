@@ -1,0 +1,1012 @@
+"""Bounded prevalidation uses real accounting/admission with fake provider transport."""
+
+from __future__ import annotations
+
+import io
+import time
+from contextlib import closing
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+from urllib.error import HTTPError
+
+import pytest
+
+from local_control_center.agents import runtime_preflight
+from local_control_center.agents.ai_resource_manager import AIResourceRequest
+from local_control_center.agents.local_model_settings import LocalModelSettingsRepository
+from local_control_center.agents.model_execution_health import record_model_execution
+from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.agents.providers.base import ModelResponse, UsageRecord
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.runtime_team.probe import VALIDATION_JSON_PROMPT
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
+
+
+@pytest.fixture
+def lane(tmp_path, monkeypatch):
+    with closing(open_sqlite_connection(tmp_path / "preflight.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        monkeypatch.setenv("AIDO_PREFLIGHT_TEST_API_KEY", "synthetic-fixture")
+        monkeypatch.setattr(runtime_preflight, "_in_quality_environment", lambda: False)
+        monkeypatch.setattr(
+            runtime_preflight.HostResourceProbe,
+            "sample",
+            lambda *_a, **_k: ResourceSnapshot.test_snapshot(),
+        )
+        store = ProviderAccountStore(connection)
+        statuses = {}
+        models = []
+        for provider in ("preflight-a", "preflight-b", "preflight-c"):
+            store.upsert_provider_account(
+                {
+                    "providerId": provider,
+                    "name": provider,
+                    "providerType": "api",
+                    "providerFamily": "openai_compatible",
+                    "apiFormat": "openai_compatible",
+                    "baseUrl": "https://fixture.example.invalid/v1",
+                    "credentialRef": "env:AIDO_PREFLIGHT_TEST_API_KEY",
+                    "enabled": True,
+                }
+            )
+            statuses[provider] = {
+                "id": provider,
+                "kind": "api",
+                "configured": True,
+                "healthStatus": "healthy",
+                "healthCheckedAt": datetime.now(UTC).isoformat(),
+            }
+            for name in ("model-one", "model-two"):
+                row = store.upsert_model(
+                    {
+                        "providerId": provider,
+                        "model": name,
+                        "enabled": True,
+                        "inputPricePerMtok": 1,
+                        "outputPricePerMtok": 1,
+                    }
+                )
+                models.append({**row, "runtime": "api", "locality": "remote"})
+        RuntimeConfigRepository(connection).set_runtime_setting("runtime.remote.enabled", True)
+        calls = []
+        failures = {}
+
+        def provider_instance(provider_id, **_kwargs):
+            def chat(request):
+                assert not connection.in_transaction
+                calls.append((provider_id, request.model, request.temperature))
+                if failure := failures.get((provider_id, request.model)):
+                    raise HTTPError("https://fixture.example.invalid", failure, "fixture", {}, None)
+                return ModelResponse(
+                    providerId=provider_id,
+                    model=request.model,
+                    content="OK",
+                    usage=UsageRecord(
+                        inputTokens=4,
+                        outputTokens=1,
+                        totalTokens=5,
+                        rawUsage={"prompt_tokens": 4, "completion_tokens": 1},
+                    ),
+                )
+
+            return SimpleNamespace(base_url="https://fixture.example.invalid/v1", chat_completion=chat)
+
+        monkeypatch.setattr("local_control_center.agents.model_gateway.provider_instance", provider_instance)
+        yield SimpleNamespace(
+            connection=connection,
+            models=models,
+            statuses=statuses,
+            calls=calls,
+            failures=failures,
+            request=AIResourceRequest(task_type="product_owner.discovery", project_id="preflight-project"),
+        )
+
+
+def _run(lane, models=None, request=None):
+    return runtime_preflight.prevalidate_candidates(
+        lane.connection,
+        models=lane.models if models is None else models,
+        runtime_statuses=lane.statuses,
+        request=request or lane.request,
+    )
+
+
+def test_failure_does_not_abort_other_candidates_and_accounts_usage(lane):
+    lane.failures[("preflight-a", "model-one")] = 404
+    result = _run(lane)
+    assert len(result["validated"]) == 2
+    assert result["attempts"] == 3
+    assert result["rejected"][0]["httpStatus"] == 404
+    assert {row[0] for row in lane.calls} == {"preflight-a", "preflight-b", "preflight-c"}
+    assert all(row[2] is None for row in lane.calls)
+    assert lane.connection.execute("SELECT COUNT(*) FROM usage_ledger").fetchone()[0] == 2
+    assert (
+        lane.connection.execute(
+            "SELECT COUNT(*) FROM provider_execution_leases WHERE state IN ('active','dispatched')"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        lane.connection.execute("SELECT COUNT(*) FROM resource_leases WHERE released_at IS NULL").fetchone()[
+            0
+        ]
+        == 0
+    )
+
+
+def test_cached_validation_needs_no_transport_or_lease(lane):
+    for row in lane.models[:2]:
+        record_model_execution(lane.connection, row["providerId"], row["model"], True, "test_prompt")
+    result = _run(lane, lane.models[:2])
+    assert len(result["validated"]) == 2
+    assert all(item["cached"] for item in result["validated"])
+    assert not lane.calls
+    assert lane.connection.execute("SELECT COUNT(*) FROM resource_leases").fetchone()[0] == 0
+
+
+def test_model_cache_with_stale_health_requires_real_probe(lane):
+    row = lane.models[0]
+    record_model_execution(lane.connection, row["providerId"], row["model"], True, "test_prompt")
+    lane.statuses[row["providerId"]]["healthCheckedAt"] = (
+        datetime.now(UTC) - timedelta(minutes=6)
+    ).isoformat()
+    result = _run(lane, [row])
+    assert result["attempts"] == 1
+    assert result["validated"][0]["cached"] is False
+    assert len(lane.calls) == 1
+
+
+def test_account_lock_deduplicates_concurrent_validation(lane):
+    row = lane.models[0]
+    fingerprint = runtime_preflight.provider_configuration_fingerprint(lane.connection, row["providerId"])
+    with runtime_preflight._candidate_lock(lane.connection, row["providerId"], fingerprint) as acquired:
+        assert acquired
+        result = _run(lane, [row])
+    assert result["deferred"][0]["reason"] == "preflight_in_progress"
+    assert not lane.calls
+    assert _run(lane, [row])["attempts"] == 1
+
+
+def test_quota_denial_releases_host_lease_without_inference(lane):
+    from local_control_center.agents.routing_profiles import RoutingProfileStore
+
+    row = lane.models[0]
+    RoutingProfileStore(lane.connection).create_provider_limit(
+        {
+            "providerId": row["providerId"],
+            "model": row["model"],
+            "maxCostPerRequestUsd": 0.000001,
+        }
+    )
+    result = _run(lane, [row])
+    assert result["attempts"] == 0
+    assert not lane.calls
+    assert (
+        lane.connection.execute("SELECT COUNT(*) FROM resource_leases WHERE released_at IS NULL").fetchone()[
+            0
+        ]
+        == 0
+    )
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_failure_excludes_account_across_roles_and_models(lane, status):
+    lane.failures[("preflight-a", "model-one")] = status
+    _run(lane, lane.models[:2])
+    first_calls = list(lane.calls)
+    result = _run(lane, lane.models[:2])
+    assert lane.calls == first_calls
+    assert first_calls == [("preflight-a", "model-one", None)]
+    assert result["excludedProviderIds"] == ["preflight-a"]
+    assert (
+        ProviderAccountStore(lane.connection).get_provider_account("preflight-a")["healthStatus"]
+        == "authentication_required"
+    )
+
+
+def test_changed_configuration_invalidates_cache_and_auth_cooldown(lane):
+    row = lane.models[0]
+    lane.failures[(row["providerId"], row["model"])] = 401
+    _run(lane, [row])
+    ProviderAccountStore(lane.connection).patch_provider_account(
+        row["providerId"], {"baseUrl": "https://replacement.example.invalid/v1"}
+    )
+    lane.failures.clear()
+    result = _run(lane, [row])
+    assert result["attempts"] == 1
+    assert result["validated"][0]["cached"] is False
+
+
+def test_model_failure_cooldown_does_not_exclude_healthy_sibling(lane):
+    lane.failures[("preflight-a", "model-one")] = 410
+    first = _run(lane, lane.models[:2])
+    assert [item["model"] for item in first["validated"]] == ["model-two"]
+    before = list(lane.calls)
+    _run(lane, lane.models[:2])
+    assert lane.calls == before
+    lane.connection.execute(
+        "UPDATE model_execution_health SET started_at=? WHERE success=0",
+        ((datetime.now(UTC) - timedelta(minutes=6)).isoformat(),),
+    )
+    lane.failures.clear()
+    assert len(_run(lane, lane.models[:2])["validated"]) == 2
+
+
+def test_disabled_candidate_is_never_probed_even_with_prior_success(lane):
+    row = lane.models[0]
+    record_model_execution(lane.connection, row["providerId"], row["model"], True, "test_prompt")
+    lane.connection.execute(
+        "UPDATE model_catalog SET enabled=0 WHERE provider_id=? AND model=?",
+        (row["providerId"], row["model"]),
+    )
+    result = _run(lane, [row])
+    assert not lane.calls
+    assert result["rejected"][0]["reason"] == "model_disabled"
+
+
+def test_preflight_respects_budget_privacy_and_unknown_price(lane):
+    request = AIResourceRequest(task_type="reason", project_id="preflight-project", budget_remaining_usd=0)
+    assert _run(lane, request=request)["attempts"] == 0
+    request = AIResourceRequest(
+        task_type="reason", project_id="preflight-project", privacy_level="local_only"
+    )
+    assert _run(lane, request=request)["attempts"] == 0
+    lane.connection.execute("UPDATE model_catalog SET input_price_per_mtok=NULL, output_price_per_mtok=NULL")
+    assert _run(lane)["attempts"] == 0
+    assert not lane.calls
+
+
+def test_global_policy_disable_and_capacity_never_reach_provider(lane, monkeypatch):
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.remote.enabled", False)
+    assert _run(lane)["attempts"] == 0
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.remote.enabled", True)
+    monkeypatch.setattr(
+        runtime_preflight.HostResourceProbe,
+        "sample",
+        lambda *_a, **_k: ResourceSnapshot.test_snapshot(available_memory_bytes=0),
+    )
+    assert _run(lane)["attempts"] == 0
+    assert not lane.calls
+
+
+def test_probe_count_is_bounded_even_when_every_model_fails(lane):
+    lane.failures.update({(row["providerId"], row["model"]): 404 for row in lane.models})
+    result = _run(lane)
+    assert result["attempts"] == 4
+    assert len(lane.calls) == 4
+    assert result["deferred"]
+
+
+@pytest.mark.parametrize(
+    "marker", ["AIDO_QUALITY_INVOCATION_ID", "AIDO_QUALITY_DB_PATH", "PYTEST_CURRENT_TEST"]
+)
+def test_quality_guard_is_absolute_and_does_not_use_legacy_call_flag(lane, monkeypatch, marker):
+    monkeypatch.undo()
+    monkeypatch.setenv(marker, "quality")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    transport = Mock(side_effect=AssertionError("QA must not reach a provider"))
+    monkeypatch.setattr("local_control_center.agents.model_gateway.provider_instance", transport)
+    result = _run(lane)
+    assert result["attempts"] == 0
+    transport.assert_not_called()
+
+
+def test_legacy_false_does_not_override_sqlite_policy_with_fake_transport(lane, monkeypatch):
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false")
+    assert len(_run(lane)["validated"]) == 2
+
+
+def test_cli_without_execution_evidence_is_deferred_without_fake_validation(lane):
+    row = {**lane.models[0], "runtime": "cli"}
+    lane.statuses[row["providerId"]]["kind"] = "cli"
+    result = _run(lane, [row])
+    assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"
+    assert not lane.calls
+
+
+def _cli_candidates(lane, monkeypatch, *, success=True, failed_providers=()):
+    from local_control_center.agents import runtime_preflight_cli
+
+    store = ProviderAccountStore(lane.connection)
+    models = []
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.cli.enabled", True)
+    for provider in ("codex_cli", "claude_code_cli"):
+        store.patch_provider_account(provider, {"enabled": True})
+        lane.statuses[provider] = {"id": provider, "kind": "cli", "configured": True}
+        for name in ("cli-one", "cli-two"):
+            models.append(
+                {
+                    **store.upsert_model({"providerId": provider, "model": name, "enabled": True}),
+                    "runtime": "cli",
+                    "locality": "local",
+                }
+            )
+    calls = []
+
+    def validate(connection, *, model, runtime_status, request):
+        calls.append((model["providerId"], model["model"]))
+        valid = success and model["providerId"] not in failed_providers
+        record_model_execution(connection, model["providerId"], model["model"], valid, "test_prompt")
+        return {
+            "status": "completed" if valid else "unavailable",
+            "attempted": True,
+            "costStatus": "unknown",
+            "usage": {"actualCostUsd": None, "totalTokens": None},
+        }
+
+    monkeypatch.setattr(runtime_preflight_cli, "validate_cli_candidate", validate)
+    return models, calls
+
+
+def test_cli_only_role_does_not_require_api_permission(lane, monkeypatch):
+    models, cli_calls = _cli_candidates(lane, monkeypatch)
+    request = AIResourceRequest(
+        task_type="reason",
+        project_id="preflight-project",
+        allow_api=False,
+        allow_local=False,
+        allow_cli=True,
+        allow_unknown_cost=True,
+        require_approval_for_unknown_cost=False,
+    )
+    result = _run(lane, models, request)
+    assert len(result["validated"]) == 2
+    assert len(cli_calls) == result["cliAttempts"] == result["attempts"] == 2
+    assert result["budgetCostUnknown"] is True
+    assert result["budgetSpentUsd"] is None
+    assert not lane.calls
+
+
+def test_hybrid_attempt_limit_includes_unknown_cost_cli(lane, monkeypatch):
+    cli_models, cli_calls = _cli_candidates(lane, monkeypatch, success=False)
+    lane.failures.update({(row["providerId"], row["model"]): 404 for row in lane.models})
+    request = AIResourceRequest(
+        task_type="reason",
+        project_id="preflight-project",
+        allow_unknown_cost=True,
+        require_approval_for_unknown_cost=False,
+    )
+    result = _run(lane, [*cli_models, *lane.models], request)
+    assert result["attempts"] == 4
+    assert result["cliAttempts"] == len(cli_calls) == 2
+    assert len(lane.calls) == 2
+    assert result["budgetCostUnknown"] is True
+    assert result["budgetSpentUsd"] is None
+    assert result["knownBudgetSpentUsd"] > 0
+
+
+def test_first_cli_failure_allows_second_account_without_repeating_either(lane, monkeypatch):
+    models, cli_calls = _cli_candidates(lane, monkeypatch, failed_providers={"codex_cli"})
+    request = AIResourceRequest(
+        task_type="reason",
+        project_id="preflight-project",
+        allow_unknown_cost=True,
+        require_approval_for_unknown_cost=False,
+    )
+    result = _run(lane, models, request)
+    assert cli_calls == [("codex_cli", "cli-one"), ("claude_code_cli", "cli-one")]
+    assert [entry["providerId"] for entry in result["validated"]] == ["claude_code_cli"]
+    assert result["attempts"] == result["cliAttempts"] == 2
+    assert result["budgetSpentUsd"] is None
+    assert result["budgetCostUnknown"] is True
+    assert len(result["deferred"]) == 2
+
+
+def test_cli_denial_does_not_consume_attempt_or_suppress_api(lane, monkeypatch):
+    cli_models, cli_calls = _cli_candidates(lane, monkeypatch)
+    request = AIResourceRequest(task_type="reason", project_id="preflight-project", allow_cli=False)
+    result = _run(lane, [*cli_models, *lane.models], request)
+    assert len(result["validated"]) == 2
+    assert result["attempts"] == 2
+    assert not cli_calls
+    assert result["cliAttempts"] == 0
+    assert result["budgetCostUnknown"] is False
+
+
+def _unknown_price(lane, row, *, input_price=None):
+    lane.connection.execute(
+        "UPDATE model_catalog SET input_price_per_mtok=?, output_price_per_mtok=NULL "
+        "WHERE provider_id=? AND model=?",
+        (input_price, row["providerId"], row["model"]),
+    )
+
+
+@pytest.mark.parametrize("input_price", [None, 1.0], ids=["absent", "partial"])
+def test_authorized_unknown_api_cost_preserves_unknown_and_real_quota(lane, monkeypatch, input_price):
+    row = lane.models[0]
+    _unknown_price(lane, row, input_price=input_price)
+    estimates = []
+    acquire = runtime_preflight.QuotaManager.acquire
+
+    def record_acquire(manager, request):
+        estimates.append(request.estimated_cost_usd)
+        return acquire(manager, request)
+
+    monkeypatch.setattr(runtime_preflight.QuotaManager, "acquire", record_acquire)
+    request = replace(lane.request, allow_unknown_cost=True, require_approval_for_unknown_cost=False)
+    result = _run(lane, [row], request)
+    assert result["attempts"] == len(result["validated"]) == 1
+    assert estimates == [None]
+    assert result["budgetCostUnknown"] is True
+    assert result["budgetSpentUsd"] is None
+    assert lane.calls == [(row["providerId"], row["model"], None)]
+    assert lane.connection.execute("SELECT COUNT(*) FROM usage_ledger").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize(
+    "overrides,reason",
+    [
+        ({"allow_unknown_cost": False}, "preflight_unknown_cost_requires_approval"),
+        ({"require_approval_for_unknown_cost": True}, "preflight_unknown_cost_requires_approval"),
+        ({"routing_policy": "economy"}, "unknown_remote_cost_rejected_by_policy"),
+        ({"routing_policy": "free_first"}, "unknown_remote_cost_rejected_by_policy"),
+        ({"budget_remaining_usd": 0}, "preflight_cost_budget"),
+        ({"require_approval_over_usd": 0}, "preflight_cost_budget"),
+    ],
+)
+def test_unknown_api_cost_obeys_role_policy_and_zero_budget(lane, overrides, reason):
+    row = lane.models[0]
+    _unknown_price(lane, row)
+    request = replace(lane.request, allow_unknown_cost=True, require_approval_for_unknown_cost=False)
+    result = _run(lane, [row], replace(request, **overrides))
+    assert result["attempts"] == 0
+    assert result["deferred"][0]["reason"] == reason
+    assert not lane.calls
+    assert lane.connection.execute("SELECT COUNT(*) FROM provider_execution_leases").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("strategy,attempts", [("conservative", 0), ("allow", 1)])
+def test_unknown_api_cost_keeps_provider_quota_authority(lane, strategy, attempts):
+    from local_control_center.agents.routing_profiles import RoutingProfileStore
+
+    row = lane.models[0]
+    _unknown_price(lane, row)
+    RoutingProfileStore(lane.connection).create_provider_limit(
+        {
+            "providerId": row["providerId"],
+            "model": row["model"],
+            "maxCostPerRequestUsd": 0.001,
+            "unknownLimitStrategy": strategy,
+        }
+    )
+    request = replace(lane.request, allow_unknown_cost=True, require_approval_for_unknown_cost=False)
+    result = _run(lane, [row], request)
+    assert result["attempts"] == len(lane.calls) == attempts
+    if not attempts:
+        assert result["deferred"][0]["reason"] == "unknown_cost_blocked"
+    assert (
+        lane.connection.execute("SELECT COUNT(*) FROM resource_leases WHERE released_at IS NULL").fetchone()[
+            0
+        ]
+        == 0
+    )
+
+
+def test_unknown_api_failure_records_unknown_cost_and_continues_to_other_provider(lane):
+    for row in lane.models:
+        _unknown_price(lane, row)
+    lane.failures[("preflight-a", "model-one")] = 404
+    request = replace(lane.request, allow_unknown_cost=True, require_approval_for_unknown_cost=False)
+    result = _run(lane, request=request)
+    assert result["attempts"] == len(lane.calls) == 3
+    assert len(result["validated"]) == 2
+    assert result["rejected"][0]["httpStatus"] == 404
+    assert result["budgetCostUnknown"] is True
+    assert result["budgetSpentUsd"] is None
+
+
+def test_known_api_estimate_keeps_preflight_cost_cap(lane):
+    row = lane.models[0]
+    lane.connection.execute(
+        "UPDATE model_catalog SET input_price_per_mtok=1000,output_price_per_mtok=1000 "
+        "WHERE provider_id=? AND model=?",
+        (row["providerId"], row["model"]),
+    )
+    request = replace(lane.request, allow_unknown_cost=True, require_approval_for_unknown_cost=False)
+    result = _run(lane, [row], request)
+    assert result["attempts"] == 0
+    assert result["deferred"][0]["reason"] == "preflight_cost_budget"
+    assert not lane.calls
+
+
+@pytest.mark.parametrize(
+    "provider_type,api_format,metadata,attempts",
+    [
+        ("local", "ollama", {}, 1),
+        ("gateway", "openai_compatible", {}, 0),
+        ("local", "ollama", {"endpointKind": "remote"}, 0),
+    ],
+    ids=["local-ollama", "loopback-proxy", "remote-ollama"],
+)
+def test_local_runtime_price_exemption_does_not_treat_loopback_proxy_as_free(
+    lane, provider_type, api_format, metadata, attempts
+):
+    store = ProviderAccountStore(lane.connection)
+    provider = "preflight-local"
+    store.upsert_provider_account(
+        {
+            "providerId": provider,
+            "name": provider,
+            "providerType": provider_type,
+            "providerFamily": "ollama" if api_format == "ollama" else "openai_compatible",
+            "apiFormat": api_format,
+            "baseUrl": "http://localhost:11434",
+            "credentialRef": "env:AIDO_PREFLIGHT_TEST_API_KEY",
+            "metadata": metadata,
+            "enabled": True,
+        }
+    )
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.ollama.enabled", True)
+    row = {
+        **store.upsert_model({"providerId": provider, "model": "local-model", "enabled": True}),
+        "runtime": "api",
+        "locality": "local",
+    }
+    lane.statuses[provider] = {"id": provider, "kind": provider_type, "configured": True}
+    result = _run(lane, [row])
+    assert result["attempts"] == len(lane.calls) == attempts
+    if attempts:
+        assert len(result["validated"]) == 1
+        assert result["budgetCostUnknown"] is True
+        assert result["budgetSpentUsd"] is None
+    else:
+        assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"
+
+
+def test_preflight_borrows_job_reservation_without_extra_memory_or_release(lane, monkeypatch):
+    from pathlib import Path
+
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.host_resources.repository import ResourceRepository
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    database = Path(lane.connection.execute("PRAGMA database_list").fetchone()[2])
+    lease = (
+        HostResourceGovernor(lane.connection)
+        .admit(
+            ResourceAdmissionRequest(execution_id="parent", owner_id="worker", workload_class="agent_cli"),
+            snapshot=ResourceSnapshot.test_snapshot(),
+        )
+        .lease
+    )
+    monkeypatch.setattr(
+        runtime_preflight.HostResourceProbe,
+        "sample",
+        lambda *_a, **_k: ResourceSnapshot.test_snapshot(available_memory_bytes=25 * 1024**3),
+    )
+    with execution_scope(
+        ProcessExecutionContext(
+            db_path=database,
+            execution_id="parent",
+            worker_id="worker",
+            resource_lease_id=lease.id,
+            connection=lane.connection,
+        )
+    ):
+        result = _run(lane, lane.models[:1])
+    assert result["attempts"] == len(result["validated"]) == 1
+    assert len(lane.calls) == 1
+    assert [item.id for item in ResourceRepository(lane.connection).active_leases()] == [lease.id]
+
+
+def test_preflight_counts_all_deferred_reasons_with_bounded_examples(lane):
+    store = ProviderAccountStore(lane.connection)
+    models = []
+    for index in range(35):
+        models.append(
+            {
+                **store.upsert_model(
+                    {"providerId": "preflight-a", "model": f"unknown-{index}", "enabled": True}
+                ),
+                "runtime": "api",
+                "locality": "remote",
+            }
+        )
+    result = _run(lane, models)
+    assert result["attempts"] == 0
+    assert result["deferredCount"] == 35
+    assert len(result["deferred"]) == 32
+    assert result["deferredReasonCounts"] == {"preflight_unknown_cost_requires_approval": 35}
+    assert not lane.calls
+
+
+def test_probe_boundary_keeps_original_connection_and_project(lane, monkeypatch):
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION, assert_external_boundary
+
+    seen = []
+    blocked = []
+    row = lane.models[0]
+
+    def chat(request):
+        seen.append(CURRENT_EXECUTION.get())
+        lane.connection.execute("BEGIN")
+        try:
+            try:
+                assert_external_boundary()
+            except RuntimeError:
+                blocked.append(True)
+            else:
+                blocked.append(False)
+        finally:
+            lane.connection.rollback()
+        return ModelResponse(
+            providerId=row["providerId"], model=request.model, content="OK", usage=UsageRecord()
+        )
+
+    monkeypatch.setattr(
+        "local_control_center.agents.model_gateway.provider_instance",
+        lambda *_a, **_k: SimpleNamespace(
+            base_url="https://fixture.example.invalid/v1", chat_completion=chat
+        ),
+    )
+    result = _run(lane, [row])
+    assert seen[0].connection is lane.connection
+    assert seen[0].project_id == lane.request.project_id
+    assert blocked == [True]
+    assert len(result["validated"]) == 1
+
+
+def test_invalid_parent_authority_is_deferred_without_counting_an_attempt(lane):
+    from pathlib import Path
+
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    database = Path(lane.connection.execute("PRAGMA database_list").fetchone()[2])
+    with execution_scope(
+        ProcessExecutionContext(
+            db_path=database,
+            execution_id="job",
+            worker_id="worker",
+            resource_lease_id="missing-parent-lease",
+            connection=lane.connection,
+        )
+    ):
+        result = _run(lane, lane.models[:1])
+    assert result["attempts"] == 0
+    assert result["deferred"][0]["reason"] == "resource_parent_lease_missing"
+    assert not lane.calls
+    assert not result["validated"]
+    assert lane.connection.execute("SELECT COUNT(*) FROM model_execution_health").fetchone()[0] == 0
+
+
+def test_api_spending_exact_remaining_budget_defers_following_cli(lane, monkeypatch):
+    cli_models, cli_calls = _cli_candidates(lane, monkeypatch)
+    request = replace(
+        lane.request,
+        budget_remaining_usd=0.000048,
+        allow_unknown_cost=True,
+        require_approval_for_unknown_cost=False,
+    )
+    result = _run(lane, [lane.models[0], *cli_models], request)
+    assert lane.calls == [("preflight-a", "model-one", None)]
+    assert cli_calls == []
+    assert result["attempts"] == 1
+    assert result["cliAttempts"] == 0
+    assert result["knownBudgetSpentUsd"] == pytest.approx(0.000048)
+    assert result["deferredReasonCounts"]["preflight_cost_budget"] == len(cli_models)
+
+
+@pytest.mark.parametrize(
+    "provider_type,base_url,metadata,attempts,probes_json_schema",
+    [
+        ("local", "http://127.0.0.1:1/v1", {}, 1, True),
+        ("local", "http://192.168.1.50:8082/v1", {}, 1, False),
+        ("local", "http://llama.example.com:8082/v1", {}, 0, False),
+        ("local", "http://127.0.0.1:1/v1", {"endpointKind": "remote"}, 0, False),
+        ("gateway", "http://127.0.0.1:1/v1", {}, 0, False),
+    ],
+    ids=["loopback", "private-literal", "public-name", "marked-remote", "loopback-gateway"],
+)
+def test_self_hosted_llama_cpp_cost_exemption_follows_the_network_scope(
+    lane, provider_type, base_url, metadata, attempts, probes_json_schema
+):
+    store = ProviderAccountStore(lane.connection)
+    provider = "preflight-llama"
+    store.upsert_provider_account(
+        {
+            "providerId": provider,
+            "name": provider,
+            "providerType": provider_type,
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": base_url,
+            "metadata": metadata,
+            "enabled": True,
+        }
+    )
+    store.set_provider_catalog_id(provider, "llama_cpp")
+    row = {
+        **store.upsert_model({"providerId": provider, "model": "gemma-4-26b-a4b", "enabled": True}),
+        "runtime": provider_type,
+        "locality": "local",
+    }
+    lane.statuses[provider] = {"id": provider, "kind": provider_type, "configured": True}
+    result = _run(lane, [row])
+    # Un candidato self-hosted validado (costo cero: loopback o IP privada) dispara ademas la sonda
+    # json_schema solo cuando ademas es local runtime en sentido estricto (endpoint_locality: loopback o
+    # declarado por el servidor); una IP privada no declarada exime de costo pero no habilita el aparato
+    # de runtime local (mismo criterio que _probe_request_shape). El fake generico de esta cuenta no
+    # devuelve el JSON que la sonda espera, asi que queda sin persistir (una sonda fallida nunca rompe el
+    # preflight). Se cuenta aparte de los intentos reales de chat (temperature=None).
+    assert result["attempts"] == sum(1 for call in lane.calls if call[2] is None) == attempts
+    assert sum(1 for call in lane.calls if call[2] == 0) == (1 if probes_json_schema else 0)
+    assert LocalModelSettingsRepository(lane.connection).get(provider, "gemma-4-26b-a4b") is None
+    if not attempts:
+        assert result["deferred"][0]["reason"] == "preflight_unknown_cost_requires_approval"
+
+
+LOCAL_PROVIDER = "preflight-llama"
+
+
+def _local_llama_row(lane):
+    store = ProviderAccountStore(lane.connection)
+    store.upsert_provider_account(
+        {
+            "providerId": LOCAL_PROVIDER,
+            "displayName": LOCAL_PROVIDER,
+            "providerType": "local",
+            "providerFamily": "openai_compatible",
+            "apiFormat": "openai_compatible",
+            "baseUrl": "http://127.0.0.1:1/v1",
+            "enabled": True,
+        }
+    )
+    store.set_provider_catalog_id(LOCAL_PROVIDER, "llama_cpp")
+    lane.statuses[LOCAL_PROVIDER] = {"id": LOCAL_PROVIDER, "kind": "local", "configured": True}
+    return {
+        **store.upsert_model({"providerId": LOCAL_PROVIDER, "model": "qwen3-reasoner", "enabled": True}),
+        "runtime": "local",
+        "locality": "local",
+    }
+
+
+def _patch_local_transport(monkeypatch, chat):
+    monkeypatch.setattr(
+        "local_control_center.agents.model_gateway.provider_instance",
+        lambda provider_id, **_kwargs: SimpleNamespace(
+            base_url="http://127.0.0.1:1/v1",
+            chat_completion=lambda request: chat(provider_id, request),
+        ),
+    )
+
+
+def test_local_probe_sends_reasoning_budget_and_accepts_length_with_reasoning(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+
+    def chat(provider_id, request):
+        seen.append(request)
+        return ModelResponse(
+            providerId=provider_id,
+            model=request.model,
+            content="",
+            usage=UsageRecord(rawUsage={"usage_source": "unknown"}),
+            finishReason="length",
+            reasoningPresent=True,
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert seen[0].max_tokens == runtime_preflight.LOCAL_OUTPUT_TOKEN_LIMIT == 64
+    assert seen[0].extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert seen[0].timeout_seconds == 60 + 180
+
+
+def _probe_aware_chat(*, on_probe):
+    """Doble local: responde OK a la sonda normal y delega a ``on_probe`` la llamada de validación json."""
+
+    def chat(provider_id, request):
+        if request.messages[0]["content"] == VALIDATION_JSON_PROMPT:
+            return on_probe(provider_id, request)
+        return ModelResponse(providerId=provider_id, model=request.model, content="OK", usage=UsageRecord())
+
+    return chat
+
+
+def test_preflight_probes_json_schema_for_a_never_validated_local_model(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(provider_id, request):
+        assert request.response_format is not None
+        return ModelResponse(
+            providerId=provider_id, model=request.model, content='{"ok": true}', usage=UsageRecord()
+        )
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert setting is not None
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (True, "runtime_validation")
+
+
+def test_preflight_probe_records_json_schema_false_on_a_400(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(provider_id, request):
+        if request.response_format is not None:
+            raise HTTPError("http://127.0.0.1:1/v1/chat/completions", 400, "bad", {}, None)
+        # Fallback sin response_format que probe_local_json_schema_capability reintenta tras el 400.
+        return ModelResponse(
+            providerId=provider_id, model=request.model, content='{"ok": true}', usage=UsageRecord()
+        )
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert setting is not None
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (False, "runtime_validation")
+
+
+def test_preflight_never_probes_or_overwrites_an_operator_set_flag(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    LocalModelSettingsRepository(lane.connection).upsert(
+        LOCAL_PROVIDER, "qwen3-reasoner", actor="operator", json_schema=False
+    )
+    probed = []
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=lambda *a: probed.append(a)))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert probed == []
+    setting = LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner")
+    assert (setting.json_schema, setting.provenance["json_schema"]) == (False, "operator")
+
+
+def test_preflight_does_not_reprobe_an_already_validated_model(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    LocalModelSettingsRepository(lane.connection).upsert(
+        LOCAL_PROVIDER, "qwen3-reasoner", actor="runtime_validation", json_schema=True
+    )
+    probed = []
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=lambda *a: probed.append(a)))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert probed == []
+
+
+def test_preflight_survives_a_probe_that_raises(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def on_probe(_provider_id, _request):
+        raise RuntimeError("boom")
+
+    _patch_local_transport(monkeypatch, _probe_aware_chat(on_probe=on_probe))
+    result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert LocalModelSettingsRepository(lane.connection).get(LOCAL_PROVIDER, "qwen3-reasoner") is None
+
+
+def _alive_local_chat(seen):
+    def chat(provider_id, request):
+        seen.append((request, time.monotonic()))
+        return ModelResponse(
+            providerId=provider_id,
+            model=request.model,
+            content="OK",
+            usage=UsageRecord(rawUsage={"usage_source": "unknown"}),
+        )
+
+    return chat
+
+
+def _execution_deadline_scope(lane, seconds_left: float):
+    from local_control_center.process_supervision.context import ProcessExecutionContext, execution_scope
+
+    database = Path(lane.connection.execute("PRAGMA database_list").fetchone()[2])
+    return execution_scope(
+        ProcessExecutionContext(
+            db_path=database, execution_deadline_monotonic=time.monotonic() + seconds_left
+        )
+    )
+
+
+def test_local_probe_timeout_respects_the_operator_ceiling_and_carries_a_call_deadline(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    RuntimeConfigRepository(lane.connection).set_runtime_setting("runtime.local.maxCallSeconds", 45)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    result = _run(lane, [row])
+
+    request, invoked_at = seen[0]
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert request.timeout_seconds == 45
+    assert request.deadline_monotonic is not None
+    assert invoked_at < request.deadline_monotonic <= invoked_at + 45
+
+
+def test_local_probe_timeout_is_bounded_by_the_remaining_execution_deadline(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    # remaining_execution_timeout reserva 15 s de cierre: quedan ~200 s, más que el arranque en frío (180).
+    with _execution_deadline_scope(lane, 15 + 200):
+        result = _run(lane, [row])
+
+    assert [item["providerId"] for item in result["validated"]] == [LOCAL_PROVIDER]
+    assert 190 <= seen[0][0].timeout_seconds <= 200
+
+
+def test_local_probe_without_time_to_load_the_model_is_deferred_before_invoking(lane, monkeypatch):
+    row = _local_llama_row(lane)
+    seen = []
+    _patch_local_transport(monkeypatch, _alive_local_chat(seen))
+    with _execution_deadline_scope(lane, 15 + 100):
+        result = _run(lane, [row])
+
+    assert seen == []
+    assert result["attempts"] == 0
+    assert result["deferred"][0]["reason"] == "insufficient_time_for_model_load"
+    assert _local_execution_receipts(lane) == []
+
+
+def test_local_probe_reports_a_loading_server_as_model_loading(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def chat(provider_id, request):
+        raise HTTPError(
+            "http://127.0.0.1:1/v1/chat/completions",
+            503,
+            "Service Unavailable",
+            {},
+            io.BytesIO(b'{"error":{"code":503,"message":"Loading model"}}'),
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    assert result["rejected"][0]["failureCause"] == "model_loading"
+    assert _local_execution_receipts(lane) == []
+
+
+def test_local_probe_auth_failure_is_a_failed_receipt_with_the_cause_first(lane, monkeypatch):
+    row = _local_llama_row(lane)
+
+    def chat(provider_id, request):
+        raise HTTPError(
+            "http://127.0.0.1:1/v1/chat/completions",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"error":{"code":401,"message":"Invalid API Key","type":"authentication_error"}}'),
+        )
+
+    _patch_local_transport(monkeypatch, chat)
+    result = _run(lane, [row])
+
+    account = ProviderAccountStore(lane.connection).get_provider_account(LOCAL_PROVIDER)
+    assert result["rejected"][0]["failureCause"] == "local_auth_required"
+    assert _local_execution_receipts(lane) == [0]
+    assert str(account["lastError"]).startswith("local_auth_required")
+
+
+def _local_execution_receipts(lane) -> list[int]:
+    rows = lane.connection.execute(
+        "SELECT success FROM model_execution_health WHERE provider_id = ? ORDER BY rowid",
+        (LOCAL_PROVIDER,),
+    ).fetchall()
+    return [int(item["success"]) for item in rows]
+
+
+def test_probe_shape_is_unchanged_for_remote_accounts(lane):
+    remote = ProviderAccountStore(lane.connection).get_provider_account("preflight-a")
+
+    assert runtime_preflight._probe_request_shape(remote) == (
+        runtime_preflight.OUTPUT_TOKEN_LIMIT,
+        {},
+        False,
+        None,
+    )

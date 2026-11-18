@@ -4,14 +4,28 @@ Definen el cuerpo de entrada y la forma de salida que la API expone al
 frontend, fijando alias camelCase y valores por defecto del contrato.
 Aíslan las claves del transporte de los nombres internos snake_case.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+MemoryKind = Literal["note", "lesson"]
+"""Conjunto cerrado de clases de memoria.
+
+``note`` es el default y la única clase que escribe hoy la API; ``lesson`` es la que consume el
+panel de memoria de threads (``threads/memory_recall.py``). La migración de la fase 68 normaliza a
+``note`` cualquier valor fuera del conjunto, conservando el original en ``metadata.legacyKind``.
+Ver ``docs/adr/ADR-002-memory-item-kind-taxonomy.md``.
+"""
+
+DEFAULT_MEMORY_KIND: MemoryKind = "note"
+
+MEMORY_FORGET_JOB_KIND = "memory.forget.expired"
+"""Job kind que aplica la política de olvido; lo despacha ``jobs_approvals/worker.py``."""
 
 
 class MemoryCreateRequest(BaseModel):
@@ -20,7 +34,7 @@ class MemoryCreateRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     scope: str = "project"
     scope_id: str | None = Field(default=None, alias="scopeId")
-    kind: str = "note"
+    kind: MemoryKind = DEFAULT_MEMORY_KIND
     content: str
     source_ref: str = Field(default="api", alias="sourceRef")
     expires_at: str | None = Field(default=None, alias="expiresAt")
@@ -41,7 +55,7 @@ class MemoryItemRecord(BaseModel):
     project_id: str = Field(alias="projectId")
     scope: str
     scope_id: str | None = Field(default=None, alias="scopeId")
-    kind: str
+    kind: MemoryKind
     content: str
     source_ref: str = Field(alias="sourceRef")
     version: int
@@ -66,6 +80,107 @@ class MemoryListResponse(BaseModel):
     """Listado de memory items activos de un proyecto."""
 
     memory_items: list[MemoryItemRecord] = Field(alias="memoryItems")
+
+
+class MemoryForgetRequest(BaseModel):
+    """Petición para encolar la ejecución de la política de olvido de un proyecto."""
+
+    project_id: str = Field(alias="projectId")
+
+
+class MemoryForgetJobRecord(BaseModel):
+    """Identidad mínima del job encolado que ejecutará el olvido."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    kind: str
+    status: str
+    created_at: str = Field(alias="createdAt")
+
+
+class MemoryForgetResponse(BaseModel):
+    """Envoltura de respuesta con el job de olvido aceptado."""
+
+    job: MemoryForgetJobRecord
+
+
+class MemoryBriefingRequest(BaseModel):
+    """Consulta del briefing: proyecto, scope y texto, con presupuesto explícito de caracteres."""
+
+    project_id: str = Field(alias="projectId")
+    scope: str = "project"
+    scope_id: str | None = Field(default=None, alias="scopeId")
+    query: str = ""
+    budget_chars: int = Field(default=4000, alias="budgetChars", ge=0, le=40000)
+
+
+class MemoryBriefingEntryRecord(BaseModel):
+    """Una entrada incluida en el briefing, con su similitud y su contenido ya redactado."""
+
+    id: str
+    kind: str
+    scope: str
+    scope_id: str = Field(alias="scopeId")
+    content: str
+    cosine: float
+    created_at: str = Field(alias="createdAt")
+
+
+class MemoryBriefingResponse(BaseModel):
+    """Bloque de contexto ensamblado; status/reason explican por qué viene vacío si lo está."""
+
+    status: str
+    reason: str
+    context: str
+    entries: list[MemoryBriefingEntryRecord]
+    budget_chars: int = Field(alias="budgetChars")
+    used_chars: int = Field(alias="usedChars")
+    included_count: int = Field(alias="includedCount")
+    omitted_count: int = Field(alias="omittedCount")
+
+
+class MemoryConflictRecord(BaseModel):
+    """Un conflicto detectado entre dos memorias del mismo scope, con su puntaje y umbral vigente."""
+
+    id: str
+    project_id: str = Field(alias="projectId")
+    left_memory_item_id: str = Field(alias="leftMemoryItemId")
+    right_memory_item_id: str = Field(alias="rightMemoryItemId")
+    scope: str
+    scope_id: str = Field(alias="scopeId")
+    kind: str
+    score: float
+    threshold: float
+    detector: str
+    status: str
+    detected_at: str = Field(alias="detectedAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
+class MemoryConflictDetectRequest(BaseModel):
+    """Petición de detección; el umbral explícito sobreescribe el derivado del corpus."""
+
+    project_id: str = Field(alias="projectId")
+    multiplier: float = Field(default=5.0, gt=0.0)
+    threshold: float | None = Field(default=None, ge=-1.0, le=1.0)
+
+
+class MemoryConflictDetectResponse(BaseModel):
+    """Resultado de la detección: status/reason explican por qué viene vacía si lo está."""
+
+    status: str
+    reason: str
+    detector: str
+    threshold: float
+    threshold_source: str = Field(alias="thresholdSource")
+    compared_pairs: int = Field(alias="comparedPairs")
+    conflicts: list[MemoryConflictRecord]
+
+
+class MemoryConflictListResponse(BaseModel):
+    """Listado de conflictos registrados para un proyecto."""
+
+    conflicts: list[MemoryConflictRecord]
 
 
 class RetrievalSearchRequest(BaseModel):

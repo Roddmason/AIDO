@@ -4,16 +4,22 @@ Cablea cada ruta a su comando de aplicación, construye el repositorio y el bus 
 por petición desde la conexión de la plataforma, y aplica el guard de escritura en las
 mutaciones (descubrir, crear, seleccionar directorio). No contiene lógica de negocio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.process_supervision.desktop_launcher import (
+    FileManagerUnavailable,
+    open_in_file_manager,
+)
 from local_control_center.shared.event_bus import EventBus
 
 from . import commands
@@ -28,6 +34,7 @@ from .models import (
     ProjectDiscoveryRequest,
     ProjectDiscoveryResponse,
     ProjectFindingsListResponse,
+    ProjectOpenFolderResponse,
     ProjectResponse,
     ProjectsListResponse,
     ProjectTemplatesResponse,
@@ -39,7 +46,10 @@ from .repository import ProjectsRepository
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de proyectos; ``require_write`` protege las rutas mutadoras."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> ProjectsRepository:
         return ProjectsRepository(platform.connection)
@@ -56,11 +66,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return commands.list_projects(repository())
 
     @router.post("/api/v1/projects/discover", response_model=ProjectDiscoveryResponse)
+    @queued_operation("projects.discover_project", workload_class="control_plane")
     async def discover_project(body: ProjectDiscoveryRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         return commands.discover_project(path=body.path)
 
     @router.post("/api/v1/projects", status_code=201, response_model=ProjectResponse)
+    @queued_operation("projects.create_project", workload_class="control_plane")
     async def create_project(body: ProjectCreateRequest, request: Request) -> ProjectResponse:
         require_write(request)
         payload = commands.create_project(
@@ -75,6 +87,40 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     async def select_directory(body: DirectoryPickerRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         return select_directory_with_native_dialog(title=body.title, initial_path=body.initial_path)
+
+    @router.post("/api/v1/projects/{project_id}/open-folder", response_model=ProjectOpenFolderResponse)
+    async def open_project_folder(project_id: str, request: Request) -> dict[str, Any]:
+        """Abre la carpeta REGISTRADA del proyecto en el explorador del SO (loopback + write token).
+
+        La ruta sale siempre de la fila del proyecto, nunca del request, y el argv del lanzador es
+        fijo por plataforma (sin shell). Igual que el picker nativo, corre en el proceso de escritorio
+        local porque el navegador no puede abrir el explorador.
+        """
+        require_write(request)
+        try:
+            project = repository().get_project(project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Project not found.") from error
+        folder = Path(str(project["path"]))
+        try:
+            launched = open_in_file_manager(folder)
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=409, detail=f"The project folder no longer exists: {folder}"
+            ) from error
+        except FileManagerUnavailable as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=project_id,
+            event_type="project.folder.opened",
+            payload={"launcher": Path(launched["argv"][0]).name},
+        )
+        return {
+            "status": "opened",
+            "projectId": project_id,
+            "path": str(folder),
+            "launcher": Path(launched["argv"][0]).name,
+        }
 
     @router.get("/api/v1/providers", response_model=ProvidersListResponse)
     async def providers() -> dict[str, Any]:
@@ -93,6 +139,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         status_code=201,
         response_model=ProjectAssessmentRunResponse,
     )
+    @queued_operation("projects.run_assessment", workload_class="agent_cli")
     async def run_assessment(project_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
         from local_control_center.agents.assessment_runner import ProjectAssessmentRunner

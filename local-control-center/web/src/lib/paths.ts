@@ -2,7 +2,7 @@
  * Conversiones entre nombres de proyecto, slugs y rutas locales en el cliente.
  * Tolera separadores Windows y POSIX, y preserva el estilo de separador de la base
  * al unir rutas, para que las sugerencias de path coincidan con el SO del usuario.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 /** Turn a directory-like token ("my-project") into a human label ("My Project"). */
@@ -41,4 +41,15 @@ export function joinLocalPath(basePath: string, directoryName: string): string {
 	if (!base) return child;
 	const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/';
 	return `${base}${separator}${child}`;
+}
+
+/** Compare two local paths ignoring case, separator style and trailing separators (Windows-safe). */
+export function samePath(left: string, right: string): boolean {
+	const normalize = (value: string) =>
+		value
+			.trim()
+			.replace(/[\\/]+/g, '/')
+			.replace(/\/+$/g, '')
+			.toLowerCase();
+	return normalize(left) === normalize(right);
 }

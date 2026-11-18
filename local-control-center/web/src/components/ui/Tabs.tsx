@@ -3,7 +3,7 @@
  * WAI-ARIA tab/tabpanel wiring. The caller owns the active tab id and renders the active
  * panel as children. (Workbench keeps its motion-rich WorkbenchTabs; this is the plain
  * primitive for everything else.)
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { KeyboardEvent, ReactNode } from 'react';
@@ -96,6 +96,7 @@ export function Tabs({
 				role="tabpanel"
 				id={`${idBase}-panel-${activeTab}`}
 				aria-labelledby={`${idBase}-tab-${activeTab}`}
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA APG tabpanel pattern — a tabpanel with no focusable children must be focusable (tabindex=0) so keyboard users can reach and scroll its content
 				tabIndex={0}
 			>
 				{children}

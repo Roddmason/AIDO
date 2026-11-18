@@ -7,7 +7,7 @@ COMMIT/ROLLBACK propios para serializar el reclamo de la cola entre workers conc
 Invariante de seguridad: todo command/payload/reason se redacta con `redact_secrets` antes de
 persistir o registrar, de modo que ningún secreto llega a `jobs`, `action_requests` ni eventos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -25,6 +25,27 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import add_millis, utc_now
 
 from .models import SENSITIVE_JOB_KINDS
+
+NESTED_AGENT_JOB_KINDS = (
+    "agent.product_owner",
+    "agent.architect",
+    "agent.devops",
+    "agent.developer",
+    "agent.project_assessment",
+)
+"""Kinds de agentes anidados que se crean `running` sin lease dentro del job del worker."""
+
+
+def _current_parent_job_id() -> str | None:
+    """Devuelve el execution id del contexto actual, candidato a job padre de un job hijo inline."""
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+    context = CURRENT_EXECUTION.get()
+    return context.execution_id if context is not None and context.execution_id else None
+
+
+class StaleWorkerFenceError(RuntimeError):
+    """Indica que un worker perdió liderazgo y ya no puede mutar el run reclamado."""
 
 
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
@@ -56,6 +77,8 @@ def row_to_job_run(row: sqlite3.Row) -> dict[str, Any]:
         "completedAt": row["completed_at"],
         "summary": row["summary"],
         "metadata": json_loads(row["metadata"]),
+        "workerOwnerId": row["worker_owner_id"] if "worker_owner_id" in row.keys() else None,
+        "leaderFencingToken": (row["leader_fencing_token"] if "leader_fencing_token" in row.keys() else None),
     }
 
 
@@ -128,6 +151,10 @@ def row_to_action_request(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+CANCELLABLE_JOB_STATUSES = frozenset({"queued", "resource_wait", "running", "approval_required"})
+"""Estados activos desde los que un job puede pasar a ``cancelled``."""
+
+
 class JobsRepository:
     """Acceso a `jobs`, `job_runs` y `action_requests` sobre el connection del caller.
 
@@ -161,14 +188,32 @@ class JobsRepository:
         (+ `job.approval_required`) y, cuando aplica, la action request. El status inicial es
         `approval_required` si requiere gating, si no `queued`.
 
+        Un job creado ya `running` dentro de la ejecución de otro job recibe `parentJobId`, pero sólo
+        si ese id existe en `jobs`: `connection_execution_scope` también puede traer un agent_run_id,
+        y enlazarlo haría que el reaper viera como huérfano a un hijo vivo.
+
         Returns:
             Dict con el job creado, los eventos emitidos y las action requests generadas.
         """
         payload = redact_secrets(payload or {})
+        from local_control_center.shared.diagnostics import context_fields
+
+        payload = {
+            **payload,
+            "diagnosticContext": {k: v for k, v in context_fields().items() if k == "requestId"},
+        }
         timestamp = utc_now()
         job_id = f"job-{uuid.uuid4()}"
         needs_approval = kind in SENSITIVE_JOB_KINDS or payload.get("approvalRequired") is True
         resolved_status = status or ("approval_required" if needs_approval else "queued")
+        parent_job_id = _current_parent_job_id()
+        if (
+            resolved_status == "running"
+            and parent_job_id
+            and "parentJobId" not in payload
+            and self._query_one("SELECT 1 FROM jobs WHERE id = ?", (parent_job_id,)) is not None
+        ):
+            payload = {**payload, "parentJobId": parent_job_id}
         self.connection.execute(
             """
             INSERT INTO jobs
@@ -232,14 +277,43 @@ class JobsRepository:
             raise KeyError(f"Job not found: {job_id}")
         return row_to_job(row)
 
-    def list_jobs(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista los jobs (todos o de un proyecto) ordenados del más reciente al más antiguo."""
+    def list_jobs(self, project_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los jobs (todos o de un proyecto) ordenados del más reciente al más antiguo.
+
+        ``limit`` acota a los N más recientes con desempate determinista por rowid.
+        """
+        order = (
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?"
+            if limit is not None
+            else "ORDER BY created_at DESC"
+        )
         if project_id:
-            rows = self._query(
-                "SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC", (project_id,)
-            )
+            params = (project_id, int(limit)) if limit is not None else (project_id,)
+            rows = self._query(f"SELECT * FROM jobs WHERE project_id = ? {order}", params)
         else:
-            rows = self._query("SELECT * FROM jobs ORDER BY created_at DESC")
+            params = (int(limit),) if limit is not None else ()
+            rows = self._query(f"SELECT * FROM jobs {order}", params)
+        return [row_to_job(row) for row in rows]
+
+    def list_thread_jobs(
+        self, *, project_id: str | None = None, statuses: tuple[str, ...] | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista los jobs ligados a un hilo (``payload.threadId`` presente), filtrando en SQL.
+
+        ``statuses`` restringe por estado; el orden es del más reciente al más antiguo.
+        """
+        clauses = ["json_extract(payload, '$.threadId') IS NOT NULL"]
+        params: list[Any] = []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if statuses:
+            clauses.append(f"status IN ({','.join('?' for _ in statuses)})")
+            params.extend(statuses)
+        rows = self._query(
+            f"SELECT * FROM jobs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC",
+            tuple(params),
+        )
         return [row_to_job(row) for row in rows]
 
     def list_jobs_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
@@ -292,6 +366,17 @@ class JobsRepository:
                 else _command_argv(clean_command)
             )
         expires_at = expires_at or add_millis(ACTION_REQUEST_TTL_MS)
+        from local_control_center.shared.command_privacy import private_command_evidence
+
+        raw_argv = (
+            command_argv
+            or (payload or {}).get("commandArgv")
+            or (payload or {}).get("argv")
+            or clean_payload["commandArgv"]
+        )
+        clean_command, _, clean_payload = private_command_evidence(command, raw_argv, clean_payload)
+        clean_command = str(redact_secrets(clean_command))
+        clean_payload = redact_secrets(clean_payload)
         self.connection.execute(
             """
             INSERT INTO action_requests
@@ -332,14 +417,35 @@ class JobsRepository:
             raise KeyError(f"Action request not found: {action_id}")
         return row_to_action_request(row)
 
-    def list_action_requests(self, job_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista action requests: por job en orden cronológico, o todas de la más reciente a la más antigua."""
+    def list_action_requests(
+        self, job_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista action requests: por job en orden cronológico, o todas de la más reciente a la más antigua.
+
+        ``limit`` acota a las N más recientes preservando el orden de cada rama.
+        """
         if job_id:
-            rows = self._query(
-                "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
-            )
-        else:
+            if limit is None:
+                rows = self._query(
+                    "SELECT * FROM action_requests WHERE job_id = ? ORDER BY requested_at ASC", (job_id,)
+                )
+            else:
+                rows = list(
+                    reversed(
+                        self._query(
+                            "SELECT * FROM action_requests WHERE job_id = ?"
+                            " ORDER BY requested_at DESC, rowid DESC LIMIT ?",
+                            (job_id, int(limit)),
+                        )
+                    )
+                )
+        elif limit is None:
             rows = self._query("SELECT * FROM action_requests ORDER BY requested_at DESC")
+        else:
+            rows = self._query(
+                "SELECT * FROM action_requests ORDER BY requested_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            )
         return [row_to_action_request(row) for row in rows]
 
     def _pending_actions(self, job_id: str) -> list[dict[str, Any]]:
@@ -414,6 +520,10 @@ class JobsRepository:
                 (utc_now(), "system", action_id),
             )
             raise ValueError("Action request is expired.")
+        if action["actionType"] == "agent.developer.approve_patch":
+            return self._decide_developer_patch(
+                job_id, action_id, reason=clean_reason, actor=actor, accepted=True
+            )
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -463,6 +573,110 @@ class JobsRepository:
             "auditEvent": audit,
         }
 
+    def _decide_developer_patch(
+        self, job_id: str, action_id: str, *, reason: str, actor: str, accepted: bool
+    ) -> dict[str, Any]:
+        """Decide an already executed patch atomically, without granting another execution."""
+        from contextlib import nullcontext
+
+        from local_control_center.agents.repository import AgentsRepository
+        from local_control_center.evidence.quality import (
+            evidence_package_contract_errors,
+            real_qa_command_errors,
+        )
+        from local_control_center.evidence.repository import EvidenceRepository
+        from local_control_center.shared.db import immediate_transaction
+
+        transaction = (
+            nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
+        )
+        with transaction:
+            action = self.get_action_request(action_id)
+            job = self.get_job(job_id)
+            if action["jobId"] != job_id or action["status"] != "pending":
+                raise ValueError("Patch approval is no longer pending for this job.")
+            if job["kind"] != "agent.developer" or job["status"] != "approval_required":
+                raise ValueError("Patch approval requires an existing DeveloperAgent delivery.")
+            if accepted and len(self._pending_actions(job_id)) != 1:
+                raise ValueError("Other pending actions must be resolved before accepting this patch.")
+            payload = action.get("payload") or {}
+            agents = AgentsRepository(self.connection)
+            evidence_repo = EvidenceRepository(self.connection)
+            try:
+                run = agents.get_agent_run(str(payload.get("agentRunId") or ""))
+                evidence = evidence_repo.get_evidence_package(str(payload.get("evidencePackageId") or ""))
+            except KeyError as error:
+                raise ValueError("Patch approval is missing its execution or evidence.") from error
+            if (
+                run["jobId"] != job_id
+                or run["projectId"] != job["projectId"]
+                or run["status"] != "awaiting_permission"
+                or evidence["jobId"] != job_id
+                or evidence["agentRunId"] != run["id"]
+                or evidence["projectId"] != job["projectId"]
+                or evidence["workspaceId"] != payload.get("workspaceId")
+            ):
+                raise ValueError("Patch approval execution/evidence scope does not match.")
+            if accepted:
+                runtime = run["output"].get("runtimeResult") or {}
+                if runtime.get("status") != "completed" or runtime.get("returnCode") != 0:
+                    raise ValueError("Patch approval requires successful native execution.")
+                errors = evidence_package_contract_errors(
+                    evidence,
+                    require_runtime_links=True,
+                    require_workflow_run=bool(evidence.get("workflowRunId")),
+                ) + real_qa_command_errors(evidence)
+                patch_id = (payload.get("diffSummary") or {}).get("patchArtifactId")
+                if not patch_id or patch_id not in (evidence.get("hashes") or {}):
+                    errors.append("Patch approval requires its hashed diff artifact.")
+                if errors:
+                    raise ValueError("Patch acceptance evidence is invalid: " + " ".join(errors))
+            now = utc_now()
+            status = "completed" if accepted else "cancelled"
+            decision = "approved" if accepted else "denied"
+            self.connection.execute(
+                "UPDATE action_requests SET status=?,reason=?,decided_at=?,decided_by=? WHERE id=?",
+                (decision, reason, now, actor, action_id),
+            )
+            approval = {
+                "actionRequestId": action_id,
+                "actor": actor,
+                "reason": reason,
+                "decidedAt": now,
+                "status": decision,
+            }
+            agents.update_agent_run_status(
+                run["id"],
+                status=status,
+                output_payload={**run["output"], "verdict": status, "approval": approval},
+            )
+            evidence_repo.update_evidence_links(
+                evidence["id"],
+                qa_verdict="passed" if accepted else None,
+                evidence_source="verified_completion" if accepted else None,
+                approvals=[*(evidence.get("approvals") or []), self.get_action_request(action_id)],
+            )
+            self.update_job_status(job_id, status=status, metadata={"status": status, "approval": approval})
+            self.record_event(
+                project_id=job["projectId"], job_id=job_id, event_type=f"action.{decision}", payload=approval
+            )
+            audit = self.record_audit(
+                project_id=job["projectId"],
+                action="action.approve" if accepted else "action.deny",
+                actor=actor,
+                target=action_id,
+                payload={
+                    "jobId": job_id,
+                    "reason": reason,
+                    "effect": "decide_existing_patch_without_reexecution",
+                },
+            )
+            return {
+                "job": self.get_job(job_id),
+                "actionRequest": self.get_action_request(action_id),
+                "auditEvent": audit,
+            }
+
     def deny_action(
         self,
         job_id: str,
@@ -488,6 +702,10 @@ class JobsRepository:
         clean_reason = str(redact_secrets(reason or "")).strip()
         if not clean_reason:
             raise ValueError("Rejection reason is required.")
+        if action["actionType"] == "agent.developer.approve_patch":
+            return self._decide_developer_patch(
+                job_id, action_id, reason=clean_reason, actor=actor, accepted=False
+            )
         timestamp = utc_now()
         self.connection.execute(
             """
@@ -517,13 +735,38 @@ class JobsRepository:
         )
         return {"job": job, "actionRequest": self.get_action_request(action_id), "auditEvent": audit}
 
+    def is_cancellable(self, job_id: str) -> bool:
+        """Indica si el job sigue en un estado activo que ``cancel_job`` acepta."""
+        return self.get_job(job_id)["status"] in CANCELLABLE_JOB_STATUSES
+
     def cancel_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
-        """Cancela el job, libera su lease y deja evento `job.cancelled` más auditoría."""
+        """Cancela un job activo y deja evento `job.cancelled` más auditoría.
+
+        Un job `running` conserva su lease: el runner la necesita para cerrar la ejecución cancelada
+        (`require_fence`); el resto la libera.
+
+        Raises:
+            ValueError: si el job ya está en estado terminal.
+        """
         job = self.get_job(job_id)
-        self.connection.execute(
-            "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
+        from local_control_center.process_supervision.repository import ManagedProcessRepository
+
+        ManagedProcessRepository(self.connection).request_execution_cancel(
+            job_id, reason=reason or "cancelled_by_operator"
+        )
+        cancelled = self.connection.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelled',
+                lease_owner = CASE WHEN status = 'running' THEN lease_owner END,
+                lease_expires_at = CASE WHEN status = 'running' THEN lease_expires_at END,
+                updated_at = ?
+            WHERE id = ? AND status IN ('queued', 'resource_wait', 'running', 'approval_required')
+            """,
             (utc_now(), job_id),
         )
+        if cancelled.rowcount != 1:
+            raise ValueError(f"Job {job_id} is {job['status']} and cannot be cancelled.")
         self.record_event(
             project_id=job["projectId"], job_id=job_id, event_type="job.cancelled", payload={"reason": reason}
         )
@@ -539,6 +782,22 @@ class JobsRepository:
     def retry_job(self, job_id: str, reason: str = "", actor: str = "operator") -> dict[str, Any]:
         """Reencola el job liberando su lease; vuelve a `approval_required` si aún tiene acciones pendientes."""
         job = self.get_job(job_id)
+        active = self.connection.execute(
+            "SELECT 1 FROM managed_processes WHERE execution_id = ? AND finished_at IS NULL LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if active or (
+            job.get("leaseOwner") and job.get("leaseExpiresAt") and job["leaseExpiresAt"] > utc_now()
+        ):
+            raise ValueError("La ejecución anterior todavía no ha liberado sus procesos y leases.")
+        self.connection.execute("DELETE FROM process_execution_controls WHERE execution_id = ?", (job_id,))
+        if job["kind"] in {"operation.execute", "thread.product_loop.run", "thread.research.run"}:
+            self.connection.execute(
+                """UPDATE operational_executions SET status='queued', started_at=NULL,
+                finished_at=NULL, cancel_requested_at=NULL, reason='', result_json=NULL,
+                owner_id=NULL, fencing_token=NULL WHERE id=?""",
+                (job_id,),
+            )
         status = "approval_required" if self._pending_actions(job_id) else "queued"
         self.connection.execute(
             "UPDATE jobs SET status = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
@@ -584,29 +843,52 @@ class JobsRepository:
         )
         return self.get_job(job_id)
 
-    def claim_next_job(self, *, worker_id: str, lease_ms: int = 300000) -> dict[str, Any] | None:
+    def claim_next_job(
+        self,
+        *,
+        worker_id: str,
+        lease_ms: int = 300000,
+        leader_fencing_token: int | None = None,
+        job_id: str | None = None,
+    ) -> dict[str, Any] | None:
         """Reclama atómicamente el job `queued` más antiguo, lo pone `running` y abre su run.
 
         Transacción propia: abre `BEGIN IMMEDIATE` para serializar el reclamo entre workers
         concurrentes y hace COMMIT (o ROLLBACK ante cualquier error) antes de leer el resultado;
         el UPDATE condicionado a `status = 'queued'` evita doble-reclamo. El evento `job.claimed`
-        se emite ya fuera de esa transacción.
+        se emite ya fuera de esa transacción. También registra en `project_job_attention` cuándo
+        se atendió por última vez al proyecto del job, para que `peek_next_job` priorice sin tener
+        que agregar `job_runs` completo en cada peek.
 
         Returns:
             Dict con el job y su run reclamados, o `None` si la cola está vacía.
         """
         timestamp = utc_now()
         run_id = f"run-{uuid.uuid4()}"
+        if self.connection.in_transaction:
+            raise RuntimeError("claim_next_job cannot run inside an open transaction.")
+        self.connection.execute("BEGIN IMMEDIATE")
         try:
-            self.connection.execute("BEGIN IMMEDIATE")
-            row = self.connection.execute(
-                """
-                SELECT * FROM jobs
-                WHERE status = 'queued'
-                ORDER BY created_at ASC
-                LIMIT 1
-                """
-            ).fetchone()
+            if leader_fencing_token is not None and not self._worker_fence_is_active(
+                worker_id=worker_id,
+                leader_fencing_token=leader_fencing_token,
+                now_iso=timestamp,
+            ):
+                raise StaleWorkerFenceError("Worker leadership fence is not active.")
+            if job_id is None:
+                row = self.connection.execute(
+                    """
+                    SELECT * FROM jobs
+                    WHERE status = 'queued'
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """
+                ).fetchone()
+            else:
+                row = self.connection.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = 'queued'",
+                    (job_id,),
+                ).fetchone()
             if not row:
                 self.connection.execute("ROLLBACK")
                 return None
@@ -621,10 +903,30 @@ class JobsRepository:
             self.connection.execute(
                 """
                 INSERT INTO job_runs
-                    (id, job_id, provider_id, status, started_at, completed_at, summary, metadata)
-                VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+                    (id, job_id, provider_id, status, started_at, completed_at, summary, metadata,
+                     worker_owner_id, leader_fencing_token)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
                 """,
-                (run_id, row["id"], worker_id, "running", timestamp, "", json_dumps({})),
+                (
+                    run_id,
+                    row["id"],
+                    worker_id,
+                    "running",
+                    timestamp,
+                    "",
+                    json_dumps({}),
+                    worker_id,
+                    leader_fencing_token,
+                ),
+            )
+            self.connection.execute(
+                """
+                INSERT INTO project_job_attention (project_id, last_started_at)
+                VALUES (?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET last_started_at = excluded.last_started_at
+                WHERE excluded.last_started_at > project_job_attention.last_started_at
+                """,
+                (row["project_id"], timestamp),
             )
             self.connection.execute("COMMIT")
         except Exception:
@@ -640,6 +942,45 @@ class JobsRepository:
         )
         return {"job": job, "run": run}
 
+    def peek_next_job(self) -> dict[str, Any] | None:
+        """Prioriza operaciones ligeras de reparación; luego, cola justa entre proyectos.
+
+        Tras el tier de reparación, gana el proyecto atendido hace más tiempo (según
+        `project_job_attention`, actualizada por `claim_next_job`); uno nunca atendido
+        (`last_started_at` NULL, que SQLite ordena antes que cualquier valor) va primero.
+        Dentro de un mismo proyecto se conserva el FIFO por `created_at, rowid`.
+        """
+        row = self.connection.execute(
+            """
+            SELECT j.* FROM jobs j
+            LEFT JOIN operational_executions e ON e.id = j.id
+            LEFT JOIN project_job_attention pa ON pa.project_id = j.project_id
+            WHERE j.status = 'queued'
+            ORDER BY CASE WHEN j.kind = 'operation.execute'
+                AND e.workload_class IN ('control_plane', 'ops_light', 'qa_light', 'remote_llm_light')
+                THEN 0 ELSE 1 END,
+                pa.last_started_at ASC,
+                j.created_at ASC,
+                j.rowid ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row_to_job(row) if row else None
+
+    def peek_oldest_queued_job(self, kinds: tuple[str, ...]) -> dict[str, Any] | None:
+        """Devuelve el job encolado más antiguo de esos tipos, ignorando la prioridad de reparación."""
+        placeholders = ",".join("?" for _ in kinds)
+        row = self.connection.execute(
+            f"""
+            SELECT * FROM jobs
+            WHERE status = 'queued' AND kind IN ({placeholders})
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT 1
+            """,
+            kinds,
+        ).fetchone()
+        return row_to_job(row) if row else None
+
     def requeue_expired_jobs(self, *, now_iso: str | None = None) -> list[dict[str, Any]]:
         """Recupera jobs `running` cuyo lease venció: los reencola y marca su run como `failed`.
 
@@ -653,12 +994,56 @@ class JobsRepository:
             """
             SELECT * FROM jobs
             WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM managed_processes p
+                  WHERE p.execution_id = jobs.id AND (p.finished_at IS NULL OR p.released_at IS NULL)
+              )
             ORDER BY updated_at ASC
             """,
             (now_value,),
         )
         recovered: list[dict[str, Any]] = []
         for row in rows:
+            if row["kind"] in {"operation.execute", "thread.product_loop.run", "thread.research.run"}:
+                execution = self.connection.execute(
+                    "SELECT status FROM operational_executions WHERE id=?", (row["id"],)
+                ).fetchone()
+                if execution and execution["status"] != "queued":
+                    terminal_status = (
+                        execution["status"] if execution["status"] in {"completed", "cancelled"} else "failed"
+                    )
+                    if execution["status"] not in {
+                        "completed",
+                        "failed",
+                        "blocked",
+                        "cancelled",
+                        "interrupted",
+                    }:
+                        self.connection.execute(
+                            """UPDATE operational_executions SET status='interrupted',
+                            finished_at=?, reason='Worker lost: external effects require review before retry.' WHERE id=?""",
+                            (utc_now(), row["id"]),
+                        )
+                    self.connection.execute(
+                        "UPDATE jobs SET status=?, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE id=?",
+                        (
+                            terminal_status,
+                            utc_now(),
+                            row["id"],
+                        ),
+                    )
+                    self.connection.execute(
+                        "UPDATE job_runs SET status=?, completed_at=?, summary='Recovered durable execution outcome after worker lease expiry.' WHERE job_id=? AND status='running'",
+                        (terminal_status, utc_now(), row["id"]),
+                    )
+                    self.record_event(
+                        project_id=row["project_id"],
+                        job_id=row["id"],
+                        event_type="job.recovered",
+                        payload={"status": terminal_status, "reason": "lease_expired_no_replay"},
+                    )
+                    recovered.append(self.get_job(row["id"]))
+                    continue
             self.connection.execute(
                 """
                 UPDATE jobs
@@ -683,7 +1068,84 @@ class JobsRepository:
                 event_type="job.requeued",
                 payload={"reason": "lease_expired"},
             )
+        self.fail_orphaned_child_jobs(now_iso=now_value)
         return recovered
+
+    def fail_orphaned_child_jobs(
+        self, *, parent_job_id: str | None = None, now_iso: str | None = None
+    ) -> list[str]:
+        """Falla los jobs hijos inline que quedaron `running` sin lease cuando su padre ya no corre.
+
+        Un hijo creado `running` dentro de otro job no tiene lease propio y ``requeue_expired_jobs``
+        nunca lo ve. Sólo se actúa con vínculo comprobable: si su ``parentJobId`` apunta a un job que
+        ya no está `running` (terminó, se reencoló o no existe), el hijo es un zombi y se marca
+        `failed` con motivo `parent_lease_expired`, cerrando sus `agent_runs` y `job_runs`. Un hijo
+        sin ``parentJobId`` nunca se falla por antigüedad (``workflow_run_id`` identifica el product
+        loop, no el job padre); el saneamiento histórico va por ``fail_legacy_orphan_child_jobs``.
+        Usa la transacción del caller.
+        """
+        now_value = now_iso or utc_now()
+        placeholders = ",".join("?" for _ in NESTED_AGENT_JOB_KINDS)
+        rows = self.connection.execute(
+            f"""
+            SELECT child.id FROM jobs child
+            LEFT JOIN jobs parent ON parent.id = json_extract(child.payload, '$.parentJobId')
+            WHERE child.status = 'running'
+              AND child.lease_expires_at IS NULL
+              AND child.kind IN ({placeholders})
+              AND json_extract(child.payload, '$.parentJobId') IS NOT NULL
+              AND (? IS NULL OR json_extract(child.payload, '$.parentJobId') = ?)
+              AND (parent.id IS NULL OR parent.status <> 'running')
+            ORDER BY child.created_at ASC, child.rowid ASC
+            """,
+            (*NESTED_AGENT_JOB_KINDS, parent_job_id, parent_job_id),
+        ).fetchall()
+        return [self._fail_orphan_child(str(row["id"]), now_value) for row in rows]
+
+    def fail_legacy_orphan_child_jobs(
+        self, job_ids: Iterable[str], *, now_iso: str | None = None
+    ) -> list[str]:
+        """Saneamiento histórico: falla hijos zombi anteriores a ``parentJobId`` por id explícito.
+
+        Cada id sólo se falla si sigue `running`, sin lease, con kind anidado y sin ``parentJobId``;
+        cualquier otro (inexistente, terminado, con padre vivo o con vínculo) se ignora. El operador
+        entrega los ids tras inspeccionarlos (Task 15); nunca se invoca con una consulta amplia.
+        """
+        requested = [str(job_id) for job_id in job_ids if str(job_id).strip()]
+        if not requested:
+            return []
+        now_value = now_iso or utc_now()
+        kind_placeholders = ",".join("?" for _ in NESTED_AGENT_JOB_KINDS)
+        id_placeholders = ",".join("?" for _ in requested)
+        rows = self.connection.execute(
+            f"""
+            SELECT id FROM jobs
+            WHERE id IN ({id_placeholders})
+              AND status = 'running'
+              AND lease_expires_at IS NULL
+              AND kind IN ({kind_placeholders})
+              AND json_extract(payload, '$.parentJobId') IS NULL
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (*requested, *NESTED_AGENT_JOB_KINDS),
+        ).fetchall()
+        return [self._fail_orphan_child(str(row["id"]), now_value) for row in rows]
+
+    def _fail_orphan_child(self, child_id: str, now_value: str) -> str:
+        """Marca el hijo `failed` por `parent_lease_expired` y cierra sus `agent_runs`/`job_runs` abiertos."""
+        self.update_job_status(child_id, status="failed", metadata={"reason": "parent_lease_expired"})
+        self.connection.execute(
+            "UPDATE agent_runs SET status = 'failed', updated_at = ? WHERE job_id = ? AND status = 'running'",
+            (now_value, child_id),
+        )
+        self.connection.execute(
+            """
+            UPDATE job_runs SET status = 'failed', completed_at = ?, summary = 'parent_lease_expired'
+            WHERE job_id = ? AND status = 'running'
+            """,
+            (now_value, child_id),
+        )
+        return child_id
 
     def complete_job_run(
         self,
@@ -693,14 +1155,68 @@ class JobsRepository:
         status: str,
         summary: str = "",
         metadata: dict[str, Any] | None = None,
+        worker_id: str | None = None,
+        leader_fencing_token: int | None = None,
     ) -> dict[str, Any]:
         """Cierra un run con su resultado y propaga el estado terminal al job, liberando el lease.
 
         El job queda `completed` solo si el run lo está; cualquier otro status lo deja `failed`.
         Summary y metadata se redactan antes de persistir y de emitir `job.<status>`; usa la
-        transacción del caller.
+        transacción del caller. `cancelled` es terminal: un worker que termina tarde no lo reescribe.
         """
-        job_status = "completed" if status == "completed" else "failed"
+        fenced = worker_id is not None or leader_fencing_token is not None
+        if fenced and (not worker_id or leader_fencing_token is None):
+            raise ValueError("worker_id and leader_fencing_token must be provided together.")
+        owns_transaction = not self.connection.in_transaction
+        if owns_transaction:
+            self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            if fenced and not self._worker_fence_is_active(
+                worker_id=str(worker_id),
+                leader_fencing_token=int(leader_fencing_token),
+                now_iso=utc_now(),
+            ):
+                raise StaleWorkerFenceError("Worker leadership fence is no longer active.")
+            claimed_job = self.get_job(job_id)
+            if fenced and claimed_job.get("leaseOwner") != worker_id:
+                raise StaleWorkerFenceError("Job lease is no longer owned by this worker.")
+            run_row = self._query_one("SELECT * FROM job_runs WHERE id = ? AND job_id = ?", (run_id, job_id))
+            if not run_row:
+                raise KeyError(f"Job run not found: {run_id}")
+            if fenced and (
+                run_row["worker_owner_id"] != worker_id
+                or run_row["leader_fencing_token"] != leader_fencing_token
+            ):
+                raise StaleWorkerFenceError("Job run fence does not match the active worker.")
+            result = self._complete_job_run_in_transaction(
+                job_id=job_id,
+                run_id=run_id,
+                status=status,
+                summary=summary,
+                metadata=metadata,
+            )
+            if owns_transaction:
+                self.connection.execute("COMMIT")
+            return result
+        except Exception:
+            if owns_transaction and self.connection.in_transaction:
+                self.connection.execute("ROLLBACK")
+            raise
+
+    def _complete_job_run_in_transaction(
+        self,
+        *,
+        job_id: str,
+        run_id: str,
+        status: str,
+        summary: str,
+        metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Cierra un run dentro de la transacción ya validada por ``complete_job_run``."""
+        job_status = status if status in {"completed", "cancelled"} else "failed"
+        if self.get_job(job_id)["status"] == "cancelled":
+            job_status = "cancelled"
+            status = "cancelled"
         timestamp = utc_now()
         clean_summary = str(redact_secrets(summary))
         clean_metadata = redact_secrets(metadata or {})
@@ -727,17 +1243,74 @@ class JobsRepository:
             event_type=f"job.{job_status}",
             payload={"summary": clean_summary, "metadata": clean_metadata},
         )
+        self.fail_orphaned_child_jobs(parent_job_id=job_id, now_iso=timestamp)
         return {
             "job": job,
             "run": row_to_job_run(self._query_one("SELECT * FROM job_runs WHERE id = ?", (run_id,))),
         }
 
-    def list_job_runs(self, job_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista los runs (de un job o globales) en orden cronológico de inicio."""
-        if job_id:
-            rows = self._query("SELECT * FROM job_runs WHERE job_id = ? ORDER BY started_at ASC", (job_id,))
+    def heartbeat_job_lease(
+        self,
+        *,
+        job_id: str,
+        worker_id: str,
+        leader_fencing_token: int,
+        lease_ms: int,
+    ) -> bool:
+        """Renueva una lease de job sólo bajo el fence de liderazgo vigente."""
+        now = utc_now()
+        if not self._worker_fence_is_active(
+            worker_id=worker_id,
+            leader_fencing_token=leader_fencing_token,
+            now_iso=now,
+        ):
+            return False
+        cursor = self.connection.execute(
+            """
+            UPDATE jobs
+            SET lease_expires_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'running' AND lease_owner = ?
+            """,
+            (add_millis(lease_ms), now, job_id, worker_id),
+        )
+        return cursor.rowcount == 1
+
+    def _worker_fence_is_active(
+        self,
+        *,
+        worker_id: str,
+        leader_fencing_token: int,
+        now_iso: str,
+    ) -> bool:
+        return (
+            self.connection.execute(
+                """
+                SELECT 1 FROM worker_leader_leases
+                WHERE instance_id = 'local' AND owner_id = ? AND fencing_token = ? AND expires_at > ?
+                """,
+                (worker_id, int(leader_fencing_token), now_iso),
+            ).fetchone()
+            is not None
+        )
+
+    def list_job_runs(self, job_id: str | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista los runs (de un job o globales) en orden cronológico de inicio.
+
+        ``limit`` conserva el tail más reciente sin alterar el orden ascendente final.
+        """
+        where = "WHERE job_id = ?" if job_id else ""
+        base_params: tuple[Any, ...] = (job_id,) if job_id else ()
+        if limit is None:
+            rows = self._query(f"SELECT * FROM job_runs {where} ORDER BY started_at ASC", base_params)
         else:
-            rows = self._query("SELECT * FROM job_runs ORDER BY started_at ASC")
+            rows = list(
+                reversed(
+                    self._query(
+                        f"SELECT * FROM job_runs {where} ORDER BY started_at DESC, rowid DESC LIMIT ?",
+                        (*base_params, int(limit)),
+                    )
+                )
+            )
         return [row_to_job_run(row) for row in rows]
 
     def record_event(
@@ -749,12 +1322,30 @@ class JobsRepository:
         job_id: str | None = None,
     ) -> dict[str, Any]:
         """Registra un evento de dominio en el bus, atado opcionalmente a proyecto y job."""
-        return EventBus(self.connection).record_event(
-            event_type=event_type,
-            payload=payload,
-            project_id=project_id,
-            job_id=job_id,
-        )
+        try:
+            return EventBus(self.connection).record_event(
+                event_type=event_type,
+                payload=payload,
+                project_id=project_id,
+                job_id=job_id,
+            )
+        except Exception as error:
+            return {
+                "id": "",
+                "jobId": job_id,
+                "projectId": project_id,
+                "type": event_type,
+                "severity": "warning",
+                "payload": redact_secrets(
+                    {
+                        "eventPersistenceFailed": True,
+                        "eventType": event_type,
+                        "reason": str(error),
+                        "payload": payload or {},
+                    }
+                ),
+                "createdAt": utc_now(),
+            }
 
     def list_events(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """Devuelve los eventos del bus, filtrando por proyecto cuando se indica."""

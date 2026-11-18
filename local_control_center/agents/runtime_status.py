@@ -2,43 +2,78 @@
 
 Joins provider accounts, model catalog, runtime detections, and env configuration into
 one status per provider (API, CLI, Ollama, manual), deciding detected/configured/
-available/executable and a human reason. Execution is gated by explicit env flags
-(`AIDO_ENABLE_REAL_PROVIDER_CALLS`, `AIDO_ENABLE_CLI_RUNTIMES`); error text is redacted.
+available/executable and a human reason. SQLite runtime settings are authoritative for
+execution; legacy env flags are surfaced only as environment_override warnings. Error
+text is redacted.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from local_control_center.process_supervision.context import CURRENT_EXECUTION
 from local_control_center.runtime_integrations.config import resolve_executable
 from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
+from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.time import utc_now
 
+from .credentials import CredentialResolver, preferred_credential_ref
 from .developer_agent_contract import developer_agent_readiness
-from .model_gateway import ollama_status
+from .endpoint_locality import endpoint_locality, is_local_model_runtime, is_self_hosted_inference
+from .local_runtime_causes import local_runtime_cause_of
+from .model_execution_health import provider_configuration_fingerprint
+from .model_gateway import ModelGateway, cached_ollama_status
+from .product_owner_agent_contract import PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
 from .provider_accounts import ProviderAccountStore
-from .runtime_provider_config import RuntimeProviderConfiguration, runtime_provider_configuration
+from .provider_catalog import MODEL_PROVIDER_FAMILIES
+from .providers.factory import provider_account_requires_credential
+from .quota_manager import QuotaManager
+from .runtime_health_refresh import needs_refresh
+from .runtime_provider_config import (
+    DEFAULT_OLLAMA_BASE_URL,
+    KNOWN_PROVIDER_DEFAULT_BASE_URLS,
+    RuntimeProviderConfiguration,
+    runtime_provider_configuration,
+)
+from .runtime_readiness import CREDENTIAL_PROVIDER_KINDS
 from .runtime_registry import RuntimeRegistry
 
-RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual"]
+RUNTIME_MODES = ["api", "cli", "ollama", "hybrid", "manual", "local"]
 CLI_RUNTIME_IDS = {"codex_cli", "claude_code_cli", "openhands", "swe_agent"}
+CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS = 300
+"""Una cuenta CLI validada se re-sondea pasado este TTL para captar credenciales que vencieron después de la
+validación (p.ej. token OAuth de Claude): sin esto el veredicto queda pegado healthy para siempre y el
+indicador proactivo mostraría "verde-falso". El cache de 60s del RuntimeRegistry acota la frecuencia real
+de subprocess muy por debajo de este TTL.
+"""
+PRESENT_CREDENTIAL_STATUSES = frozenset({"configured", "unverified"})
+"""Una ref presente y bien formada cuenta como configurada; leer su valor es verificacion."""
+CODE_EDIT_GATED_RUNTIME_IDS = {"openhands", "swe_agent"}
+"""Runtimes autónomos de edición de código: su único propósito es mutar el workspace, así que sin la
+capability code_edit (DeveloperAgent) no son ejecutables (fail-closed).
+"""
 API_RUNTIME_KINDS = {"api", "gateway"}
 OPENAI_COMPATIBLE_FORMATS = {"openai_compatible", "responses"}
+OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS = set(KNOWN_PROVIDER_DEFAULT_BASE_URLS) - {"anthropic_api"}
+CLI_NOT_DETECTED_REASON_CODE = "cli_not_detected"
+PROVIDER_DISABLED_REASON = (
+    "provider_disabled: the operator switched this provider off (provider_accounts.enabled is false); "
+    "no thread, agent or failover uses it until it is switched back on."
+)
 CLI_EXECUTABLE_TOKENS = {
     "codex_cli": ("codex",),
     "claude_code_cli": ("claude",),
 }
-
-
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "false").strip().lower() == "true"
 
 
 def _capabilities(connection: sqlite3.Connection) -> dict[str, list[str]]:
@@ -89,15 +124,64 @@ def _base_safety(kind: str) -> dict[str, Any]:
     return {"workspaceBound": True, "shell": False, "structuredArgv": True, "network": "local_only"}
 
 
+def _configuration_warnings(
+    configuration: RuntimeProviderConfiguration | None,
+    *,
+    executable_source: str | None = None,
+    policy_warnings: list[str] | None = None,
+) -> list[str]:
+    warnings: list[str] = list(policy_warnings or [])
+    if executable_source == "environment_override":
+        warnings.append(
+            "Deprecated CLI command environment override is active; persist the executable in runtime_installations."
+        )
+    if configuration and configuration.spec.kind == "cli" and configuration.configured:
+        warnings.append(
+            "Deprecated CLI command environment override is present; SQLite runtime configuration is authoritative."
+        )
+    return warnings
+
+
+def _runtime_blocker_type(
+    *,
+    kind: str,
+    detected: bool,
+    configured: bool,
+    executable: bool,
+    authenticated: bool,
+    requires_approval: bool,
+) -> str | None:
+    """Clasifica un status de proveedor a un blockerType accionable, o None si no hay problema.
+
+    Reutiliza el vocabulario de ``remediations`` (``runtime_auth_missing`` / ``runtime_not_executable``)
+    para que la UI muestre el mismo chip que un bloqueo de loop. Un proveedor ejecutable, de aprobación
+    manual, o nunca configurado no es un problema que reportar: devuelve None. Un proveedor de
+    credenciales presente pero sin autenticar es ``runtime_auth_missing``; cualquier otro inejecutable
+    presente es ``runtime_not_executable`` (cuota agotada, versión no soportada, servicio caído).
+    """
+    if requires_approval or executable:
+        return None
+    if not (detected or configured):
+        return None
+    if authenticated is False and kind in CREDENTIAL_PROVIDER_KINDS:
+        return "runtime_auth_missing"
+    return "runtime_not_executable"
+
+
 def _status_payload(
     *,
     provider_id: str,
     kind: str,
     display_name: str,
+    installed: bool | None = None,
     detected: bool,
     configured: bool,
+    authenticated: bool = False,
     available: bool,
     executable: bool,
+    can_run_version_check: bool = False,
+    can_run_prompt: bool = False,
+    can_edit_workspace: bool = False,
     reason: str,
     version: str | None,
     detected_command: str | None,
@@ -107,16 +191,32 @@ def _status_payload(
     requires_approval: bool,
     health_status: str = "unknown",
     last_error: str = "",
+    configuration_warnings: list[str] | None = None,
+    login_command: str = "",
 ) -> dict[str, Any]:
     sanitized_last_error = str(redact_secrets(last_error or ""))
     return {
         "id": provider_id,
         "kind": kind,
         "displayName": display_name,
+        "installed": detected if installed is None else installed,
         "detected": detected,
         "configured": configured,
+        "authenticated": authenticated,
         "available": available,
         "executable": executable,
+        "blockerType": _runtime_blocker_type(
+            kind=kind,
+            detected=detected,
+            configured=configured,
+            executable=executable,
+            authenticated=authenticated,
+            requires_approval=requires_approval,
+        ),
+        "loginCommand": login_command,
+        "canRunVersionCheck": can_run_version_check,
+        "canRunPrompt": can_run_prompt,
+        "canEditWorkspace": can_edit_workspace,
         "requiresApproval": requires_approval,
         "reason": reason,
         "version": version,
@@ -126,35 +226,62 @@ def _status_payload(
         "lastError": sanitized_last_error,
         "capabilities": capabilities,
         "requiredConfiguration": required_configuration,
+        "configurationWarnings": configuration_warnings or [],
         "safety": _base_safety(kind),
     }
 
 
 def _api_required_configuration(account: dict[str, Any]) -> list[str]:
     api_format = str(account.get("apiFormat") or "")
-    if api_format in OPENAI_COMPATIBLE_FORMATS or account["providerId"] in {"openai_compatible", "litellm"}:
-        return ["baseUrl", "apiKey", "model"]
-    if account["providerId"] == "anthropic_api":
+    provider_id = str(account["providerId"])
+    if api_format == "ollama":
+        return ["baseUrl", "model"]
+    if provider_id == "anthropic_api":
         return ["apiKey", "model"]
-    return ["baseUrl", "apiKey"]
+    if provider_id in OPENAI_COMPATIBLE_KNOWN_BASE_URL_PROVIDERS:
+        return ["apiKey", "model"]
+    if api_format in OPENAI_COMPATIBLE_FORMATS or provider_id in {"openai_compatible", "litellm"}:
+        required = ["baseUrl", "model"]
+    else:
+        required = ["baseUrl"]
+    if provider_account_requires_credential(account):
+        required.insert(1, "apiKey")
+    return required
 
 
 def _api_account_configuration(connection: sqlite3.Connection, account: dict[str, Any]) -> dict[str, Any]:
     required_configuration = _api_required_configuration(account)
     credential_status = str(account.get("credentialStatus") or "unknown")
+    account_ref = str(account.get("credentialRef") or "")
+    runtime_configuration = runtime_provider_configuration(str(account["providerId"]))
+    env_ref = (
+        runtime_configuration.configured_env_ref("apiKey")
+        if runtime_configuration and runtime_configuration.configured
+        else None
+    )
+    effective_ref = preferred_credential_ref(account_ref, env_ref)
+    credential_resolution = CredentialResolver().resolve(effective_ref, fetch=False)
+    if effective_ref != account_ref.strip() and credential_resolution.status in PRESENT_CREDENTIAL_STATUSES:
+        credential_status = credential_resolution.status
     base_url = str(account.get("baseUrl") or "").strip()
     return {
         "requiredConfiguration": required_configuration,
         "hasModel": "model" not in required_configuration
         or _has_enabled_model(connection, str(account["providerId"])),
         "hasBaseUrl": "baseUrl" not in required_configuration or bool(base_url),
-        "hasCredential": "apiKey" not in required_configuration or credential_status == "configured",
+        "hasCredential": "apiKey" not in required_configuration
+        or credential_status in PRESENT_CREDENTIAL_STATUSES,
         "credentialStatus": credential_status,
+        "credentialMessage": credential_resolution.message,
     }
 
 
 def _runtime_configuration_present(configuration: RuntimeProviderConfiguration | None, key: str) -> bool:
     return bool(configuration and configuration.value(key))
+
+
+def _runtime_installation_enabled(runtime_installation: dict[str, Any] | None) -> bool:
+    return bool(runtime_installation and runtime_installation.get("enabled"))
 
 
 def _configured_argv(
@@ -190,7 +317,9 @@ def _cli_command_matches_provider(provider_id: str, detection: dict[str, Any]) -
 def _api_provider_status(
     connection: sqlite3.Connection,
     account: dict[str, Any],
+    runtime_installation: dict[str, Any] | None,
     capabilities: list[str],
+    policy_decision: dict[str, Any],
     configuration: RuntimeProviderConfiguration | None = None,
 ) -> dict[str, Any]:
     provider_id = str(account["providerId"])
@@ -206,43 +335,83 @@ def _api_provider_status(
     has_base_url = bool(
         account_configuration["hasBaseUrl"] or _runtime_configuration_present(configuration, "baseUrl")
     )
-    has_credential = bool(
-        account_configuration["hasCredential"] or _runtime_configuration_present(configuration, "apiKey")
-    )
-    configured = bool(
-        (configuration and configuration.configured) or (has_base_url and has_credential and has_model)
-    )
-    remote_calls_enabled = _env_flag("AIDO_ENABLE_REAL_PROVIDER_CALLS")
     healthy = health_status == "healthy" and bool(health_checked_at)
+    credential_status = str(account_configuration["credentialStatus"])
+    has_credential = bool(
+        account_configuration["hasCredential"]
+        or _runtime_configuration_present(configuration, "apiKey")
+        or (credential_status == "unverified" and healthy)
+    )
+    configuration_error = str((configuration and configuration.resolution_error) or "").strip()
+    configured = bool(
+        not configuration_error
+        and ((configuration and configuration.configured) or (has_base_url and has_credential and has_model))
+    )
+    authenticated = bool(
+        not configuration_error and (has_credential or (credential_status == "unverified" and healthy))
+    )
     available = configured and healthy
-    executable = available and enabled and remote_calls_enabled
-    if not configured and configuration is not None and not configuration.configured:
-        reason = configuration.reason
+    installation_enabled = _runtime_installation_enabled(runtime_installation)
+    has_prompt_capability = "chat" in set(capabilities)
+    api_family = str(account.get("apiFamily") or "")
+    unsupported_nvidia_chat_family = (
+        str(account.get("providerFamily") or "") == "nvidia_nim" and api_family != "chat_completions"
+    )
+    policy_allowed = bool(policy_decision.get("allowed"))
+    executable = (
+        available
+        and enabled
+        and installation_enabled
+        and authenticated
+        and policy_allowed
+        and has_prompt_capability
+    )
+    can_run_prompt = executable
+    if configuration_error:
+        reason = configuration_error
+    elif unsupported_nvidia_chat_family:
+        reason = f"NVIDIA NIM API family {api_family or 'unspecified'} is not supported for chat execution."
     elif not has_credential:
-        reason = f"Provider credential is {account_configuration['credentialStatus']}; configure the required API key."
+        credential_message = str(account_configuration.get("credentialMessage") or "").strip()
+        message_suffix = f" ({credential_message})" if credential_message else ""
+        reason = (
+            f"Provider credential is {account_configuration['credentialStatus']}; "
+            f"configure the required API key.{message_suffix}"
+        )
+    elif not configured and configuration is not None and not configuration.configured:
+        reason = configuration.reason
     elif not has_base_url:
         reason = "Provider base URL is not configured."
     elif not has_model:
         reason = "Provider model is not configured or enabled."
     elif not healthy:
         health_reason = last_error or f"health status is {health_status}"
-        reason = f"Provider has not passed an explicit health check ({health_reason})."
+        if str(account.get("providerType") or "") == "local" and local_runtime_cause_of(last_error):
+            reason = last_error
+        else:
+            reason = f"Provider has not passed an explicit health check ({health_reason})."
+    elif not installation_enabled:
+        reason = "Provider runtime installation is disabled."
     elif not enabled:
         reason = "Provider is available but the provider account is disabled for execution."
-    elif not remote_calls_enabled:
-        reason = (
-            "Provider is available but remote execution is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false."
-        )
+    elif not policy_allowed:
+        reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
+    elif not has_prompt_capability:
+        reason = "Runtime does not advertise the chat capability required for prompt execution."
     else:
         reason = "Provider is configured, health checked, and executable."
-    return _status_payload(
+    payload = _status_payload(
         provider_id=provider_id,
         kind=str(account["providerType"]),
         display_name=str(account["displayName"]),
         detected=available,
         configured=configured,
+        authenticated=authenticated,
         available=available,
         executable=executable,
+        can_run_version_check=False,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=False,
         reason=reason,
         version=None,
         detected_command=None,
@@ -251,136 +420,270 @@ def _api_provider_status(
         last_error=last_error,
         capabilities=capabilities or ["chat"],
         required_configuration=required_configuration,
-        requires_approval=True,
+        configuration_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
+        requires_approval=False,
     )
+    payload["providerFamily"] = str(account.get("providerFamily") or "")
+    payload["apiFamily"] = str(account.get("apiFamily") or "")
+    payload["deploymentMode"] = str(account.get("deploymentMode") or "")
+    payload["termsMode"] = str(account.get("termsMode") or "")
+    payload["pricingMode"] = str(account.get("pricingMode") or "")
+    metadata = account.get("metadata") if isinstance(account.get("metadata"), dict) else {}
+    payload["freeTierDeclaredByOperator"] = metadata.get("freeTierDeclaredByOperator") is True
+    payload["productOwnerExecutable"] = bool(
+        can_run_prompt and payload["providerFamily"] in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES
+    )
+    local_model_runtime = is_local_model_runtime(account)
+    payload["locality"] = endpoint_locality(account)
+    payload["localModelRuntime"] = local_model_runtime
+    payload["selfHostedInference"] = is_self_hosted_inference(account)
+    if local_model_runtime:
+        payload["models"] = [
+            str(row["model"])
+            for row in connection.execute(
+                "SELECT model FROM model_catalog WHERE provider_id = ? AND enabled = 1 ORDER BY model",
+                (provider_id,),
+            )
+        ]
+    return payload
+
+
+def _cli_login_command(runtime_id: str) -> str:
+    """Comando de login interactivo de ese CLI, o vacio si no expone uno.
+
+    Se delega al registry en vez de duplicarlo: el `login_hint` en prosa y el comando son el
+    mismo dato, y tenerlos en dos lugares los deja divergir.
+    """
+    from .runtime_registry import login_command_for
+
+    return login_command_for(runtime_id)
 
 
 def _cli_provider_status(
     account: dict[str, Any],
+    runtime_installation: dict[str, Any] | None,
+    runtime_account: dict[str, Any] | None,
     detection: dict[str, Any],
     capabilities: list[str],
+    policy_decision: dict[str, Any],
     configuration: RuntimeProviderConfiguration | None = None,
+    executable_source: str | None = None,
 ) -> dict[str, Any]:
     detected = detection.get("status") == "installed"
-    enabled = bool(account.get("enabled"))
-    cli_enabled = _env_flag("AIDO_ENABLE_CLI_RUNTIMES")
+    provider_enabled = bool(account.get("enabled", True))
+    installation_enabled = bool((runtime_installation or {}).get("enabled"))
+    account_enabled = bool((runtime_account or {}).get("enabled", False))
+    policy_allowed = bool(policy_decision.get("allowed"))
+    has_prompt_capability = "chat" in set(capabilities)
     can_code_edit = "code_edit" in set(capabilities)
     issue_to_patch_argv, issue_to_patch_argv_error = _configured_argv(configuration, "issueToPatchArgv")
-    version = detection.get("version") if detected else None
+    fresh_version = str(detection.get("version") or "").strip() if detected else ""
+    version = fresh_version or None
+    if detected and not version:
+        version = (runtime_installation or {}).get("detectedVersion") or None
     command_configured = bool(detection.get("executable"))
     configured = bool(command_configured or (configuration and configuration.configured) or detected)
     available = configured and detected and bool(version)
-    command_matches_provider = (
-        _cli_command_matches_provider(str(account["providerId"]), detection) if can_code_edit else True
+    authenticated = bool(
+        account_enabled
+        and runtime_account
+        and runtime_account.get("healthStatus") == "healthy"
+        and _native_auth_validation_is_fresh(runtime_account.get("lastValidationAt"))
+    )
+    can_run_version_check = bool(detected and fresh_version)
+    command_matches_provider = _cli_command_matches_provider(str(account["providerId"]), detection)
+    can_run_prompt = bool(
+        available
+        and provider_enabled
+        and installation_enabled
+        and account_enabled
+        and authenticated
+        and policy_allowed
+        and has_prompt_capability
+        and command_matches_provider
+    )
+    can_edit_workspace = bool(
+        can_run_prompt and can_code_edit and issue_to_patch_argv_error is None and command_matches_provider
     )
     executable = (
-        available
-        and enabled
-        and cli_enabled
-        and can_code_edit
-        and command_matches_provider
-        and issue_to_patch_argv_error is None
+        can_edit_workspace if str(account["providerId"]) in CODE_EDIT_GATED_RUNTIME_IDS else can_run_prompt
     )
+    validation_expired = False
     if not configured and configuration is not None:
         reason = (
-            f"{configuration.reason}; CLI runtime was not detected because command configuration is missing."
+            f"{CLI_NOT_DETECTED_REASON_CODE}: CLI not detected on this machine ({configuration.reason}) "
+            "Run Detect & check to find it."
         )
     elif not detected:
         reason = str(detection.get("message") or "CLI runtime was not detected.")
     elif not version:
         reason = "CLI runtime was detected but the safe version health check did not return a usable version."
-    elif not enabled:
-        reason = "CLI runtime is available but the provider account is disabled for execution."
-    elif not cli_enabled:
-        reason = "CLI runtime is available but execution is disabled by AIDO_ENABLE_CLI_RUNTIMES=false."
-    elif issue_to_patch_argv_error:
-        reason = issue_to_patch_argv_error
-    elif not can_code_edit:
-        reason = "Runtime does not advertise the code_edit capability required by DeveloperAgent."
+    elif not provider_enabled:
+        reason = PROVIDER_DISABLED_REASON
+    elif not installation_enabled:
+        reason = "CLI is detected but its installation is switched off in AIDO; turn the provider switch on."
+    elif not account_enabled:
+        reason = "CLI runtime is available but no enabled runtime_accounts row is selected for execution."
+    elif not authenticated:
+        validation_expired = _native_auth_validation_expired(runtime_account)
+        reason = _unauthenticated_cli_reason(runtime_account)
+    elif not policy_allowed:
+        reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
+    elif not has_prompt_capability:
+        reason = "Runtime does not advertise the chat capability required for prompt execution."
     elif not command_matches_provider:
         reason = "Runtime detected executable does not match the declared runtime command."
+    elif issue_to_patch_argv_error:
+        reason = (
+            f"Runtime can execute prompts, but DeveloperAgent is unavailable: {issue_to_patch_argv_error}"
+        )
+    elif not can_code_edit:
+        reason = (
+            "Runtime can execute prompts; workspace editing is unavailable because the code_edit "
+            "capability is not advertised."
+        )
     else:
-        reason = "CLI runtime is detected, enabled, and executable."
+        reason = "CLI runtime is detected, authenticated, policy enabled, and executable."
     payload = _status_payload(
         provider_id=str(account["providerId"]),
         kind="cli",
         display_name=str(account["displayName"]),
+        installed=detected,
         detected=detected,
         configured=configured,
+        authenticated=authenticated,
         available=available,
         executable=executable,
+        can_run_version_check=can_run_version_check,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=can_edit_workspace,
         reason=reason,
         version=version,
         detected_command=detection.get("executable") if detected else None,
-        health_status="healthy" if available else "offline",
-        health_checked_at=utc_now(),
+        health_status="healthy" if authenticated else ("degraded" if available else "offline"),
+        health_checked_at=(runtime_account or {}).get("lastValidationAt"),
         last_error="" if available else str(detection.get("message") or ""),
         capabilities=capabilities,
-        required_configuration=["command"],
-        requires_approval=True,
+        login_command=""
+        if authenticated or validation_expired
+        else _cli_login_command(str(account["providerId"])),
+        required_configuration=["command", "authentication"],
+        configuration_warnings=_configuration_warnings(
+            configuration,
+            executable_source=executable_source,
+            policy_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
+        ),
+        requires_approval=False,
     )
+    if validation_expired:
+        payload["blockerType"] = "runtime_validation_expired"
     if issue_to_patch_argv is not None:
         payload["issueToPatchArgv"] = issue_to_patch_argv
     if issue_to_patch_argv_error:
         payload["lastError"] = issue_to_patch_argv_error
+    payload["versionVerified"] = bool(fresh_version and not detection.get("persisted"))
+    payload["executableSource"] = executable_source
+    payload["productOwnerExecutable"] = bool(can_run_prompt and str(account["providerId"]) != "codex_cli")
     return payload
 
 
 def _ollama_provider_status(
     account: dict[str, Any],
+    runtime_installation: dict[str, Any] | None,
     capabilities: list[str],
+    policy_decision: dict[str, Any],
     configuration: RuntimeProviderConfiguration | None = None,
+    *,
+    allow_probes: bool = True,
+    persisted_models: list[str] | None = None,
 ) -> dict[str, Any]:
+    enabled = bool(account.get("enabled"))
+    installation_enabled = _runtime_installation_enabled(runtime_installation)
+    policy_allowed = bool(policy_decision.get("allowed"))
+    has_prompt_capability = "chat" in set(capabilities)
     base_url = (
         (configuration.value("baseUrl") if configuration else None)
         or str(account.get("baseUrl") or "").strip()
         or os.environ.get("OLLAMA_BASE_URL")
         or os.environ.get("OLLAMA_HOST")
-        or ""
+        or (DEFAULT_OLLAMA_BASE_URL if str(account.get("providerId") or "") == "ollama" else "")
     )
+    credential_ref = str(account.get("credentialRef") or "").strip() or None
     status = (
-        ollama_status(base_url=base_url)
-        if base_url
+        cached_ollama_status(base_url=base_url, credential_ref=credential_ref)
+        if base_url and allow_probes
         else {
-            "provider": "ollama",
-            "available": False,
-            "models": [],
-            "reason": "Ollama base URL is not configured.",
+            "provider": str(account.get("providerId") or "ollama"),
+            "available": bool(
+                base_url
+                and account.get("healthStatus") == "healthy"
+                and _native_auth_validation_is_fresh(account.get("lastHealthCheckAt"))
+            ),
+            "models": list(persisted_models or []),
+            "reason": str(
+                account.get("lastError") or "Explicit Ollama health check required for fresh evidence."
+            ),
         }
     )
     daemon_available = bool(status.get("available"))
-    enabled = bool(account.get("enabled"))
     configured = bool((configuration and configuration.configured) or base_url)
-    executable = daemon_available and enabled
+    authenticated = daemon_available
+    can_run_prompt = (
+        daemon_available
+        and configured
+        and enabled
+        and installation_enabled
+        and policy_allowed
+        and has_prompt_capability
+    )
+    executable = can_run_prompt
     if not configured and configuration is not None:
         reason = configuration.reason
     elif not configured:
         reason = "Ollama base URL is not configured."
     elif not daemon_available:
         reason = str(status.get("reason") or "Ollama daemon did not respond to /api/tags.")
+    elif not installation_enabled:
+        reason = "Ollama runtime installation is disabled."
     elif not enabled:
-        reason = "Ollama daemon is reachable but the provider account is disabled for execution."
+        reason = "Ollama responds but the provider switch is off in AIDO."
+    elif not policy_allowed:
+        reason = str(policy_decision.get("reason") or "Runtime execution is blocked by policy.")
+    elif not has_prompt_capability:
+        reason = "Runtime does not advertise the chat capability required for prompt execution."
     else:
         reason = "Ollama daemon is reachable and executable."
     payload = _status_payload(
-        provider_id="ollama",
-        kind="local",
+        provider_id=str(account["providerId"]),
+        kind=str(account.get("providerType") or "local"),
         display_name=str(account.get("displayName") or "Ollama"),
+        installed=daemon_available,
         detected=daemon_available,
         configured=configured,
+        authenticated=authenticated,
         available=daemon_available,
         executable=executable,
+        can_run_version_check=False,
+        can_run_prompt=can_run_prompt,
+        can_edit_workspace=False,
         reason=reason,
         version=None,
         detected_command=None,
         health_status="healthy" if daemon_available else "offline",
-        health_checked_at=utc_now(),
+        health_checked_at=utc_now() if allow_probes and base_url else account.get("lastHealthCheckAt"),
         last_error="" if daemon_available else reason,
         capabilities=capabilities or ["chat"],
         required_configuration=["baseUrl"],
+        configuration_warnings=list(policy_decision.get("policy", {}).get("configurationWarnings") or []),
         requires_approval=False,
     )
     payload["models"] = status.get("models") or []
+    payload["providerFamily"] = "ollama"
+    payload["credentialStatus"] = str(account.get("credentialStatus") or "unknown")
+    payload["productOwnerExecutable"] = can_run_prompt
+    payload["locality"] = endpoint_locality(account)
+    payload["localModelRuntime"] = is_local_model_runtime(account)
+    payload["selfHostedInference"] = is_self_hosted_inference(account)
     return payload
 
 
@@ -406,15 +709,212 @@ def _manual_provider_status(account: dict[str, Any], capabilities: list[str]) ->
     )
 
 
+def _apply_provider_switch(status: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    """Proyecta el switch del operador (``provider_accounts.enabled``) sobre un status de cualquier kind.
+
+    Apagado ⇒ no ejecutable para prompts, edición ni ProductOwner, con la causa ``provider_disabled``;
+    ``available``/``detected`` se conservan porque describen el runtime, no la decisión del operador. No
+    es un problema a reparar, así que no deja ``blockerType``: la UI no lo lista como runtime roto. La
+    razón solo se reescribe si el runtime venía ejecutable: una causa previa (no detectado, sin
+    credencial) es la que el operador necesita para cuando vuelva a encenderlo.
+    """
+    enabled = bool(account.get("enabled"))
+    status["enabled"] = enabled
+    if enabled or status.get("kind") == "manual":
+        return status
+    if status.get("executable") is True:
+        status["reason"] = PROVIDER_DISABLED_REASON
+    status.update(
+        executable=False,
+        canRunPrompt=False,
+        canEditWorkspace=False,
+        productOwnerExecutable=False,
+        blockerType=None,
+    )
+    return status
+
+
+def _unauthenticated_cli_reason(runtime_account: dict[str, Any] | None) -> str:
+    """Explica por qué la auth nativa no cuenta, sin contradecirse con un sondeo exitoso vencido.
+
+    Una validación que fue exitosa y venció NO es evidencia de que falte login: repetir su mensaje
+    ("la sesión está iniciada") como causa del bloqueo deja al operador sin saber qué hacer, porque
+    la acción correcta es revalidar, no pedir credenciales nuevas. Cuando el último sondeo sí dijo
+    que no hay sesión, ese mensaje sigue siendo la explicación correcta y se conserva.
+    """
+    account = runtime_account or {}
+    if _native_auth_validation_expired(account):
+        return (
+            "Native CLI authentication was validated earlier and that validation expired; the "
+            "runtime needs to be revalidated, not re-authenticated."
+        )
+    probe_message = str((account.get("metadata") or {}).get("lastNativeAuthProbe") or "").strip()
+    return (
+        probe_message
+        or "CLI runtime version check passed but native CLI authentication has not been validated."
+    )
+
+
+def _native_auth_validation_expired(runtime_account: dict[str, Any] | None) -> bool:
+    """Indica si la auth nativa se validó con éxito y solo venció su TTL: pide revalidar, no login.
+
+    Solo tiene sentido para una cuenta que ya no cuenta como autenticada; ahí distingue el sondeo
+    exitoso vencido (``healthy`` con ``lastValidationAt``) de la falta real de credenciales.
+    """
+    account = runtime_account or {}
+    return account.get("healthStatus") == "healthy" and bool(account.get("lastValidationAt"))
+
+
+def _native_auth_validation_is_fresh(last_validation_at: Any) -> bool:
+    """Indica si una validación de auth nativa sigue vigente dentro del TTL de re-validación.
+
+    Un timestamp ausente o no parseable se trata como vencido (re-sondear), para que el rollup
+    capte credenciales expiradas en vez de confiar indefinidamente en una validación antigua.
+    """
+    if not last_validation_at:
+        return False
+    try:
+        validated_at = datetime.fromisoformat(str(last_validation_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if validated_at.tzinfo is None:
+        validated_at = validated_at.replace(tzinfo=UTC)
+    age_seconds = (datetime.now(UTC) - validated_at).total_seconds()
+    return 0 <= age_seconds < CLI_NATIVE_AUTH_REVALIDATION_TTL_SECONDS
+
+
 class RuntimeStatusService:
     """Derives per-provider runtime status from accounts, detections, and configuration."""
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        allow_probes: bool = False,
+        probe_runtime_ids: set[str] | None = None,
+        force_native_auth_refresh: bool = False,
+        offline: bool = False,
+    ):
         self.connection = connection
         self.accounts = ProviderAccountStore(connection)
         self.registry = RuntimeRegistry()
+        context = CURRENT_EXECUTION.get()
+        self.allow_probes = not offline and (allow_probes or bool(context and context.in_job_runner))
+        self.probe_runtime_ids = probe_runtime_ids
+        self.force_native_auth_refresh = force_native_auth_refresh
 
-    def list_provider_statuses(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _persist_fresh_cli_version(
+        repo: RuntimeConfigRepository,
+        installations: dict[str, dict[str, Any]],
+        runtime_id: str,
+        detection: dict[str, Any],
+    ) -> None:
+        """Guarda la versión recién detectada para que un hipo posterior del probe tenga fallback."""
+        fresh_version = str(detection.get("version") or "").strip()
+        installation = installations.get(runtime_id)
+        if not fresh_version or not installation or not installation.get("id"):
+            return
+        if str(installation.get("detectedVersion") or "") == fresh_version:
+            return
+        installations[runtime_id] = repo.upsert_installation(
+            {"runtimeId": runtime_id, "detectedVersion": fresh_version}
+        )
+
+    def _validate_cli_native_auth(
+        self,
+        repo: RuntimeConfigRepository,
+        accounts: dict[str, dict[str, Any]],
+        installations: dict[str, dict[str, Any]],
+        runtime_id: str,
+        detection: dict[str, Any],
+        command: str | None,
+        configuration_fingerprint: str,
+    ) -> None:
+        """Valida la autenticación nativa de un CLI detectado cuya cuenta aún no está validada.
+
+        El rollup conserva cuentas vigentes; la operación explícita de salud puede renovarlas
+        antes del TTL. Un probe ``unknown`` no escribe nada. Sólo persiste un veredicto nativo
+        concluyente cuya configuración y cuenta sigan siendo las observadas antes del probe.
+        """
+        account = accounts.get(runtime_id)
+        if not account:
+            return
+        force_refresh = (
+            self.force_native_auth_refresh
+            and self.probe_runtime_ids is not None
+            and runtime_id in self.probe_runtime_ids
+        )
+        if (
+            not force_refresh
+            and account.get("healthStatus") == "healthy"
+            and _native_auth_validation_is_fresh(account.get("lastValidationAt"))
+        ):
+            return
+        if detection.get("status") != "installed":
+            return
+        version = detection.get("version") or (installations.get(runtime_id) or {}).get("detectedVersion")
+        if not version:
+            return
+        fingerprint = configuration_fingerprint
+        current = repo.get_runtime_account(str(account["id"]))
+        if (
+            not fingerprint
+            or fingerprint != provider_configuration_fingerprint(self.connection, runtime_id)
+            or current != account
+        ):
+            accounts[runtime_id] = current
+            return
+        probe = self.registry.validate_native_auth(runtime_id, executable=command)
+        status = str(probe.get("status") or "unknown")
+        if status not in {"authenticated", "unauthenticated"}:
+            return
+        message = str(redact_secrets(str(probe.get("message") or "")))
+        metadata = {**(account.get("metadata") or {}), "lastNativeAuthProbe": message}
+        patch: dict[str, Any] = {
+            "configurationSource": "native_cli_status",
+            "metadata": metadata,
+        }
+        if status == "authenticated":
+            patch.update({"healthStatus": "healthy", "lastValidationAt": utc_now()})
+        else:
+            patch.update({"healthStatus": "unauthenticated", "lastValidationAt": None})
+        transaction = (
+            nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
+        )
+        with transaction:
+            current = repo.get_runtime_account(str(account["id"]))
+            if (
+                not fingerprint
+                or fingerprint != provider_configuration_fingerprint(self.connection, runtime_id)
+                or current != account
+            ):
+                accounts[runtime_id] = current
+                return
+            accounts[runtime_id] = repo.update_runtime_account(str(account["id"]), patch)
+
+    def _should_renew_api_health(self, account: dict[str, Any], status: dict[str, Any]) -> bool:
+        """Indica si hay que sondear ya la salud rancia de un proveedor API/local configurado.
+
+        El worker ejecuta un job a la vez, así que mientras dura un loop largo la operación periódica
+        de salud (``runtime_health_refresh``) no puede correr y la evidencia (TTL 300 s) vence a mitad
+        del loop: el siguiente paso quedaba en ``health_check_required`` con el proveedor sano (visto
+        en vivo con llama.cpp a los 300,4 s, en el rework del DeveloperAgent). Igual que los CLI
+        (``_validate_cli_native_auth``) y Ollama, dentro de un job se sondea en el momento, con los
+        mismos filtros que el refresco periódico (habilitado, configurado, rancio). Nunca con una
+        transacción abierta: la llamada de red no puede retener el lock de escritura.
+        """
+        provider_id = str(account["providerId"])
+        return bool(
+            self.allow_probes
+            and (self.probe_runtime_ids is None or provider_id in self.probe_runtime_ids)
+            and account.get("enabled")
+            and status.get("configured")
+            and not self.connection.in_transaction
+            and needs_refresh(status)
+        )
+
+    def list_provider_statuses(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
         """Compute a status payload for every catalogued provider, dispatching by kind.
 
         CLI providers are detected by their configured command, API/Ollama providers by
@@ -423,20 +923,44 @@ class RuntimeStatusService:
         capabilities = _capabilities(self.connection)
         configurations = {
             provider_id: runtime_provider_configuration(provider_id)
-            for provider_id in CLI_RUNTIME_IDS
-            | {"openai_compatible", "openrouter", "nvidia_nim", "anthropic_api", "ollama"}
+            for provider_id in CLI_RUNTIME_IDS | set(MODEL_PROVIDER_FAMILIES)
+        }
+        runtime_repo = RuntimeConfigRepository(self.connection)
+        configuration_fingerprints = {
+            runtime_id: provider_configuration_fingerprint(self.connection, runtime_id)
+            for runtime_id in CLI_RUNTIME_IDS
+            if self.allow_probes and (self.probe_runtime_ids is None or runtime_id in self.probe_runtime_ids)
         }
         runtime_installations = {
-            installation["runtimeId"]: installation
-            for installation in RuntimeConfigRepository(self.connection).list_installations()
+            installation["runtimeId"]: installation for installation in runtime_repo.list_installations()
         }
+        runtime_accounts: dict[str, dict[str, Any]] = {}
+        for account in runtime_repo.list_runtime_accounts():
+            if account.get("isDefault") or account.get("enabled"):
+                runtime_accounts.setdefault(str(account["runtimeId"]), account)
         detections: dict[str, dict[str, Any]] = {}
+        executable_sources: dict[str, str] = {}
         for runtime_id in sorted(CLI_RUNTIME_IDS):
             configuration = configurations.get(runtime_id)
             installation = runtime_installations.get(
                 runtime_id, {"runtimeId": runtime_id, "executablePath": None}
             )
-            command = resolve_executable(installation).get("path")
+            resolved_executable = resolve_executable(installation)
+            executable_sources[runtime_id] = str(resolved_executable.get("source") or "unset")
+            command = resolved_executable.get("path")
+            if not self.allow_probes or (
+                self.probe_runtime_ids is not None and runtime_id not in self.probe_runtime_ids
+            ):
+                present = bool(command and shutil.which(command))
+                detections[runtime_id] = {
+                    "runtime": runtime_id,
+                    "status": "installed" if present else "not_configured",
+                    "executable": command if present else None,
+                    "version": installation.get("detectedVersion") if present else None,
+                    "message": "Explicit runtime health check required for fresh evidence.",
+                    "persisted": True,
+                }
+                continue
             detections[runtime_id] = (
                 self.registry.detect(runtime_id, executable=command)
                 if command
@@ -448,14 +972,77 @@ class RuntimeStatusService:
                     "message": configuration.reason if configuration else "CLI command is not configured.",
                 }
             )
+            transaction = (
+                nullcontext() if self.connection.in_transaction else immediate_transaction(self.connection)
+            )
+            with transaction:
+                fingerprint = configuration_fingerprints[runtime_id]
+                if not fingerprint or fingerprint != provider_configuration_fingerprint(
+                    self.connection, runtime_id
+                ):
+                    detections[runtime_id] = {
+                        "runtime": runtime_id,
+                        "status": "configuration_changed",
+                        "executable": None,
+                        "version": None,
+                        "message": "CLI configuration changed during detection; fresh health evidence is required.",
+                    }
+                    continue
+                self._persist_fresh_cli_version(
+                    runtime_repo, runtime_installations, runtime_id, detections[runtime_id]
+                )
+                fingerprint = provider_configuration_fingerprint(self.connection, runtime_id)
+            self._validate_cli_native_auth(
+                runtime_repo,
+                runtime_accounts,
+                runtime_installations,
+                runtime_id,
+                detections[runtime_id],
+                command,
+                fingerprint,
+            )
         statuses: list[dict[str, Any]] = []
         for account in self.accounts.list_provider_accounts():
             provider_id = str(account["providerId"])
-            provider_capabilities = capabilities.get(provider_id, [])
+            provider_family = str(account.get("providerFamily") or "")
+            provider_capabilities = capabilities.get(provider_id, []) or capabilities.get(provider_family, [])
+            api_family = str(account.get("apiFamily") or "")
+            if provider_family == "nvidia_nim" and api_family != "chat_completions":
+                provider_capabilities = [
+                    capability for capability in provider_capabilities if capability != "chat"
+                ]
+                if api_family and api_family not in provider_capabilities:
+                    provider_capabilities.append(api_family)
             provider_type = str(account.get("providerType") or "")
-            if provider_id == "ollama":
+            api_format = str(account.get("apiFormat") or "")
+            if api_format == "ollama" and not provider_capabilities:
+                provider_capabilities = capabilities.get("ollama", ["chat"])
+            policy_decision = runtime_repo.runtime_policy_decision(
+                provider_id=provider_id,
+                provider_family=provider_family,
+                kind=provider_type,
+                project_id=project_id,
+            )
+            if provider_id == "ollama" or api_format == "ollama":
+                ollama_installation = runtime_installations.get(provider_id) or runtime_installations.get(
+                    "ollama"
+                )
                 statuses.append(
-                    _ollama_provider_status(account, provider_capabilities, configurations.get(provider_id))
+                    _ollama_provider_status(
+                        account,
+                        ollama_installation,
+                        provider_capabilities,
+                        policy_decision,
+                        configurations.get(provider_id),
+                        allow_probes=self.allow_probes and self.probe_runtime_ids is None,
+                        persisted_models=[
+                            row["model"]
+                            for row in self.connection.execute(
+                                "SELECT model FROM model_catalog WHERE provider_id=? AND enabled=1 ORDER BY model",
+                                (provider_id,),
+                            )
+                        ],
+                    )
                 )
             elif provider_id == "manual":
                 statuses.append(_manual_provider_status(account, provider_capabilities))
@@ -463,20 +1050,35 @@ class RuntimeStatusService:
                 statuses.append(
                     _cli_provider_status(
                         account,
+                        runtime_installations.get(provider_id),
+                        runtime_accounts.get(provider_id),
                         detections.get(provider_id, {}),
                         provider_capabilities,
+                        policy_decision,
                         configurations.get(provider_id),
+                        executable_sources.get(provider_id),
                     )
                 )
-            elif provider_type in API_RUNTIME_KINDS:
-                statuses.append(
-                    _api_provider_status(
+            elif provider_type == "local" or provider_type in API_RUNTIME_KINDS:
+                api_status = _api_provider_status(
+                    self.connection,
+                    account,
+                    runtime_installations.get(provider_id) or runtime_installations.get(provider_family),
+                    provider_capabilities,
+                    policy_decision,
+                    configurations.get(provider_id),
+                )
+                if self._should_renew_api_health(account, api_status):
+                    ModelGateway(self.connection).check_provider_health(provider_id)
+                    api_status = _api_provider_status(
                         self.connection,
-                        account,
+                        self.accounts.get_provider_account(provider_id),
+                        runtime_installations.get(provider_id) or runtime_installations.get(provider_family),
                         provider_capabilities,
+                        policy_decision,
                         configurations.get(provider_id),
                     )
-                )
+                statuses.append(api_status)
             else:
                 statuses.append(
                     _status_payload(
@@ -498,22 +1100,127 @@ class RuntimeStatusService:
                         requires_approval=True,
                     )
                 )
+        from .codex_compatibility import CodexCompatibilityService
+
+        for status in statuses:
+            if status["id"] == "codex_cli":
+                compatibility = CodexCompatibilityService(self.connection).status(
+                    status.get("detectedCommand") or "codex"
+                )
+                status["compatibility"] = compatibility
+                status["productOwnerExecutable"] = bool(
+                    status["canRunPrompt"] and compatibility["status"] == "compatible"
+                )
+                if compatibility["status"] != "compatible":
+                    status["configurationWarnings"].append(
+                        "ProductOwnerAgent: " + ", ".join(compatibility["blockingReasons"])
+                    )
+        from .runtime_readiness import apply_effective_readiness
+
+        accounts_by_id = {
+            account["providerId"]: account for account in self.accounts.list_provider_accounts()
+        }
+        for status in statuses:
+            _apply_provider_switch(status, accounts_by_id[status["id"]])
+        for status in self._demote_exhausted_providers(statuses):
+            account = accounts_by_id[status["id"]]
+            policy = runtime_repo.runtime_policy_decision(
+                provider_id=status["id"],
+                kind=account["providerType"],
+                provider_family=account.get("providerFamily"),
+                project_id=project_id,
+                account=account,
+            )
+            apply_effective_readiness(self.connection, status, account, policy)
         return statuses
 
-    def runtime_provider_status(self) -> dict[str, Any]:
-        """Summarize provider statuses into Ollama/CLI/API rollups and DeveloperAgent readiness."""
-        providers = self.list_provider_statuses()
-        ollama = next((provider for provider in providers if provider["id"] == "ollama"), None)
+    def _demote_exhausted_providers(self, statuses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Marca como no ejecutable todo provider en cooldown de cuota.
+
+        Un provider sin tokens sigue estando configurado y autenticado, así que sin esto se veía
+        ejecutable y los agentes lo seguían eligiendo hasta fallar en cada intento.
+
+        ``productOwnerExecutable`` se apaga explícitamente porque ``is_product_owner_runtime``
+        corta en ese campo para los runtimes CLI y jamás consulta ``executable``: sin apagarlo, un
+        CLI sin cuota seguiría siendo elegible para el ProductOwner.
+
+        La razón solo se reescribe cuando el provider venía ejecutable. Si ya estaba caído por una
+        causa reparable (credencial faltante, cuenta deshabilitada), esa causa es más accionable
+        que "espera a que expire el cooldown" y no debe pisarse.
+        """
+        exhausted = QuotaManager(self.connection).providers_in_cooldown()
+        if not exhausted:
+            return statuses
+        for status in statuses:
+            if str(status.get("id")) not in exhausted:
+                continue
+            was_executable = status.get("executable") is True
+            status["executable"] = False
+            status["available"] = False
+            status["canRunPrompt"] = False
+            status["productOwnerExecutable"] = False
+            if was_executable:
+                status["reason"] = (
+                    "Provider quota is exhausted; it stays unavailable until its cooldown expires."
+                )
+                status["blockerType"] = _runtime_blocker_type(
+                    kind=str(status.get("kind") or ""),
+                    detected=bool(status.get("detected")),
+                    configured=bool(status.get("configured")),
+                    executable=False,
+                    authenticated=bool(status.get("authenticated")),
+                    requires_approval=bool(status.get("requiresApproval")),
+                )
+        return statuses
+
+    def runtime_provider_status(self, *, project_id: str | None = None) -> dict[str, Any]:
+        """Summarize provider statuses into Ollama/local/CLI/API rollups and DeveloperAgent readiness."""
+        from local_control_center.local_runtimes.endpoints import local_endpoint_views
+
+        runtime_repo = RuntimeConfigRepository(self.connection)
+        policy = runtime_repo.runtime_execution_policy(project_id=project_id)
+        providers = self.list_provider_statuses(project_id=project_id)
+        accounts = self.accounts.list_provider_accounts()
+        enabled_accounts = {str(account["providerId"]): bool(account.get("enabled")) for account in accounts}
+        in_use = {
+            str(row[0])
+            for row in self.connection.execute(
+                "SELECT DISTINCT provider_id FROM provider_execution_leases "
+                "WHERE state IN ('active', 'dispatched') AND expires_at > ?",
+                (datetime.now(UTC).isoformat(),),
+            ).fetchall()
+        }
+        for provider in providers:
+            provider["enabled"] = enabled_accounts.get(str(provider["id"]), False)
+            provider["inUse"] = str(provider["id"]) in in_use
+        ollama_provider_ids = {
+            str(account["providerId"])
+            for account in accounts
+            if account["providerId"] == "ollama" or str(account.get("apiFormat") or "") == "ollama"
+        }
+        ollama_providers = [
+            provider
+            for provider in providers
+            if provider["id"] in ollama_provider_ids or str(provider["id"]).startswith("ollama-")
+        ]
+        ollama = next((provider for provider in ollama_providers if provider["id"] == "ollama"), None)
+        ollama_available = next(
+            (provider for provider in ollama_providers if provider["available"] and provider.get("enabled")),
+            None,
+        )
         cli_providers = [provider for provider in providers if provider["id"] in CLI_RUNTIME_IDS]
         api_providers = [provider for provider in providers if provider["kind"] in API_RUNTIME_KINDS]
         return {
             "runtimeModes": RUNTIME_MODES,
             "ollama": {
-                "provider": "ollama",
-                "available": bool(ollama and ollama["available"]),
-                "models": list((ollama or {}).get("models") or []),
-                "reason": str(ollama.get("reason") if ollama else "Ollama provider is not catalogued."),
+                "provider": str((ollama_available or ollama or {}).get("id") or "ollama"),
+                "available": bool(ollama_available),
+                "models": list((ollama_available or ollama or {}).get("models") or []),
+                "reason": str(
+                    (ollama_available or ollama or {}).get("reason") or "Ollama provider is not catalogued."
+                ),
             },
+            "local": local_endpoint_views(self.connection),
             "cli": {
                 "provider": "cli",
                 "available": any(provider["available"] for provider in cli_providers),
@@ -536,5 +1243,6 @@ class RuntimeStatusService:
                 "adapters": [provider["id"] for provider in api_providers],
             },
             "developerAgent": developer_agent_readiness(providers),
+            "configurationWarnings": policy["configurationWarnings"],
             "providers": providers,
         }

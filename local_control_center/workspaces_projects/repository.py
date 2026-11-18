@@ -6,13 +6,15 @@ manifiesto en disco y registra el estado en SQLite. Las escrituras se agrupan so
 ``workspaces`` (+ ``git_branches`` si aplica) y ``workspace_allocations``; ``archive_workspace``
 actualiza ``workspaces``, libera ``workspace_allocations`` y archiva la rama git asociada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,10 +23,17 @@ from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
 
 from .cleanup import capture_workspace_snapshot
-from .git_worktrees import create_git_worktree, is_git_repository, remove_git_worktree
+from .git_worktrees import (
+    create_git_worktree,
+    delete_git_branch,
+    git_available,
+    remove_git_worktree,
+)
+from .locations import ensure_workspaces_excluded, project_workspaces_root
 
 ACTIVE_WORKSPACE_STATUSES = {"allocated", "preparing", "ready", "locked", "running", "dirty"}
 COPY_IGNORED_PARTS = {
+    ".aido",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -38,6 +47,7 @@ COPY_IGNORED_PARTS = {
 }
 COPY_MAX_FILES = 5000
 COPY_MAX_BYTES = 100 * 1024 * 1024
+EPHEMERAL_PROMPT_WORKSPACE_DIR = ("aido", "prompt-workspaces")
 
 
 def row_to_workspace(row: sqlite3.Row) -> dict[str, Any]:
@@ -106,6 +116,15 @@ def _copy_project_source(source_path: Path, workspace_path: Path) -> dict[str, A
     }
 
 
+def _ephemeral_prompt_workspace_root() -> Path:
+    temp_root = os.environ.get("TEMP") or os.environ.get("TMP") or tempfile.gettempdir()
+    return Path(temp_root, *EPHEMERAL_PROMPT_WORKSPACE_DIR).resolve(strict=False)
+
+
+def _is_strict_descendant(path: Path, root: Path) -> bool:
+    return path != root and root in path.parents
+
+
 class WorkspacesRepository:
     """Acceso a workspaces sobre SQLite; ``root`` ancla las rutas ``.tmp`` de trabajo y manifiestos."""
 
@@ -126,6 +145,7 @@ class WorkspacesRepository:
         base_branch: str = "HEAD",
         branch_name: str | None = None,
         devcontainer: dict[str, Any] | None = None,
+        reuse_existing: bool = False,
     ) -> dict[str, Any]:
         """Asigna un workspace aislado a la tarea y registra su allocation activa.
 
@@ -134,8 +154,14 @@ class WorkspacesRepository:
         workspace (más ``git_branches`` cuando hay worktree) y la allocation; el commit lo hace
         el caller.
 
+        Con ``reuse_existing`` una tarea que ya tiene un workspace activo devuelve ese mismo
+        workspace en lugar de fallar: es como el product loop mantiene UNA rama estable por hilo
+        entre turnos en vez de crear una ``codex/product-*-<hash>`` por mensaje. El guard de
+        conflicto se conserva por defecto (contrato fail-closed de ``issue_to_patch``).
+
         Raises:
-            WorkspaceConflictError: si la tarea ya tiene un workspace en estado activo.
+            WorkspaceConflictError: si la tarea ya tiene un workspace activo y ``reuse_existing``
+                es falso.
             WorkspaceIsolationError: si la fuente no existe, supera límites o el worktree falla.
         """
         placeholders = ",".join("?" for _ in ACTIVE_WORKSPACE_STATUSES)
@@ -148,17 +174,20 @@ class WorkspacesRepository:
             (project_id, task_id, *sorted(ACTIVE_WORKSPACE_STATUSES)),
         ).fetchone()
         if existing:
+            if reuse_existing:
+                return self.get_workspace(existing["id"])
             raise WorkspaceConflictError(f"Task {task_id} already has active workspace {existing['id']}")
 
         workspace_id = f"workspace-{uuid.uuid4()}"
-        workspace_path = self.root / ".tmp" / "workspaces" / workspace_id
+        project_path = self._project_path(project_id)
+        workspace_path = project_workspaces_root(project_path) / workspace_id
+        ensure_workspaces_excluded(project_path)
         resolved_isolation = "directory"
         metadata: dict[str, Any] = {"reason": reason}
-        project_path = self._project_path(project_id)
         if devcontainer:
             metadata["devcontainer"] = {**devcontainer, "status": "metadata_only"}
         timestamp = utc_now()
-        if is_git_repository(project_path):
+        if git_available() and (project_path / ".git").exists():
             result = create_git_worktree(
                 repo_path=project_path,
                 worktree_path=workspace_path,
@@ -166,11 +195,19 @@ class WorkspacesRepository:
                 workspace_id=workspace_id,
                 base_branch=base_branch,
                 branch_name=branch_name,
+                connection=self.connection,
+                root=self.root,
+                project_id=project_id,
             )
-            metadata["gitWorktree"] = result
-            if result["status"] != "created":
+            if result["status"] == "created":
+                metadata["gitWorktree"] = result
+                resolved_isolation = "git_worktree"
+            elif isolation_type == "git_worktree":
+                metadata["gitWorktree"] = result
                 raise WorkspaceIsolationError(f"Git worktree creation failed: {result['status']}")
-            resolved_isolation = "git_worktree"
+            else:
+                metadata["gitWorktree"] = result
+                metadata["sourceCopy"] = _copy_project_source(project_path, workspace_path)
         else:
             if isolation_type == "git_worktree":
                 metadata["gitWorktree"] = {"status": "degraded_not_git_repo"}
@@ -242,6 +279,125 @@ class WorkspacesRepository:
                 timestamp,
             ),
         )
+        return self.get_workspace(workspace_id)
+
+    def allocate_prompt_workspace(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        agent_id: str,
+        source_workspace_id: str | None,
+        reason: str,
+        purpose: str = "product_owner_cli_runtime",
+        workflow_run_id: str | None = None,
+        workflow_step_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra un cwd efímero y vacío para un runtime de análisis sin acceso al proyecto.
+
+        La ruta vive bajo ``%TEMP%/aido/prompt-workspaces`` y no copia ningún archivo del
+        proyecto. El registro y allocation permiten que ToolBroker aplique el mismo límite de
+        workspace que a cualquier otro proceso, mientras el cwd separado impide que el runtime
+        descubra ``AGENTS.md`` o skills locales del repositorio por recorrido de ancestros.
+        """
+        if purpose not in {"product_owner_cli_runtime", "runtime_preflight"}:
+            raise WorkspaceIsolationError("Unsupported prompt workspace purpose.")
+        if not source_workspace_id and purpose != "runtime_preflight":
+            raise WorkspaceIsolationError("ProductOwner prompt workspace requires a source workspace.")
+        source_workspace = self.get_workspace(source_workspace_id) if source_workspace_id else None
+        if source_workspace is not None and source_workspace["projectId"] != project_id:
+            raise WorkspaceIsolationError("Prompt workspace source must belong to the requested project.")
+
+        project_path = self._project_path(project_id).resolve(strict=False)
+        if source_workspace is None and not project_path.is_dir():
+            raise WorkspaceIsolationError("Prompt preflight requires an existing project directory.")
+        source_path = (
+            Path(source_workspace["path"]).resolve(strict=False) if source_workspace else project_path
+        )
+        controlled_root = _ephemeral_prompt_workspace_root()
+        if _is_strict_descendant(controlled_root, project_path) or controlled_root == project_path:
+            raise WorkspaceIsolationError("Ephemeral prompt workspace root must be outside the project tree.")
+
+        workspace_uuid = str(uuid.uuid4())
+        workspace_id = f"workspace-{workspace_uuid}"
+        workspace_path = (controlled_root / workspace_uuid).resolve(strict=False)
+        if not _is_strict_descendant(workspace_path, controlled_root):
+            raise WorkspaceIsolationError("Ephemeral prompt workspace path escaped its controlled root.")
+        if workspace_path == source_path or _is_strict_descendant(workspace_path, source_path):
+            raise WorkspaceIsolationError(
+                "Ephemeral prompt workspace must be outside the source workspace tree."
+            )
+
+        controlled_root.mkdir(parents=True, exist_ok=True)
+        workspace_path.mkdir(exist_ok=False)
+        timestamp = utc_now()
+        metadata = {
+            "reason": reason,
+            "ephemeralPromptWorkspace": {
+                "purpose": purpose,
+                "controlledRoot": str(controlled_root),
+                "sourceWorkspaceId": source_workspace_id,
+                "projectInstructionsExcluded": True,
+            },
+            "workspaceManifest": {
+                "kind": "workspace_manifest",
+                "version": 1,
+                "workspaceId": workspace_id,
+                "projectId": project_id,
+                "taskId": task_id,
+                "ownerAgentId": agent_id,
+                "sourcePath": None,
+                "workspacePath": str(workspace_path),
+                "isolationType": "directory",
+                "createdAt": timestamp,
+                "promptOnly": True,
+                "fileManifest": capture_workspace_snapshot(workspace_path),
+            },
+        }
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO workspaces
+                    (id, project_id, task_id, owner_agent_id, path, status, isolation_type,
+                     metadata, created_at, updated_at, archived_at, workflow_run_id, workflow_step_id)
+                VALUES (?, ?, ?, ?, ?, 'ready', 'directory', ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    workspace_id,
+                    project_id,
+                    task_id,
+                    agent_id,
+                    str(workspace_path),
+                    json_dumps(metadata),
+                    timestamp,
+                    timestamp,
+                    workflow_run_id,
+                    workflow_step_id,
+                ),
+            )
+            self.connection.execute(
+                """
+                INSERT INTO workspace_allocations
+                    (id, workspace_id, project_id, task_id, agent_id, status, reason, created_at, released_at)
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
+                """,
+                (
+                    f"workspace-allocation-{uuid.uuid4()}",
+                    workspace_id,
+                    project_id,
+                    task_id,
+                    agent_id,
+                    reason,
+                    timestamp,
+                ),
+            )
+        except sqlite3.Error:
+            self.connection.execute(
+                "DELETE FROM workspace_allocations WHERE workspace_id = ?", (workspace_id,)
+            )
+            self.connection.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
+            shutil.rmtree(workspace_path, ignore_errors=True)
+            raise
         return self.get_workspace(workspace_id)
 
     def _write_workspace_manifest(
@@ -328,13 +484,18 @@ class WorkspacesRepository:
         ).fetchall()
         return [row_to_workspace(row) for row in rows]
 
-    def archive_workspace(self, workspace_id: str, *, reason: str = "") -> dict[str, Any]:
+    def archive_workspace(
+        self, workspace_id: str, *, reason: str = "", delete_branch: bool = False
+    ) -> dict[str, Any]:
         """Archiva el workspace, persiste el motivo en metadata y libera su allocation.
 
         Si está aislado por git worktree intenta removerlo y, solo si la limpieza tuvo éxito,
-        marca su rama como ``archived``. En la misma conexión actualiza ``workspaces`` (estado,
-        ``archived_at`` y metadata con ``archiveReason``/``gitWorktreeCleanup``) y pasa la
-        allocation activa a ``released``; el commit lo hace el caller.
+        marca su rama como ``archived``. Con ``delete_branch`` además borra el ref de la rama de
+        trabajo (``git branch -D``) para no acumular ramas ``codex/product-*`` en el repo del
+        proyecto; las ramas protegidas (main/master) nunca se borran. En la misma conexión
+        actualiza ``workspaces`` (estado, ``archived_at`` y metadata con ``archiveReason``/
+        ``gitWorktreeCleanup``/``gitBranchCleanup``) y pasa la allocation activa a ``released``; el
+        commit lo hace el caller.
 
         Raises:
             KeyError: si el workspace no existe.
@@ -344,10 +505,43 @@ class WorkspacesRepository:
         metadata = dict(workspace["metadata"] or {})
         if reason:
             metadata["archiveReason"] = reason
+        prompt_workspace = metadata.get("ephemeralPromptWorkspace")
+        if isinstance(prompt_workspace, dict):
+            controlled_root = _ephemeral_prompt_workspace_root()
+            recorded_root = Path(str(prompt_workspace.get("controlledRoot") or "")).resolve(strict=False)
+            workspace_path = Path(workspace["path"]).resolve(strict=False)
+            cleanup: dict[str, Any] = {
+                "kind": "ephemeral_prompt_workspace_cleanup",
+                "controlledRoot": str(controlled_root),
+                "path": str(workspace_path),
+            }
+            if recorded_root != controlled_root:
+                cleanup.update(
+                    status="refused",
+                    reason="Recorded prompt workspace root does not match the controlled temp root.",
+                )
+            elif not _is_strict_descendant(workspace_path, controlled_root):
+                cleanup.update(
+                    status="refused",
+                    reason="Prompt workspace path is outside the controlled temp root.",
+                )
+            elif not workspace_path.exists():
+                cleanup["status"] = "missing"
+            else:
+                try:
+                    shutil.rmtree(workspace_path)
+                    cleanup["status"] = "removed"
+                except OSError as error:
+                    cleanup.update(status="failed", reason=str(error))
+            metadata["ephemeralPromptWorkspaceCleanup"] = cleanup
         if workspace["isolationType"] == "git_worktree":
             cleanup = remove_git_worktree(
                 repo_path=self._project_path(workspace["projectId"]),
                 worktree_path=Path(workspace["path"]),
+                connection=self.connection,
+                root=self.root,
+                project_id=workspace["projectId"],
+                workspace_id=workspace_id,
             )
             metadata["gitWorktreeCleanup"] = cleanup
             if cleanup["status"] == "removed":
@@ -359,6 +553,26 @@ class WorkspacesRepository:
                     """,
                     (timestamp, workspace_id),
                 )
+                if delete_branch:
+                    branch = str((metadata.get("gitWorktree") or {}).get("branchName") or "")
+                    branch_cleanup = delete_git_branch(
+                        repo_path=self._project_path(workspace["projectId"]),
+                        branch_name=branch,
+                        connection=self.connection,
+                        root=self.root,
+                        project_id=workspace["projectId"],
+                        workspace_id=workspace_id,
+                    )
+                    metadata["gitBranchCleanup"] = branch_cleanup
+                    if branch_cleanup["status"] == "deleted":
+                        self.connection.execute(
+                            """
+                            UPDATE git_branches
+                            SET status = 'deleted', updated_at = ?
+                            WHERE workspace_id = ?
+                            """,
+                            (timestamp, workspace_id),
+                        )
         self.connection.execute(
             """
             UPDATE workspaces

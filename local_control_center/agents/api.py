@@ -4,23 +4,29 @@ Expone los endpoints de status/run de cada agente (developer/architect/qa/devops
 perfiles, la creación de agent runs con brokering de tool calls, y los catálogos de runtimes y skills.
 Cada payload se valida estrictamente (ids compactos, argv estructurados, límites) antes de tocar dominio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import re
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.runtime_team.candidates import RuntimeTeamCandidatesService
+from local_control_center.runtime_team.contracts import RuntimeTeamCandidatesResponse, RuntimeTeamResponse
+from local_control_center.runtime_team.global_team import describe_global_team
 from local_control_center.shared.event_bus import EventBus
 
 from .architect_agent import ArchitectAgentRunner
 from .autonomy_profiles import AutonomyProfile, AutonomyValidationError
 from .contracts import (
+    AgentProfileProjectOverrideRequest,
     AgentProfileResponse,
     AgentProfilesListResponse,
     AgentProfileUpsertRequest,
@@ -39,6 +45,8 @@ from .contracts import (
     ProductOwnerAgentRunRequest,
     ProductOwnerAgentRunResponse,
     ProductOwnerAgentStatusResponse,
+    ProviderUsagePolicyRequest,
+    ProviderUsageResponse,
     QAAgentRunRequest,
     QAAgentRunResponse,
     ResearchAgentRunRequest,
@@ -56,6 +64,7 @@ from .contracts import (
 from .developer_agent import DeveloperAgentRunner
 from .devops_agent import DevOpsAgentRunner
 from .product_owner_agent import ProductOwnerAgentRunner
+from .provider_catalog import MODEL_PROVIDER_FAMILIES
 from .qa_agent import QAAgentRunner
 from .repository import AgentsRepository
 from .research_agent import ResearchAgentRunner
@@ -63,32 +72,75 @@ from .runtime_provider_config import list_runtime_provider_configurations
 from .runtime_status import RUNTIME_MODES, RuntimeStatusService
 from .security_agent import SecurityAgentRunner
 from .skills import SkillRegistry
+from .team_availability import attach_runtime_availability
 from .tool_broker import ToolBroker
 
 EXECUTION_MODES_WITH_EVIDENCE = {"restricted_subprocess", "docker", "runtime_adapter:mcp"}
 ID_RE = re.compile(r"^[a-z0-9_-]{3,64}$")
 TOOL_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,80}$")
 CATALOG_ID_RE = re.compile(r"^[a-z0-9_.:-]{2,96}$")
+MAX_TOKENS_PER_RUN = 2_000_000
 VALID_AGENT_ROLES = {
     "analyst",
+    "assessor",
+    "aido_lead",
     "product_owner",
+    "project_manager",
+    "scrum_master",
+    "architect",
     "technical_lead",
     "technical_lead_shadow",
     "developer",
     "backend_engineer",
     "frontend_engineer",
+    "mobile_engineer",
+    "database_engineer",
+    "data_engineer",
     "implementer",
     "devops",
+    "devops_engineer",
     "qa",
+    "qa_engineer",
     "qa_reviewer",
+    "security_engineer",
     "security_reviewer",
+    "pentester",
+    "researcher",
     "release_manager",
 }
 VALID_PERMISSION_PROFILES = {"plan", "dev_safe", "qa", "release"}
-DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
-ARCHITECT_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
-SECURITY_AGENT_RUNTIMES = {"openai_compatible", "ollama"}
-PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli", "openai_compatible", "ollama"}
+MODEL_AGENT_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+DEVELOPER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
+ARCHITECT_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES | {"claude_code_cli"}
+SECURITY_AGENT_RUNTIMES = MODEL_AGENT_RUNTIMES
+PRODUCT_OWNER_AGENT_RUNTIMES = {"codex_cli", "claude_code_cli"} | MODEL_AGENT_RUNTIMES
+
+
+def _runtime_is_allowed(
+    preferred_runtime: str,
+    allowed: set[str],
+    connection: sqlite3.Connection | None,
+) -> bool:
+    """Indica si el runtime pedido es elegible, resolviendo también cuentas con id propio.
+
+    Los sets de runtimes permitidos son familias, no ids de cuenta: sin esta resolución un endpoint
+    con nombre propio (un gateway ``omniroute`` o un Ollama ``team_ollama``, ambos de familia
+    permitida) recibía 422 aunque el loop sí lo eligiera. Sin conexión se mantiene el criterio
+    estricto anterior: preferir el rechazo antes que asumir permisos.
+    """
+    if preferred_runtime in allowed:
+        return True
+    if connection is None:
+        return False
+    row = connection.execute(
+        "SELECT provider_family, api_format FROM provider_accounts WHERE provider_id = ?",
+        (preferred_runtime,),
+    ).fetchone()
+    if row is None:
+        return False
+    return str(row["provider_family"] or "") in allowed or (
+        str(row["api_format"] or "") == "ollama" and "ollama" in allowed
+    )
 
 
 def _require_id(value: Any, *, label: str) -> str:
@@ -126,11 +178,11 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
     ):
         raise HTTPException(status_code=422, detail="Allowed tools must be catalog ids, not free-form JSON.")
     if not isinstance(allowed_providers, list) or not all(
-        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_providers
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item)) for item in allowed_providers
     ):
         raise HTTPException(status_code=422, detail="Allowed providers must be compact catalog ids.")
     if not isinstance(allowed_runtimes, list) or not all(
-        isinstance(item, str) and CATALOG_ID_RE.match(item) for item in allowed_runtimes
+        isinstance(item, str) and (item == "*" or CATALOG_ID_RE.match(item)) for item in allowed_runtimes
     ):
         raise HTTPException(status_code=422, detail="Allowed runtimes must be compact catalog ids.")
     for field in ("routingProfileId", "roleModelPolicyId"):
@@ -142,17 +194,80 @@ def validate_agent_profile_body(body: dict[str, Any]) -> dict[str, Any]:
         approval_value = None if approval_threshold in {None, ""} else float(approval_threshold)
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail="Agent routing numeric fields are invalid.") from error
-    if max_tokens < 0 or max_tokens > 200000:
-        raise HTTPException(status_code=422, detail="maxTokensPerRun must be between 0 and 200000.")
+    if max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN:
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
     if approval_value is not None and approval_value < 0:
         raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
     for field in ("allowRemote", "allowCli", "allowApi"):
         if field in body and not isinstance(body[field], bool):
             raise HTTPException(status_code=422, detail=f"{field} must be a boolean.")
+    for field in ("defaultRuntimePolicy", "reviewerPolicy"):
+        if field in body and not isinstance(body[field], dict):
+            raise HTTPException(status_code=422, detail=f"{field} must be an object.")
     return body
 
 
-def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[str, Any]:
+def validate_agent_profile_override_body(body: dict[str, Any]) -> dict[str, Any]:
+    """Valida overrides de proyecto sin permitir ids libres ni límites fuera de rango."""
+    runtime_mode = body.get("runtimeMode") or body.get("runtimeType")
+    if runtime_mode is not None and runtime_mode not in RUNTIME_MODES:
+        raise HTTPException(status_code=422, detail="Runtime mode is not in the allowed catalog.")
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Project override reason is required.")
+    status = str(body.get("status") or "active")
+    if status not in {"active", "disabled"}:
+        raise HTTPException(status_code=422, detail="Project override status is not allowed.")
+    list_fields = {
+        "allowedProviders": CATALOG_ID_RE,
+        "allowedRuntimes": CATALOG_ID_RE,
+        "allowedSkills": CATALOG_ID_RE,
+        "allowedTools": TOOL_ID_RE,
+    }
+    for field, pattern in list_fields.items():
+        values = body.get(field)
+        if values is None:
+            continue
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) and (item == "*" or pattern.match(item)) for item in values
+        ):
+            raise HTTPException(status_code=422, detail=f"{field} must contain compact catalog ids.")
+    for field in ("defaultRuntimePolicy", "reviewerPolicy"):
+        if field in body and body[field] is not None and not isinstance(body[field], dict):
+            raise HTTPException(status_code=422, detail=f"{field} must be an object.")
+    try:
+        max_tokens = body.get("maxTokensPerRun")
+        max_runtime = body.get("maxRuntimeSeconds")
+        max_cost = body.get("maxCostPerRun")
+        approval = body.get("requiresApprovalOverUsd")
+        if max_tokens is not None:
+            max_tokens = int(max_tokens)
+        if max_runtime is not None:
+            max_runtime = int(max_runtime)
+        if max_cost is not None:
+            max_cost = float(max_cost)
+        if approval is not None:
+            approval = float(approval)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Project override numeric fields are invalid.") from error
+    if max_tokens is not None and (max_tokens < 0 or max_tokens > MAX_TOKENS_PER_RUN):
+        raise HTTPException(
+            status_code=422, detail=f"maxTokensPerRun must be between 0 and {MAX_TOKENS_PER_RUN}."
+        )
+    if max_runtime is not None and (max_runtime < 0 or max_runtime > 86400):
+        raise HTTPException(status_code=422, detail="maxRuntimeSeconds must be between 0 and 86400.")
+    if max_cost is not None and max_cost < 0:
+        raise HTTPException(status_code=422, detail="maxCostPerRun must be zero or positive.")
+    if approval is not None and approval < 0:
+        raise HTTPException(status_code=422, detail="requiresApprovalOverUsd must be zero or positive.")
+    return body
+
+
+def validate_developer_agent_run_body(
+    body: DeveloperAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de DeveloperAgent (instrucción, runtime permitido, qaCommands, costo).
 
     Raises:
@@ -168,7 +283,9 @@ def validate_developer_agent_run_body(body: DeveloperAgentRunRequest) -> dict[st
             status_code=422, detail="DeveloperAgent instruction must be 20000 characters or fewer."
         )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in DEVELOPER_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), DEVELOPER_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"DeveloperAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -249,7 +366,9 @@ def validate_devops_agent_run_body(body: DevOpsAgentRunRequest) -> dict[str, Any
     return payload
 
 
-def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str, Any]:
+def validate_security_agent_run_body(
+    body: SecurityAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de SecurityAgent: taskId, escáneres candidatos, rutas y runtime permitido.
 
     Raises:
@@ -286,7 +405,9 @@ def validate_security_agent_run_body(body: SecurityAgentRunRequest) -> dict[str,
             status_code=422, detail="SecurityAgent pathsToCheck must be non-empty path strings."
         )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in SECURITY_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), SECURITY_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"SecurityAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -297,16 +418,22 @@ def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str,
     """Valida un run de ResearchAgent: fuentes, conclusiones y claims acotados y referenciables.
 
     Raises:
-        HTTPException: 422 si falta taskId, no hay fuentes, se exceden los límites o claims/citas no
-            tienen strings válidos.
+        HTTPException: 422 si falta taskId, no hay fuentes ni query, se exceden los límites o claims/citas
+            no tienen strings válidos.
     """
     payload = body.model_dump(by_alias=True)
     task_id = str(payload.get("taskId") or "").strip()
     if not task_id:
         raise HTTPException(status_code=422, detail="ResearchAgent taskId is required.")
+    query = str(payload.get("query") or "").strip()
     sources = payload.get("sources") or []
-    if not sources:
-        raise HTTPException(status_code=422, detail="ResearchAgent requires at least one source.")
+    if not sources and not query:
+        raise HTTPException(
+            status_code=422, detail="ResearchAgent requires at least one source or a research query."
+        )
+    max_sources = payload.get("maxSources")
+    if max_sources is not None and (int(max_sources) < 1 or int(max_sources) > 50):
+        raise HTTPException(status_code=422, detail="ResearchAgent maxSources must be between 1 and 50.")
     if len(sources) > 50:
         raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 50 sources.")
     for index, source in enumerate(sources):
@@ -341,10 +468,31 @@ def validate_research_agent_run_body(body: ResearchAgentRunRequest) -> dict[str,
         for field in ("topic", "value", "sourceUrl"):
             if not str(claim.get(field) or "").strip():
                 raise HTTPException(status_code=422, detail=f"claims[{index}].{field} is required.")
+    technical_decisions = payload.get("technicalDecisions") or []
+    if len(technical_decisions) > 50:
+        raise HTTPException(status_code=422, detail="ResearchAgent accepts at most 50 technical decisions.")
+    for index, decision in enumerate(technical_decisions):
+        if not isinstance(decision, dict):
+            raise HTTPException(status_code=422, detail=f"technicalDecisions[{index}] must be an object.")
+        for field in ("title", "decision"):
+            if not str(decision.get(field) or "").strip():
+                raise HTTPException(
+                    status_code=422, detail=f"technicalDecisions[{index}].{field} is required."
+                )
+        source_urls = decision.get("sourceUrls") or []
+        if not isinstance(source_urls, list) or not all(
+            isinstance(item, str) and item for item in source_urls
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"technicalDecisions[{index}].sourceUrls must be a string list.",
+            )
     return payload
 
 
-def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[str, Any]:
+def validate_architect_agent_run_body(
+    body: ArchitectAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de ArchitectAgent: taskId, diff, contexto de workflow, runtime y listas de soporte.
 
     Raises:
@@ -361,7 +509,9 @@ def validate_architect_agent_run_body(body: ArchitectAgentRunRequest) -> dict[st
     if not isinstance(workflow_context, dict):
         raise HTTPException(status_code=422, detail="ArchitectAgent workflowContext must be an object.")
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in ARCHITECT_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), ARCHITECT_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"ArchitectAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -439,6 +589,41 @@ def _input_evidence_refs(input_payload: dict[str, Any]) -> list[str]:
     return []
 
 
+def _requested_skill_refs(input_payload: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key in ("skillIds", "skills", "skillRefs"):
+        value = input_payload.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                refs.append(item.strip())
+            elif isinstance(item, dict):
+                ref = item.get("id") or item.get("name") or item.get("skillId")
+                if isinstance(ref, str) and ref.strip():
+                    refs.append(ref.strip())
+    return list(dict.fromkeys(refs))
+
+
+def _blocked_skill_resolution_output(*, profile: dict[str, Any], task_id: str, reason: str) -> dict[str, Any]:
+    return {
+        "agent_id": profile["id"],
+        "task_id": task_id,
+        "verdict": "blocked",
+        "summary": reason,
+        "evidence_refs": [],
+        "skills": [],
+        "risks": [
+            {
+                "severity": "high",
+                "description": "Agent run requested a skill that cannot be bound to an immutable catalog version.",
+                "mitigation": "Sync the skill catalog and add the skill id or name to the agent profile allowedSkills list.",
+            }
+        ],
+        "next_actions": ["Resolve skill configuration before executing tool calls."],
+    }
+
+
 def _is_technical_review_run(*, profile: dict[str, Any], task_id: str, input_payload: dict[str, Any]) -> bool:
     markers = {
         str(task_id),
@@ -475,6 +660,7 @@ def _create_execution_evidence(
     agent_id: str,
     task_id: str,
     tool_calls: list[dict[str, Any]],
+    skills: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     executed_tool_calls = [
         tool_call
@@ -490,6 +676,23 @@ def _create_execution_evidence(
         or result["returnCode"] not in {0, None}
         for result in test_results
     )
+    skill_refs = [
+        {
+            "kind": "skill_instruction",
+            "skillId": skill["id"],
+            "name": skill["name"],
+            "version": skill.get("version"),
+            "instructionsHash": skill.get("instructionsHash"),
+            "path": skill.get("path"),
+            "riskLevel": skill.get("riskLevel"),
+        }
+        for skill in skills or []
+    ]
+    skill_hashes = {
+        f"skill:{skill['id']}": str(skill["instructionsHash"])
+        for skill in skills or []
+        if skill.get("instructionsHash")
+    }
     evidence_repo = EvidenceRepository(platform.connection)
     evidence = evidence_repo.create_evidence_package(
         project_id=project_id,
@@ -505,6 +708,8 @@ def _create_execution_evidence(
                 "mitigation": "Keep command stdout/stderr redacted and attach larger logs as artifacts in a later hardening pass.",
             }
         ],
+        artifacts=skill_refs,
+        hashes=skill_hashes,
         evidence_source="evidence_collected",
         qa_verdict="failed" if failed else "evidence_collected",
     )
@@ -525,7 +730,9 @@ def _create_execution_evidence(
     return [evidence["id"]]
 
 
-def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> dict[str, Any]:
+def validate_product_owner_agent_run_body(
+    body: ProductOwnerAgentRunRequest, *, connection: sqlite3.Connection | None = None
+) -> dict[str, Any]:
     """Valida un run de ProductOwnerAgent: taskId, idea o initiativeId, runtime y umbral de completitud.
 
     Raises:
@@ -537,10 +744,15 @@ def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> 
         raise HTTPException(status_code=422, detail="ProductOwnerAgent taskId is required.")
     idea = str(payload.get("idea") or "").strip()
     initiative_id = str(payload.get("initiativeId") or "").strip()
-    if not idea and not initiative_id:
-        raise HTTPException(status_code=422, detail="ProductOwnerAgent requires an idea or an initiativeId.")
+    epic_id = str(payload.get("epicId") or "").strip()
+    if not idea and not initiative_id and not epic_id:
+        raise HTTPException(
+            status_code=422, detail="ProductOwnerAgent requires an idea, an initiativeId or an epicId."
+        )
     preferred_runtime = payload.get("preferredRuntime")
-    if preferred_runtime and preferred_runtime not in PRODUCT_OWNER_AGENT_RUNTIMES:
+    if preferred_runtime and not _runtime_is_allowed(
+        str(preferred_runtime), PRODUCT_OWNER_AGENT_RUNTIMES, connection
+    ):
         raise HTTPException(
             status_code=422, detail=f"ProductOwnerAgent runtime is not allowed: {preferred_runtime}"
         )
@@ -560,7 +772,10 @@ def validate_product_owner_agent_run_body(body: ProductOwnerAgentRunRequest) -> 
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el APIRouter de agentes, cableado a la conexión/cwd del platform y al guard de escritura."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> AgentsRepository:
         return AgentsRepository(platform.connection)
@@ -571,12 +786,17 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     def event_bus() -> EventBus:
         return EventBus(platform.connection)
 
+    def profiles_with_runtime_availability(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        provider_statuses = RuntimeStatusService(platform.connection).list_provider_statuses()
+        return attach_runtime_availability(profiles, provider_statuses)
+
     @router.get("/api/v1/agents/devops/status", response_model=DevOpsAgentStatusResponse)
     async def devops_agent_status() -> dict[str, Any]:
         """Devuelve el readiness del DevOpsAgent."""
         return {"devopsAgent": DevOpsAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/devops/runs", status_code=202, response_model=DevOpsAgentRunResponse)
+    @queued_operation("agents.run_devops_agent", workload_class="agent_cli")
     async def run_devops_agent(body: DevOpsAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DevOpsAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
@@ -605,10 +825,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"securityAgent": SecurityAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/security/runs", status_code=202, response_model=SecurityAgentRunResponse)
+    @queued_operation("agents.run_security_agent", workload_class="agent_cli")
     async def run_security_agent(body: SecurityAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el SecurityAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
-        payload = validate_security_agent_run_body(body)
+        payload = validate_security_agent_run_body(body, connection=platform.connection)
         try:
             result = SecurityAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -633,6 +854,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"researchAgent": ResearchAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/research/runs", status_code=202, response_model=ResearchAgentRunResponse)
+    @queued_operation("agents.run_research_agent", workload_class="agent_cli")
     async def run_research_agent(body: ResearchAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ResearchAgent y emite un evento con el resultado de política de fuentes."""
         require_write(request)
@@ -652,11 +874,13 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "evidencePackageId": result["evidencePackage"]["id"],
                 "reportArtifactId": result["reportArtifact"]["id"],
                 "sourceArtifactIds": [source["artifactId"] for source in result["sources"]],
+                "researchSourceIds": [source["id"] for source in result["sources"] if source.get("id")],
             },
         )
         return result
 
     @router.post("/api/v1/agents/qa/runs", status_code=202, response_model=QAAgentRunResponse)
+    @queued_operation("agents.run_qa_agent", workload_class="agent_cli")
     async def run_qa_agent(body: QAAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el QAAgent sobre un workspace y emite el evento del veredicto."""
         require_write(request)
@@ -683,11 +907,20 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         """Devuelve el readiness del DeveloperAgent."""
         return {"developerAgent": DeveloperAgentRunner(platform.connection, root=platform.cwd).status()}
 
+    def validate_queued_developer(arguments: dict[str, Any]) -> None:
+        """Rechaza payload/runtime inválido antes de sellar inputs o aceptar una ejecución."""
+        validate_developer_agent_run_body(
+            DeveloperAgentRunRequest.model_validate(arguments["body"]), connection=platform.connection
+        )
+
     @router.post("/api/v1/agents/developer/runs", status_code=202, response_model=DeveloperAgentRunResponse)
+    @queued_operation(
+        "agents.run_developer_agent", workload_class="agent_cli", validate=validate_queued_developer
+    )
     async def run_developer_agent(body: DeveloperAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el DeveloperAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_developer_agent_run_body(body)
+        payload = validate_developer_agent_run_body(body, connection=platform.connection)
         try:
             result = DeveloperAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -712,10 +945,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"architectAgent": ArchitectAgentRunner(platform.connection, root=platform.cwd).status()}
 
     @router.post("/api/v1/agents/architect/runs", status_code=202, response_model=ArchitectAgentRunResponse)
+    @queued_operation("agents.run_architect_agent", workload_class="agent_cli")
     async def run_architect_agent(body: ArchitectAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ArchitectAgent sobre un workspace y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_architect_agent_run_body(body)
+        payload = validate_architect_agent_run_body(body, connection=platform.connection)
         try:
             result = ArchitectAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -737,19 +971,27 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.get("/api/v1/agents/product-owner/status", response_model=ProductOwnerAgentStatusResponse)
-    async def product_owner_agent_status() -> dict[str, Any]:
+    async def product_owner_agent_status(
+        preferred_runtime: str | None = Query(default=None, alias="preferredRuntime"),
+        project_id: str | None = Query(default=None, alias="projectId"),
+    ) -> dict[str, Any]:
         """Devuelve el readiness del ProductOwnerAgent."""
-        return {"productOwnerAgent": ProductOwnerAgentRunner(platform.connection, root=platform.cwd).status()}
+        return {
+            "productOwnerAgent": ProductOwnerAgentRunner(platform.connection, root=platform.cwd).status(
+                preferred_runtime=preferred_runtime, project_id=project_id
+            )
+        }
 
     @router.post(
         "/api/v1/agents/product-owner/runs",
         status_code=202,
         response_model=ProductOwnerAgentRunResponse,
     )
+    @queued_operation("agents.run_product_owner_agent", workload_class="agent_cli")
     async def run_product_owner_agent(body: ProductOwnerAgentRunRequest, request: Request) -> dict[str, Any]:
         """Ejecuta el ProductOwnerAgent sobre una idea o assessment y emite el evento del estado resultante."""
         require_write(request)
-        payload = validate_product_owner_agent_run_body(body)
+        payload = validate_product_owner_agent_run_body(body, connection=platform.connection)
         try:
             result = ProductOwnerAgentRunner(platform.connection, root=platform.cwd).run(payload)
         except KeyError as error:
@@ -770,9 +1012,10 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return result
 
     @router.get("/api/v1/agent-profiles", response_model=AgentProfilesListResponse)
-    async def list_agent_profiles() -> dict[str, Any]:
-        """Lista todos los perfiles de agente."""
-        return {"agentProfiles": repository().list_agent_profiles()}
+    async def list_agent_profiles(projectId: str | None = None) -> dict[str, Any]:
+        """Lista perfiles de agente con overrides de proyecto y disponibilidad real de runtime."""
+        profiles = repository().list_agent_profiles(projectId)
+        return {"agentProfiles": profiles_with_runtime_availability(profiles)}
 
     @router.post("/api/v1/agent-profiles", status_code=201, response_model=AgentProfileResponse)
     async def upsert_agent_profile(body: AgentProfileUpsertRequest, request: Request) -> dict[str, Any]:
@@ -783,7 +1026,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         event_bus().record_event(
             event_type="agent.profile.upserted", payload={"agentProfileId": profile["id"]}
         )
-        return {"agentProfile": profile}
+        return {"agentProfile": profiles_with_runtime_availability([profile])[0]}
+
+    @router.put(
+        "/api/v1/projects/{project_id}/agent-profile-overrides/{profile_id}",
+        response_model=AgentProfileResponse,
+    )
+    async def agent_profile_override(
+        project_id: str,
+        profile_id: str,
+        body: AgentProfileProjectOverrideRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Crea o actualiza un override de perfil para un proyecto y devuelve el perfil efectivo."""
+        require_write(request)
+        _require_id(project_id, label="Project id")
+        _require_id(profile_id, label="Agent profile id")
+        payload = validate_agent_profile_override_body(body.model_dump(by_alias=True, exclude_none=True))
+        try:
+            profile = repository().upsert_agent_profile_project_override(
+                project_id=project_id,
+                profile_id=profile_id,
+                body=payload,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        event_bus().record_event(
+            project_id=project_id,
+            event_type="agent.profile.override.upserted",
+            payload={"agentProfileId": profile_id, "status": payload.get("status", "active")},
+        )
+        return {"agentProfile": profiles_with_runtime_availability([profile])[0]}
 
     @router.get("/api/v1/agent-runs", response_model=AgentRunsListResponse)
     async def list_agent_runs() -> dict[str, Any]:
@@ -791,6 +1066,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"agentRuns": repository().list_agent_runs()}
 
     @router.post("/api/v1/agent-runs", status_code=202, response_model=AgentRunResponse)
+    @queued_operation("agents.create_agent_run", workload_class="agent_cli")
     async def create_agent_run(body: AgentRunCreateRequest, request: Request) -> AgentRunResponse:
         """Crea un agent run genérico, brokerea sus tool calls y deriva estado/veredicto y evidencia.
 
@@ -804,13 +1080,29 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         task_id = payload.get("taskId", "task")
         input_payload = payload.get("input") or {}
         tool_calls = input_payload.get("toolCalls") or []
-        if profile["runtimeMode"] not in RUNTIME_MODES:
+        if not isinstance(tool_calls, list) or not all(isinstance(item, dict) for item in tool_calls):
+            raise HTTPException(status_code=422, detail="input.toolCalls must be a list of objects.")
+        requested_skill_refs = _requested_skill_refs(input_payload)
+        resolved_skills, skill_error = skill_registry().resolve_for_agent_run(
+            requested_refs=requested_skill_refs,
+            allowed_refs=profile.get("allowedSkills") or [],
+        )
+        if skill_error:
+            output = _blocked_skill_resolution_output(
+                profile=profile,
+                task_id=task_id,
+                reason=skill_error,
+            )
+            status = "failed"
+            tool_calls = []
+        elif profile["runtimeMode"] not in RUNTIME_MODES:
             output = {
                 "agent_id": profile["id"],
                 "task_id": task_id,
                 "verdict": "blocked",
                 "summary": f"Runtime {profile['runtimeMode']} is not a supported product runtime.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "high",
@@ -828,6 +1120,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": "evaluating_tools",
                 "summary": f"Runtime {profile['runtimeMode']} requested policy-gated tool calls.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [],
                 "next_actions": [],
             }
@@ -844,6 +1137,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": "blocked",
                 "summary": f"Runtime {profile['runtimeMode']} has no executable adapter configured for this run.",
                 "evidence_refs": [],
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "medium",
@@ -865,6 +1159,14 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             workflow_step_id=payload.get("workflowStepId"),
             status=status,
         )
+        if resolved_skills:
+            skill_registry().bind_skills_for_run(
+                skills=resolved_skills,
+                agent_profile_id=profile["id"],
+                workflow_id=payload.get("workflowRunId"),
+                agent_run_id=run["id"],
+                task_id=task_id,
+            )
         if tool_calls:
             broker_results = ToolBroker(platform.connection, artifact_root=platform.cwd).evaluate_tool_calls(
                 project_id=payload["projectId"],
@@ -887,6 +1189,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 agent_id=profile["id"],
                 task_id=task_id,
                 tool_calls=tool_call_records,
+                skills=resolved_skills,
             )
             if any(decision == "deny" for decision in decisions) or any(
                 tool_status in {"denied", "failed", "blocked"} for tool_status in tool_statuses
@@ -918,6 +1221,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 "verdict": verdict,
                 "summary": summary,
                 "evidence_refs": evidence_refs,
+                "skills": resolved_skills,
                 "risks": [
                     {
                         "severity": "low",
@@ -955,9 +1259,78 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return AgentRunResponse(agentRun=run)
 
     @router.get("/api/v1/runtime/providers", response_model=RuntimeProvidersResponse)
-    async def list_runtime_providers() -> dict[str, Any]:
-        """Devuelve el estado agregado de los runtime providers."""
-        return RuntimeStatusService(platform.connection).runtime_provider_status()
+    def list_runtime_providers(projectId: str | None = None) -> dict[str, Any]:
+        """Evalúa readiness síncrono en el pool de FastAPI sin bloquear el event loop."""
+        return RuntimeStatusService(platform.connection).runtime_provider_status(project_id=projectId)
+
+    @router.get("/api/v1/runtime/team-candidates", response_model=RuntimeTeamCandidatesResponse)
+    def list_runtime_team_candidates(
+        projectId: str | None = None, selected: str | None = None
+    ) -> dict[str, Any]:
+        """Runtimes para el equipo del hilo: validación de 30 min, veto de política, roles y reparto.
+
+        ``selected`` (ids separados por coma) acota el reparto a la selección actual del panel.
+        """
+        selected_ids = (
+            None if selected is None else [item.strip() for item in selected.split(",") if item.strip()]
+        )
+        return RuntimeTeamCandidatesService(platform.connection).list_candidates(
+            project_id=projectId, selected=selected_ids
+        )
+
+    @router.get("/api/v1/runtime/provider-usage", response_model=ProviderUsageResponse)
+    def get_provider_usage() -> dict[str, Any]:
+        """Uso de cuota por proveedor, umbral efectivo y suspensión automática (sin consultar la red)."""
+        from local_control_center.agents.provider_usage import describe_provider_usage
+
+        return describe_provider_usage(platform.connection)
+
+    @router.post("/api/v1/runtime/provider-usage/refresh", response_model=ProviderUsageResponse)
+    def refresh_provider_usage_now(request: Request) -> dict[str, Any]:
+        """Refresca ya el uso de Claude/Codex y la contabilidad de AIDO (ignora el intervalo mínimo)."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import describe_provider_usage, refresh_provider_usage
+
+        refresh_provider_usage(platform.connection, force=True)
+        return describe_provider_usage(platform.connection)
+
+    @router.put("/api/v1/runtime/provider-usage/{provider_id}/policy", response_model=ProviderUsageResponse)
+    def put_provider_usage_policy(
+        provider_id: str, body: ProviderUsagePolicyRequest, request: Request
+    ) -> dict[str, Any]:
+        """Fija el umbral propio del proveedor (o lo quita con ``null`` para heredar el general)."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import ProviderUsageStore, describe_provider_usage
+
+        store = ProviderUsageStore(platform.connection)
+        store.set_policy(
+            provider_id,
+            threshold_percent=body.threshold_percent,
+            ignore_until=store.policy(provider_id)["ignoreUntil"],
+        )
+        return describe_provider_usage(platform.connection)
+
+    @router.post("/api/v1/runtime/provider-usage/{provider_id}/resume", response_model=ProviderUsageResponse)
+    def resume_provider_usage(provider_id: str, request: Request) -> dict[str, Any]:
+        """Reanuda ya un proveedor suspendido por cuota, hasta el reinicio de la ventana que lo suspendió."""
+        require_write(request)
+        from local_control_center.agents.provider_usage import ProviderUsageStore, describe_provider_usage
+
+        store = ProviderUsageStore(platform.connection)
+        suspension = store.suspensions().get(provider_id)
+        if suspension is None:
+            raise HTTPException(status_code=409, detail=f"{provider_id} is not suspended by quota.")
+        store.set_policy(
+            provider_id,
+            threshold_percent=store.policy(provider_id)["thresholdPercent"],
+            ignore_until=suspension["until"],
+        )
+        return describe_provider_usage(platform.connection)
+
+    @router.get("/api/v1/runtime/team", response_model=RuntimeTeamResponse)
+    def get_runtime_team(projectId: str | None = None) -> dict[str, Any]:
+        """Equipo de IA global efectivo (proyecto > general > automático) y candidatos activos por rol."""
+        return describe_global_team(platform.connection, project_id=projectId)
 
     @router.get("/api/v1/runtime/provider-configuration", response_model=RuntimeProviderConfigurationResponse)
     async def list_runtime_provider_configuration() -> dict[str, Any]:
@@ -970,6 +1343,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"skills": skill_registry().list_skills()}
 
     @router.post("/api/v1/skills/sync", status_code=202, response_model=SkillsSyncResponse)
+    @queued_operation("agents.sync_skills", workload_class="qa_light")
     async def sync_skills(body: SkillsSyncRequest, request: Request) -> SkillsSyncResponse:
         """Sincroniza el catálogo de skills desde el path indicado y emite el evento de sincronización."""
         require_write(request)

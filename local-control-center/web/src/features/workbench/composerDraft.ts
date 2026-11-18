@@ -1,31 +1,20 @@
 /**
  * Per-project persistence for the unified Workbench composer draft. Keeps the typed prompt,
- * derived/edited title, intake mode and the governed Advanced options alive across session
- * switches, mode switches, route-aways and reloads — so a task is never re-typed. Stored as one
- * versioned JSON map keyed by project id; the version suffix retires stale shapes on upgrade.
- * @author Rodrigo Mason
+ * derived/edited title alive across session switches, route-aways and reloads — so a task is
+ * never re-typed. Stored as one versioned JSON map keyed by project id; the version suffix
+ * retires stale shapes on upgrade.
+ * @author AIDO contributors
  */
-
-/** Intake intent for the composer: the simple conversation flow, or one of the governed change types. */
-export type ComposerMode = 'conversation' | 'fix' | 'feature' | 'refactor' | 'tests';
 
 /** A composer draft for a single project. */
 export interface ComposerDraft {
 	prompt: string;
 	title: string;
 	titleEdited: boolean;
-	mode: ComposerMode;
-	advanced: {
-		targetPath: string;
-		runChecks: boolean;
-		requireReview: boolean;
-		preferredRuntime: string;
-		qaPreset: string;
-		maxCostUsd: string;
-	};
+	userMode?: 'consulta' | 'aido_decide';
 }
 
-const COMPOSER_DRAFT_STORAGE_KEY = 'aido:workbench:composer-drafts:v1';
+const COMPOSER_DRAFT_STORAGE_KEY = 'aido:workbench:composer-drafts:v3';
 
 function readStoredDrafts(): Record<string, ComposerDraft> {
 	try {

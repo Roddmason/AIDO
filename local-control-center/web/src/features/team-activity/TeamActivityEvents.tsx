@@ -5,12 +5,12 @@
  * disclosures keep low-level model/tool events and the raw run payloads out of the way until a
  * developer asks for them. All free text is re-masked through `redactVisibleSecret` before it reaches
  * the DOM — the backend already redacts at write time, so this is a defensive second layer.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { TeamActivityEntry } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret, toneForStatus } from '../../lib/format';
 
@@ -61,7 +61,9 @@ export function TeamActivityEvents({ entry }: { entry: TeamActivityEntry }) {
 								<span className="activity-event-meta mono">
 									{t('app.teamActivity.tokenCount', '{n} tokens').replace(
 										'{n}',
-										String(call.promptTokens + call.completionTokens),
+										call.promptTokens == null || call.completionTokens == null
+											? t('app.runtime.card.unknown', 'unknown')
+											: String(call.promptTokens + call.completionTokens),
 									)}
 								</span>
 							</li>

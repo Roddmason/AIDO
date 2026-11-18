@@ -2,13 +2,13 @@
  * Workbench Diff panel: fetches the evidence patch artifact and renders the (redacted)
  * diff. Gates review by refusing to show a verdict unless a real patch with actual
  * additions/deletions exists — diff refs alone do not prove code changed.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchEvidenceArtifact } from '../../../api/client';
 import type { Overview } from '../../../api/types';
-import { Badge } from '../../../components/primitives';
+import { StatusChip as Badge } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../../lib/artifacts';
 import {
@@ -45,7 +45,9 @@ export function WorkbenchDiffPanel({
 	}, [artifacts, evidenceId]);
 
 	const packageId = patchArtifact?.evidencePackageId ?? evidenceId;
+	const patchArtifactId = patchArtifact?.id ?? '';
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: patchArtifactId is the stable identity for patchArtifact; keying on object identity refetches on every 5s poll and flickers the diff.
 	useEffect(() => {
 		if (!patchArtifact || !packageId) {
 			setText('');
@@ -74,7 +76,7 @@ export function WorkbenchDiffPanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [token, packageId, patchArtifact, t]);
+	}, [token, packageId, patchArtifactId, t]);
 
 	if (!patchArtifact) {
 		return (
@@ -157,10 +159,7 @@ export function WorkbenchDiffPanel({
 					<div className="metric-label">
 						{t('app.workbench.diff.changedFilesLabel', 'Changed files')}
 					</div>
-					<div
-						className="stack compact"
-						aria-label={t('app.workbench.diff.changedFilesLabel', 'Changed files')}
-					>
+					<div className="stack compact">
 						{changedFiles.map((file) => (
 							<span className="mono" key={file}>
 								{file}

@@ -2,19 +2,22 @@
  * Quick-action registry shared by the command palette and the global keyboard
  * layer: one declarative list whose `shortcut` fields are the single source for
  * both the visible chips and the dispatch, so no binding can drift or go dead.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideProps } from 'lucide-react';
 import {
+	Boxes,
 	ClipboardCheck,
 	Code2,
 	FileCheck2,
 	FolderPlus,
 	Network,
+	Plug,
 	Plus,
 	RefreshCw,
 	Settings as SettingsIcon,
+	Wrench,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useMemo } from 'react';
@@ -137,6 +140,46 @@ export function useCommandActions(deps: CommandActionDeps): CommandAction[] {
 				keywords: ['preferences', 'configuration', 'options'],
 				icon: SettingsIcon,
 				run: withClose(() => openSettings()),
+			},
+			{
+				id: 'open-developer-details',
+				group: 'navigate',
+				label: 'Open developer details',
+				hint: 'Technical consoles demoted from primary navigation',
+				keywords: [
+					'developer',
+					'details',
+					'consoles',
+					'agents',
+					'models',
+					'policy',
+					'evidence',
+					'workflows',
+					'governance',
+					'audit',
+					'assessment',
+					'advanced',
+				],
+				icon: Wrench,
+				run: withClose(() => openSettings('advanced')),
+			},
+			{
+				id: 'go-workspaces',
+				group: 'navigate',
+				label: 'Go to Workspaces',
+				hint: 'Inspect runtime worktrees and clean up stale workspaces',
+				keywords: ['worktrees', 'cleanup', 'runtime', 'disk'],
+				icon: Boxes,
+				run: withClose(() => navigateTo('workspaces')),
+			},
+			{
+				id: 'go-integrations',
+				group: 'navigate',
+				label: 'Go to Integrations',
+				hint: 'MCP servers, IDE connections and automation hooks',
+				keywords: ['mcp', 'ide', 'n8n', 'webhooks', 'connections'],
+				icon: Plug,
+				run: withClose(() => navigateTo('integrations')),
 			},
 			{
 				id: 'open-folder',

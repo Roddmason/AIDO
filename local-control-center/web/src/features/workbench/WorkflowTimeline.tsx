@@ -2,7 +2,7 @@
  * Shared visualization of a run's stage progression, in two flavors: a compact 'rail' for the page
  * header and a 'detailed' list with per-stage reasons and evidence links. The current stage is the
  * first non-completed one (see currentStageIndex) and is marked with aria-current.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ArrowUpRight } from 'lucide-react';
 
@@ -38,7 +38,7 @@ export function WorkflowTimeline({
 				return (
 					<li
 						className="run-flow-step"
-						key={`${stage.id}-${index}`}
+						key={stage.id}
 						data-status={stage.status}
 						data-phase={stage.phase}
 						aria-current={index === current ? 'step' : undefined}

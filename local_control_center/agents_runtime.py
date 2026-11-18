@@ -4,7 +4,7 @@ Define `GatedAgentsPlanner`: el SDK solo puede *proponer* acciones que quedan
 registradas como action requests pendientes de grant; nunca ejecuta comandos.
 Es un punto de integracion intencionalmente no cableado en el primer corte Python.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

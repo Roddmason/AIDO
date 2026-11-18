@@ -2,7 +2,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests_py.test_ollama_endpoints_api import client_with_store as client_with_store
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_telemetry_diagnostics_is_optional_typed_and_matches_openapi(
+    client_with_store, tmp_path, monkeypatch
+):
+    import pytest
+    from pydantic import ValidationError
+
+    from local_control_center.shared.schemas import TelemetryStatusResponse
+
+    client, _, store = client_with_store(tmp_path, monkeypatch)
+    try:
+        payload = client.get("/api/v1/telemetry/status").json()
+        assert isinstance(payload["diagnostics"], dict)
+        assert TelemetryStatusResponse.model_validate(payload).diagnostics == payload["diagnostics"]
+        legacy = {key: value for key, value in payload.items() if key != "diagnostics"}
+        assert TelemetryStatusResponse.model_validate(legacy).diagnostics == {}
+        with pytest.raises(ValidationError):
+            TelemetryStatusResponse.model_validate({**legacy, "diagnostics": "invalid"})
+        schema = client.get("/openapi.json").json()["components"]["schemas"]["TelemetryStatusResponse"]
+        assert "diagnostics" not in schema.get("required", [])
+        assert schema["properties"]["diagnostics"]["type"] == "object"
+        assert "externalExporter" in schema["required"]
+    finally:
+        client.close()
+        store.close()
 
 
 def _generated_type_line(content: str, type_name: str) -> str:
@@ -123,9 +151,12 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         '"record_self_improvement_performance_api_v1_self_improvement_performance_records_post": '
         "SelfImprovementPerformanceRequest"
     ) in content
-    assert '"create_session_api_v1_sessions_post": SessionCreateRequest' in content
-    assert '"create_chat_api_v1_chats_post": ChatCreateRequest' in content
-    assert '"create_pipeline_api_v1_pipelines_post": PipelineCreateRequest' in content
+    assert '"list_sessions_api_v1_legacy_sessions_get": SessionsListResponse' in content
+    assert '"list_chats_api_v1_legacy_chats_get": ChatsListResponse' in content
+    assert '"list_pipelines_api_v1_legacy_pipelines_get": PipelinesListResponse' in content
+    assert "create_session_api_v1_sessions_post" not in content
+    assert "create_chat_api_v1_chats_post" not in content
+    assert "create_pipeline_api_v1_pipelines_post" not in content
     assert '"create_memory_api_v1_memory_post": MemoryCreateRequest' in content
     assert '"retrieval_search_api_v1_retrieval_search_post": RetrievalSearchRequest' in content
     assert '"retrieval_reindex_api_v1_retrieval_reindex_post": RetrievalReindexRequest' in content
@@ -166,7 +197,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"provenance": "operator_reported" | "automated_run" | "release_validation"' in outcome_record_line
     assert '"objectiveTasksAttempted": number' in benchmark_record_line
     assert '"operatorReportedTasks": number' in benchmark_record_line
-    assert '"provenanceCounts": JsonObject' in benchmark_record_line
+    assert '"provenanceCounts": Record<string, number>' in benchmark_record_line
     assert '"sync_skills_api_v1_skills_sync_post": SkillsSyncRequest' in content
     assert '"create_evidence_api_v1_evidence_post": EvidenceCreateRequest' in content
     assert '"ingest_artifact_api_v1_evidence__evidence_id__artifacts_post": ArtifactIngestRequest' in content
@@ -189,9 +220,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"runtimeWorkspaces": Array<WorkspaceRecord>' in overview_line
     assert '"evidencePackages": Array<EvidencePackageRecord>' in overview_line
     assert '"architectureDecisions": Array<ArchitectureDecisionRecord>' in overview_line
-    assert '"sessions": Array<SessionRecord>' in overview_line
-    assert '"chats": Array<ChatRecord>' in overview_line
-    assert '"pipelines": Array<PipelineRecord>' in overview_line
+    assert '"threads": Array<ThreadRecord>' in overview_line
+    assert '"sessions": Array<SessionRecord>' not in overview_line
+    assert '"chats": Array<ChatRecord>' not in overview_line
+    assert '"pipelines": Array<PipelineRecord>' not in overview_line
     assert '"memoryItems": Array<MemoryItemRecord>' in overview_line
     assert '"workflows": Array<WorkflowRecord>' in overview_line
     assert '"workflowRuns": Array<WorkflowRunRecord>' in overview_line
@@ -256,7 +288,7 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         '"approvals": Array<JsonObject>',
         '"artifacts": Array<JsonObject>',
         '"diffSummary": JsonObject',
-        '"hashes": JsonObject',
+        '"hashes": Record<string, string>',
         '"createdAt": string',
     ):
         assert required_field in evidence_line
@@ -284,12 +316,60 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert '"list_workspaces_api_v1_workspaces_get": WorkspacesListResponse' in content
     assert "export type PromptTemplateRecord" in content
     assert 'PromptTemplatesListResponse = { "promptTemplates": Array<PromptTemplateRecord> }' in content
+    assert "export type PluginRecord" in content
+    assert "export type PluginVersionRecord" in content
+    assert "export type PluginInstallLocalRequest" in content
+    assert 'PluginsListResponse = { "plugins": Array<PluginRecord> }' in content
+    assert '"list_plugins_api_v1_plugins_get": PluginsListResponse' in content
+    assert '"install_local_plugin_api_v1_plugins_install_local_post": PluginInstallLocalRequest' in content
+    assert '"install_local_plugin_api_v1_plugins_install_local_post": PluginResponse' in content
+    assert '"enable_plugin_api_v1_plugins__plugin_id__enable_post": PluginResponse' in content
+    assert '"disable_plugin_api_v1_plugins__plugin_id__disable_post": PluginResponse' in content
+    assert '"validate_plugin_api_v1_plugins__plugin_id__validate_post": PluginValidationResponse' in content
     assert "export type McpServerRecord" in content
     assert 'McpServerResponse = { "mcpServer": McpServerRecord }' in content
     assert (
         'IntegrationsListResponse = { "integrations": Array<IntegrationRecord>; "mcpServers": Array<McpServerRecord>'
         in content
     )
+    for operation in (
+        '"get_n8n_status_api_v1_integrations_n8n_status_get": N8nIntegrationStatusResponse',
+        '"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetCreateRequest',
+        '"configure_n8n_api_v1_integrations_n8n_configure_post": N8nWebhookTargetResponse',
+        '"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventEmitRequest',
+        '"emit_n8n_api_v1_integrations_n8n_emit_post": N8nEventDeliveryResponse',
+        '"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookRequest',
+        '"receive_n8n_inbound_api_v1_integrations_n8n_inbound__token__post": N8nInboundWebhookResponse',
+        '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": '
+        "N8nWebhookTargetCreateRequest",
+        '"upsert_n8n_webhook_target_api_v1_integrations_n8n_webhook_targets_post": N8nWebhookTargetResponse',
+        '"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventTestRequest',
+        '"test_n8n_target_api_v1_integrations_n8n_test_post": N8nEventDeliveryResponse',
+        '"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventEmitRequest',
+        '"emit_n8n_event_api_v1_integrations_n8n_emit_event_post": N8nEventDeliveryResponse',
+        '"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookRequest',
+        '"receive_n8n_webhook_api_v1_integrations_n8n_webhook_post": N8nInboundWebhookResponse',
+    ):
+        assert operation in content
+    n8n_target = _generated_type_line(content, "N8nWebhookTargetCreateRequest")
+    n8n_emit = _generated_type_line(content, "N8nEventEmitRequest")
+    n8n_inbound = _generated_type_line(content, "N8nInboundWebhookResponse")
+    for event_type in (
+        '"thread.created"',
+        '"loop.blocked"',
+        '"approval.required"',
+        '"qa.failed"',
+        '"gitleaks.failed"',
+        '"delivery.ready"',
+    ):
+        assert event_type in n8n_target
+        assert event_type in n8n_emit
+    assert '"research.completed"' not in n8n_target
+    assert '"research.completed"' not in n8n_emit
+    assert '"action": "create_thread" | "add_message" | "get_status"' in n8n_inbound
+    assert '"create_loop"' not in n8n_inbound
+    assert '"credentialRef": string' in n8n_target
+    assert '"allowedEventTypes": Array<' in n8n_target
     assert "export type IdeConnectionRecord" in content
     assert 'IdeConnectionsListResponse = { "ideConnections": Array<IdeConnectionRecord> }' in content
     assert "export type RetrievalSearchResultRecord" in content
@@ -326,12 +406,17 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
     assert "export type ArchitectAgentStatus" in content
     assert "export type ArchitectAgentRunRequest" in content
     assert "export type ArchitectAgentRunResponse" in content
-    assert (
-        'RuntimeProvidersResponse = { "api": ApiRuntimeProviderStatus; '
-        '"cli": CliRuntimeProviderStatus; "developerAgent": DeveloperAgentStatus; '
-        '"ollama": OllamaRuntimeProviderStatus; '
-        '"providers": Array<RuntimeProviderStatus>;'
-    ) in content
+    runtime_providers_line = _generated_type_line(content, "RuntimeProvidersResponse")
+    for required_field in (
+        '"api": ApiRuntimeProviderStatus',
+        '"cli": CliRuntimeProviderStatus',
+        '"configurationWarnings"?: Array<string>',
+        '"developerAgent": DeveloperAgentStatus',
+        '"ollama": OllamaRuntimeProviderStatus',
+        '"providers": Array<RuntimeProviderStatus>',
+        '"runtimeModes": Array<"api" | "cli" | "ollama" | "hybrid" | "manual" | "local">',
+    ):
+        assert required_field in runtime_providers_line
     assert "export type IssueToPatchRequest" in content
     assert "export type IssueToPatchResponse" in content
     assert (
@@ -356,7 +441,10 @@ def test_generated_openapi_client_is_checked_in_and_v1_only() -> None:
         in content
     )
     assert "export type ExternalTelemetryStatus" in content
-    assert 'TelemetryStatusResponse = { "externalExporter": ExternalTelemetryStatus }' in content
+    assert (
+        'TelemetryStatusResponse = { "diagnostics"?: JsonObject; "externalExporter": ExternalTelemetryStatus }'
+        in content
+    )
     assert (
         'WorkspaceArchiveResponse = { "evidencePackage": EvidencePackageRecord; "workspace": WorkspaceRecord }'
         in content
@@ -410,7 +498,7 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     feedback_record = _generated_type_line(content, "ProductLoopFeedbackRecord")
     expected_feedback_actions = (
         '"accept" | "request_changes" | "change_scope" | "reprioritize" | '
-        '"reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop"'
+        '"reject_decision" | "reopen_story" | "pause_loop" | "cancel_loop" | "continue"'
     )
     expected_feedback_classifications = (
         '"rework_task" | "new_story" | "new_epic" | "brief_revision" | "architecture_revision"'
@@ -459,16 +547,21 @@ def test_generated_core_runtime_workflow_evidence_contracts_are_strict() -> None
     assert '"qaVerdict"?: string' not in evidence_create
 
     artifact = _generated_type_line(content, "ArtifactRecord")
-    assert (
-        '"kind": "execution_log" | "screenshot" | "test_report" | "qa_report" | "generic_artifact"'
-        in artifact
-    )
+    for artifact_kind in (
+        "execution_log",
+        "screenshot",
+        "test_report",
+        "qa_report",
+        "generic_artifact",
+        "generated_image",
+    ):
+        assert f'"{artifact_kind}"' in artifact
     assert '"kind": string' not in artifact
 
     job = _generated_type_line(content, "JobRecord")
     assert (
-        '"status": "queued" | "running" | "approval_required" | "completed" | "approved" | "failed" | "cancelled"'
-        in job
+        '"status": "queued" | "resource_wait" | "running" | "approval_required" | "completed" | '
+        '"approved" | "failed" | "cancelled"' in job
     )
 
     workflow = _generated_type_line(content, "WorkflowRecord")
@@ -546,10 +639,20 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
 
     credential_record = _generated_type_line(content, "CredentialRecord")
     assert '"backendKind": string' in credential_record
+    assert '"credentialRef": string' in credential_record
     assert '"hasFingerprint": boolean' in credential_record
+    assert '"label": string' in credential_record
+    assert '"lastRotatedAt": null | string' in credential_record
+    assert '"providerUsages": Array<CredentialProviderUsageRecord>' in credential_record
+    assert '"source": string' in credential_record
     assert '"value"' not in credential_record
     assert '"salt"' not in credential_record
     assert '"fingerprint":' not in credential_record
+
+    create_request = _generated_type_line(content, "CredentialCreateRequest")
+    assert '"credentialRef"?: null | string' in create_request
+    assert '"label"?: null | string' in create_request
+    assert '"source"?: null | string' in create_request
 
     api_client = (ROOT / "local-control-center" / "web" / "src" / "api" / "client.ts").read_text(
         encoding="utf-8"
@@ -572,10 +675,15 @@ def test_generated_credential_contract_and_settings_ui_are_secret_safe() -> None
     settings = (
         ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "SettingsPage.tsx"
     ).read_text(encoding="utf-8")
+    credential_panel = (
+        ROOT / "local-control-center" / "web" / "src" / "features" / "settings" / "CredentialManagerPanel.tsx"
+    ).read_text(encoding="utf-8")
     assert "CredentialManagerPanel" in settings
     assert "value:" not in settings
     assert "fingerprint" not in settings.lower()
     assert "salt" not in settings.lower()
+    assert "providerUsages" in credential_panel
+    assert "settings.credentials.providers" in credential_panel
 
 
 def test_openapi_generation_script_documents_no_network_dependency() -> None:
@@ -616,5 +724,6 @@ def test_playwright_uses_isolated_state_for_mutating_e2e() -> None:
     assert "waitForDashboardHealth" in runner_content
     assert "PLAYWRIGHT_EXTERNAL_SERVER: '1'" in runner_content
     assert "dashboard server exited before healthcheck" in runner_content
-    assert "projectCleanupStatus" in runner_content
+    assert "cleanup-playwright-webserver" not in runner_content
+    assert "await stopDashboardServer(dashboardProcess)" in runner_content
     assert "Wait-Process" in cleanup_content

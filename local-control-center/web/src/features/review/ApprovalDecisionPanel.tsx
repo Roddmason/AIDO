@@ -3,14 +3,14 @@
  * scope, policy reason, linked evidence/artifacts, the patch/diff/security gate,
  * and the decision reason with the gated Approve/Reject buttons. Purely
  * presentational — all decision state and side effects come in via the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { AnimatePresence, m } from 'motion/react';
 
 import type { ActionRequest } from '../../api/types';
 import { Disclosure } from '../../components/Disclosure';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { artifactDisplayName } from '../../lib/artifacts';
 import { hasRealPatchChanges } from '../../lib/diff';
@@ -27,10 +27,14 @@ type ArtifactPreview = ReturnType<typeof useArtifactPreview>;
 function DetailRow({ label, value }: { label: string; value: string }) {
 	const { t } = useI18n();
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: role="row" preserves the table-row semantics the .diff-grid CSS grid depends on; a native <tr> resets display:table-row and breaks grid-template-columns.
+		// biome-ignore lint/a11y/useFocusableInteractive: data row within the ARIA table is not interactive; adding tabIndex would create a spurious keyboard tab stop.
 		<div className="diff-row" role="row">
+			{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout. */}
 			<div role="cell" className="mono">
 				{label}
 			</div>
+			{/* biome-ignore lint/a11y/useSemanticElements: role="cell" preserves table-cell semantics; a native <td> carries table-cell display that breaks the grid layout. */}
 			<div role="cell">{value || t('app.review.notRecorded', 'not recorded')}</div>
 		</div>
 	);
@@ -58,6 +62,21 @@ export function ApprovalDecisionPanel({
 	onReject: () => void;
 }) {
 	const { t } = useI18n();
+	const productLoopDeliveryApproval = selectedAction.actionType === 'product_loop.approve_delivery';
+	const rejectLabel = productLoopDeliveryApproval
+		? t('app.review.productLoopRequestChanges', 'Request changes')
+		: t('ui.static.reject.4c7c9dde', 'Reject');
+	const decisionHelp = decision.patchGate?.required
+		? t(
+				'app.review.copy.25',
+				'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
+			)
+		: productLoopDeliveryApproval
+			? t(
+					'app.review.productLoopDecisionHelp',
+					'Approve delivery or request changes is blocked until this reason is recorded.',
+				)
+			: t('app.review.copy.26', 'Approve or reject is blocked until this reason is recorded.');
 	return (
 		<AnimatePresence mode="wait">
 			<m.div
@@ -77,6 +96,7 @@ export function ApprovalDecisionPanel({
 							: t('app.review.noExpiration', 'no expiration recorded')}
 					</Badge>
 				</div>
+				{/* biome-ignore lint/a11y/useSemanticElements: role="table" preserves the tabular semantics the CSS grid layout (.diff-grid display:grid) depends on; a native <table> resets display:table and breaks the grid columns. */}
 				<div
 					className="diff-grid"
 					role="table"
@@ -289,7 +309,6 @@ export function ApprovalDecisionPanel({
 										)}
 							</span>
 						</div>
-						{/* 13-control checklist: failures first so blockers are seen at a glance. */}
 						<ul className="evidence-checklist">
 							{[...decision.patchGate.checks]
 								.sort((left, right) => Number(left.ok) - Number(right.ok))
@@ -441,17 +460,7 @@ export function ApprovalDecisionPanel({
 								decision.setDecisionError('');
 							}}
 						/>
-						<div className="field-help">
-							{decision.patchGate?.required
-								? t(
-										'app.review.copy.25',
-										'Approve patch also requires complete linked evidence, non-blocking security findings, and a real diff. Reject only requires a recorded reason.',
-									)
-								: t(
-										'app.review.copy.26',
-										'Approve or reject is blocked until this reason is recorded.',
-									)}
-						</div>
+						<div className="field-help">{decisionHelp}</div>
 					</div>
 					{decision.decisionError ? (
 						<div className="form-error" role="alert">
@@ -475,7 +484,7 @@ export function ApprovalDecisionPanel({
 							disabled={decision.decisionBlocked}
 							onClick={onReject}
 						>
-							{t('ui.static.reject.4c7c9dde', 'Reject')}
+							{rejectLabel}
 						</button>
 					</div>
 				</div>

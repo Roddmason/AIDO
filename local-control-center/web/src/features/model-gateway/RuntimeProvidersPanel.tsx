@@ -4,12 +4,12 @@
  * variables and the per-runtime healthcheck action. The primary view stays narrow; advanced
  * columns (capabilities, last error, version, detected command) are revealed on demand through the
  * column chooser. Secrets are always passed through `redactVisibleSecret`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 
 import type { RuntimeProvider, RuntimeProviderConfiguration } from '../../api/types';
-import { Badge, DataTable, EmptyState, Surface } from '../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { redactVisibleSecret } from '../../lib/format';
 import { type AdvancedColumn, ColumnChooser, useColumnVisibility } from './ColumnChooser';
@@ -243,6 +243,15 @@ export function RuntimeProvidersPanel({
 			.map((column) => advancedColumns[column.key]),
 		healthColumn,
 	];
+	const emptyRuntimeProviders = (
+		<EmptyState
+			title={t('ui.static.no.runtime.provider.status.70888a8d', 'No runtime provider status')}
+			body={t(
+				'ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d',
+				'Runtime discovery has not returned provider status records.',
+			)}
+		/>
+	);
 
 	return (
 		<Surface title={t('ui.static.runtime.and.model.gateway.45cf9fb6', 'Runtime & Model Gateway')}>
@@ -250,19 +259,28 @@ export function RuntimeProvidersPanel({
 				{t('ui.static.runtime.providers.0acdc40d', 'Runtime Providers')}
 			</h3>
 			<ColumnChooser advanced={advanced} visible={visible} onToggle={toggle} />
-			<DataTable
-				rows={runtimeRows}
-				empty={
-					<EmptyState
-						title={t('ui.static.no.runtime.provider.status.70888a8d', 'No runtime provider status')}
-						body={t(
-							'ui.static.runtime.discovery.has.not.returned.provider.status.records.baf9776d',
-							'Runtime discovery has not returned provider status records.',
-						)}
-					/>
-				}
-				columns={columns}
-			/>
+			{runtimeRows.length ? (
+				<DataTable rows={runtimeRows} empty={emptyRuntimeProviders} columns={columns} />
+			) : (
+				<div className="table-wrap">
+					<table className="data-table">
+						<thead>
+							<tr>
+								{columns.map((column) => (
+									<th key={column.key} scope="col">
+										{column.label}
+									</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td colSpan={columns.length}>{emptyRuntimeProviders}</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			)}
 		</Surface>
 	);
 }

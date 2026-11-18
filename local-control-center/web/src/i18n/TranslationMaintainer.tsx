@@ -4,13 +4,13 @@
  * Edits a local draft clone so changes stay uncommitted until saved, then persists
  * the whole catalog through the control plane and refreshes the live i18n context.
  * Adding a language seeds each key from the default-language value as a placeholder.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { Languages, Plus, Save, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { I18nCatalogResponse } from '../api/client';
 import { updateI18nCatalog } from '../api/client';
-import { EmptyState, Surface } from '../components/primitives';
+import { EmptyState, Surface } from '../components/ui';
 import { useI18n } from './I18nProvider';
 
 /** Runs a token-authenticated control-plane write; injected so the editor stays decoupled from the session. */

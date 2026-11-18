@@ -2,23 +2,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
 from local_control_center.agents.providers.base import ProviderHealth
+from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
+from local_control_center.agents.providers.ollama import OllamaProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.app import create_app
+from local_control_center.host_resources.models import ResourceSnapshot
+from local_control_center.host_resources.probes import HostResourceProbe
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.security_policy.git_command_runner import git_available, run_git
 from local_control_center.security_policy.sandbox import RestrictedSubprocessSandbox
 from local_control_center.workflows.issue_to_patch_runner import _status_from_developer_result
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+from tests_py.fakes.local_llm_servers import ScriptedChatReply, reasoning_llm_server, sqlite_text_dump
+
+
+@pytest.fixture(autouse=True)
+def controlled_domain_host(monkeypatch):
+    # Functional workflows use real Git/processes but deterministic capacity.
+    # The outer quality runner and native governor suites still measure the actual host.
+    monkeypatch.setattr(HostResourceProbe, "sample", lambda self, **kwargs: ResourceSnapshot.test_snapshot())
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -26,19 +41,27 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
-    monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
-    monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    # The test owns its injected runtime. Close clients before their runtime,
+    # also when setup/assertions fail, without closing unrelated product resources.
+    with ExitStack() as owners:
+
+        def create(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            monkeypatch.delenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", raising=False)
+            monkeypatch.delenv("AIDO_ENABLE_CLI_RUNTIMES", raising=False)
+            monkeypatch.delenv("AIDO_GITHUB_TOKEN", raising=False)
+            monkeypatch.delenv("AIDO_GITHUB_REMOTE", raising=False)
+            store = owners.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = owners.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create
 
 
 def create_project(store: ControlPlaneFixture, tmp_path: Path, name: str = "Patch Project") -> dict[str, Any]:
@@ -109,6 +132,16 @@ def configure_remote_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def enable_remote_provider_accounts(store: ControlPlaneFixture) -> None:
+    runtime_settings = RuntimeConfigRepository(store.connection)
+    runtime_settings.set_runtime_setting("runtime.remote.enabled", True)
+    runtime_settings.set_runtime_setting("runtime.nvidia.enabled", True)
+    store.connection.execute(
+        """
+        UPDATE runtime_installations
+        SET enabled = 1
+        WHERE runtime_id IN ('openai_compatible', 'openrouter', 'nvidia_nim', 'anthropic_api')
+        """
+    )
     store.connection.execute(
         """
         UPDATE provider_accounts
@@ -315,6 +348,7 @@ def create_promoted_issue_to_patch(
 
 
 def test_github_pull_request_config_is_not_required_for_startup(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -328,6 +362,7 @@ def test_github_pull_request_config_is_not_required_for_startup(
 
 
 def test_workflow_detail_contract_exposes_full_audit_records(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -493,6 +528,7 @@ def test_workflow_detail_contract_exposes_full_audit_records(
 
 
 def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposing_values(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -560,6 +596,7 @@ def test_runtime_provider_configuration_endpoint_detects_aido_env_without_exposi
 
 
 def test_runtime_provider_configuration_endpoint_reports_missing_config_with_reasons(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -591,6 +628,7 @@ def test_runtime_provider_configuration_endpoint_reports_missing_config_with_rea
 
 
 def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_values(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -601,7 +639,7 @@ def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_v
     monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "vendor/model-compatible")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -625,6 +663,7 @@ def test_runtime_provider_status_uses_aido_env_config_without_revealing_secret_v
 
 
 def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -634,7 +673,7 @@ def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
     monkeypatch.setenv("AIDO_ANTHROPIC_MODEL", "claude-test-model")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -660,13 +699,14 @@ def test_anthropic_status_requires_aido_model_and_real_health_before_execution(
 
 
 def test_runtime_provider_status_does_not_report_api_available_without_credentials(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -696,13 +736,14 @@ def test_runtime_provider_status_does_not_report_api_available_without_credentia
 
 
 def test_remote_provider_status_fails_closed_without_configuration(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -728,6 +769,7 @@ def test_remote_provider_status_fails_closed_without_configuration(
 
 
 def test_remote_provider_status_does_not_call_remote_health_by_default(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -738,7 +780,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -747,6 +789,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
         },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", fail_if_health_checked)
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", fail_if_health_checked)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", fail_if_health_checked)
     store, client, _headers = create_client(tmp_path, monkeypatch)
     enable_remote_provider_accounts(store)
@@ -767,6 +810,7 @@ def test_remote_provider_status_does_not_call_remote_health_by_default(
 
 
 def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -783,7 +827,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -792,6 +836,7 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
         },
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", failed_provider)
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", failed_provider)
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", failed_provider)
     store, client, headers = create_client(tmp_path, monkeypatch)
     enable_remote_provider_accounts(store)
@@ -823,7 +868,8 @@ def test_remote_provider_failed_healthcheck_persists_sanitized_reason(
         assert "Bearer" not in str(provider)
 
 
-def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for_executable(
+def test_remote_provider_healthy_requires_enabled_account_and_sqlite_policy_for_executable(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -840,7 +886,7 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
     configure_remote_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -850,6 +896,8 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
     )
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     monkeypatch.setattr(OpenAICompatibleProvider, "list_models", lambda _self: [])
+    monkeypatch.setattr(NvidiaNimProvider, "health_check", healthy_provider)
+    monkeypatch.setattr(NvidiaNimProvider, "list_models", lambda _self: [])
     monkeypatch.setattr(AnthropicAPIProvider, "health_check", healthy_provider)
     monkeypatch.setattr(AnthropicAPIProvider, "list_models", lambda _self: [])
     store, client, headers = create_client(tmp_path, monkeypatch)
@@ -869,9 +917,11 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
         provider = disabled_providers[provider_id]
         assert provider["configured"] is True
         assert provider["available"] is True
-        assert provider["executable"] is False
+        assert provider["executable"] is True
         assert provider["healthStatus"] == "healthy"
-        assert "AIDO_ENABLE_REAL_PROVIDER_CALLS=false" in provider["reason"]
+        assert any(
+            "AIDO_ENABLE_REAL_PROVIDER_CALLS" in warning for warning in provider["configurationWarnings"]
+        )
 
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     enabled_flag = client.get("/api/v1/runtime/providers").json()
@@ -896,13 +946,14 @@ def test_remote_provider_healthy_requires_enabled_account_and_real_call_flag_for
 
 
 def test_runtime_provider_status_reports_missing_cli_as_not_detected(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -920,27 +971,41 @@ def test_runtime_provider_status_reports_missing_cli_as_not_detected(
     assert codex["configured"] is False
     assert codex["available"] is False
     assert codex["executable"] is False
+    assert codex["versionVerified"] is False
+    assert codex["productOwnerExecutable"] is False
     assert codex["detectedCommand"] is None
-    assert codex["requiredConfiguration"] == ["command"]
+    assert codex["requiredConfiguration"] == ["command", "authentication"]
     assert "not detected" in codex["reason"].lower()
 
 
 def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clear_runtime_provider_env(monkeypatch)
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
-        lambda **_kwargs: {
-            "provider": "ollama",
-            "available": False,
-            "models": [],
-            "reason": "Connection refused",
-        },
+        OllamaProvider,
+        "health_check",
+        lambda self: ProviderHealth(
+            providerId=self.provider_id,
+            status="offline",
+            healthStatus="offline",
+            message="Connection refused",
+        ),
     )
     _store, client, _headers = create_client(tmp_path, monkeypatch)
+    assert (
+        client.patch(
+            "/api/v1/model-gateway/providers/ollama", headers=_headers, json={"enabled": True}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post("/api/v1/model-gateway/providers/ollama/health-check", headers=_headers).status_code
+        == 200
+    )
 
     response = client.get("/api/v1/runtime/providers")
 
@@ -955,7 +1020,61 @@ def test_runtime_provider_status_reports_ollama_down_with_real_health_reason(
     assert "connection refused" in ollama["reason"].lower()
 
 
+def test_runtime_provider_status_treats_configured_remote_ollama_as_ollama_runtime(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clear_runtime_provider_env(monkeypatch)
+    monkeypatch.setattr("shutil.which", lambda _command: None)
+
+    monkeypatch.setattr(
+        OllamaProvider,
+        "health_check",
+        lambda self: ProviderHealth(
+            providerId=self.provider_id,
+            status="healthy",
+            healthStatus="healthy",
+            message="Remote Ollama responded.",
+        ),
+    )
+    store, client, _headers = create_client(tmp_path, monkeypatch)
+    store.connection.execute("UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'ollama'")
+    store.connection.execute("UPDATE provider_accounts SET enabled = 0 WHERE provider_id = 'ollama'")
+    store.connection.execute(
+        """
+        UPDATE provider_accounts
+        SET enabled = 1,
+            base_url = ?,
+            credential_ref = '',
+            api_format = 'ollama',
+            last_error = ''
+        WHERE provider_id = 'ollama_remote'
+        """,
+        ("http://remote.ollama.test",),
+    )
+    assert (
+        client.post(
+            "/api/v1/model-gateway/providers/ollama_remote/health-check", headers=_headers
+        ).status_code
+        == 200
+    )
+
+    response = client.get("/api/v1/runtime/providers")
+
+    assert response.status_code == 200
+    body = response.json()
+    remote = {provider["id"]: provider for provider in body["providers"]}["ollama_remote"]
+    assert remote["available"] is True
+    assert remote["executable"] is True
+    assert body["ollama"]["provider"] == "ollama_remote"
+    assert body["ollama"]["available"] is True
+    # Health proves reachability, not a fresh model inventory. GET must not call /api/tags.
+    assert body["ollama"]["models"] == []
+
+
 def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -972,7 +1091,7 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-runtime-status123456")
     monkeypatch.setattr("shutil.which", lambda _command: None)
     monkeypatch.setattr(
-        "local_control_center.agents.runtime_status.ollama_status",
+        "local_control_center.agents.runtime_status.cached_ollama_status",
         lambda **_kwargs: {
             "provider": "ollama",
             "available": False,
@@ -983,6 +1102,10 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
     monkeypatch.setattr(OpenAICompatibleProvider, "health_check", healthy_provider)
     store, client, headers = create_client(tmp_path, monkeypatch)
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+    store.connection.execute(
+        "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+    )
     store.connection.execute(
         """
         UPDATE provider_accounts
@@ -1024,6 +1147,7 @@ def test_openai_compatible_status_requires_config_model_and_explicit_healthcheck
 
 
 def test_issue_to_patch_requires_structured_qa_argv(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1046,6 +1170,7 @@ def test_issue_to_patch_requires_structured_qa_argv(
 
 
 def test_issue_to_patch_without_executable_runtime_finishes_unavailable_not_success(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1097,6 +1222,7 @@ def test_issue_to_patch_without_executable_runtime_finishes_unavailable_not_succ
 
 
 def test_issue_to_patch_removed_simulation_runtime_is_rejected(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1115,10 +1241,11 @@ def test_issue_to_patch_removed_simulation_runtime_is_rejected(
     )
 
     assert response.status_code == 422
-    assert "internal_mock" in response.json()["detail"]
+    assert "not in the product catalog" in response.json()["detail"]
 
 
 def test_issue_to_patch_completed_requires_diff_evidence_and_passed_qa(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1187,6 +1314,7 @@ def test_restricted_subprocess_blocks_network_host_two_token_variant(tmp_path: P
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_runtime_unavailable_when_executable_runtime_has_no_real_command(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1227,6 +1355,7 @@ def test_issue_to_patch_runtime_unavailable_when_executable_runtime_has_no_real_
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_creates_diff_patch_artifact_and_requires_review(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1277,6 +1406,7 @@ def test_issue_to_patch_real_runtime_creates_diff_patch_artifact_and_requires_re
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_transitions_workflow_job_and_agent_run_after_human_review(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1346,6 +1476,7 @@ def test_issue_to_patch_approval_transitions_workflow_job_and_agent_run_after_hu
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_rejects_unapproved_action_request(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1384,6 +1515,7 @@ def test_issue_to_patch_approval_rejects_unapproved_action_request(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_approval_rejects_blocking_security_findings(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1452,6 +1584,7 @@ def test_issue_to_patch_approval_rejects_blocking_security_findings(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_requires_approved_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1492,6 +1625,7 @@ def test_promote_patch_to_branch_requires_approved_evidence(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_rejects_tampered_patch_artifact_sha256(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1539,6 +1673,7 @@ def test_promote_patch_to_branch_rejects_tampered_patch_artifact_sha256(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_reruns_qa(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1582,6 +1717,17 @@ def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_
     assert body["evidencePackage"]["taskId"] == "promote_patch_to_branch"
     assert body["evidencePackage"]["qaVerdict"] == "passed"
     assert body["qaResults"] and all(result["status"] == "passed" for result in body["qaResults"])
+    apply_check = body["runtimeResult"]["gitApplyCheck"]
+    apply_result = body["runtimeResult"]["gitApply"]
+    assert apply_check["toolCallId"]
+    assert apply_check["permissionDecisionId"]
+    assert apply_check["execution"] == "restricted_subprocess"
+    assert apply_result["toolCallId"]
+    assert apply_result["permissionDecisionId"]
+    assert apply_result["execution"] == "restricted_subprocess"
+    evidence_tool_call_ids = {tool_call["id"] for tool_call in body["evidencePackage"]["toolCalls"]}
+    assert apply_check["toolCallId"] in evidence_tool_call_ids
+    assert apply_result["toolCallId"] in evidence_tool_call_ids
     promotion_workspace = Path(body["workspace"]["path"])
     assert (promotion_workspace / "patched.txt").read_text(encoding="utf-8") == "real runtime patch\n"
     assert run_git(["-C", str(promotion_workspace), "branch", "--show-current"]).stdout.strip() == branch_name
@@ -1603,6 +1749,7 @@ def test_promote_patch_to_branch_creates_safe_branch_applies_verified_patch_and_
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_promote_patch_to_branch_does_not_mark_promoted_when_post_apply_qa_fails(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1651,6 +1798,7 @@ def test_promote_patch_to_branch_does_not_mark_promoted_when_post_apply_qa_fails
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_rejects_runs_without_promoted_branch(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1694,6 +1842,7 @@ def test_create_pull_request_rejects_runs_without_promoted_branch(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_reports_pr_unavailable_when_github_config_is_missing(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1733,6 +1882,7 @@ def test_create_pull_request_reports_pr_unavailable_when_github_config_is_missin
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1803,6 +1953,7 @@ def test_create_pull_request_posts_audited_pr_body_from_promoted_branch(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_create_pull_request_does_not_fake_success_when_github_api_fails(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1847,6 +1998,7 @@ def test_create_pull_request_does_not_fake_success_when_github_api_fails(
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_review_gate(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1912,6 +2064,7 @@ def test_issue_to_patch_real_runtime_completes_only_with_qa_evidence_and_no_revi
 
 @pytest.mark.skipif(not git_available(), reason="git CLI is not available")
 def test_issue_to_patch_real_runtime_with_failing_qa_finishes_qa_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1979,6 +2132,7 @@ def test_issue_to_patch_completed_requires_valid_evidence_package_contract() -> 
 
 
 def test_issue_to_patch_does_not_execute_runtime_without_git_worktree_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2011,3 +2165,205 @@ def test_issue_to_patch_does_not_execute_runtime_without_git_worktree_evidence(
     assert body["diffSummary"]["blockerState"] == "workspace_not_auditable"
     assert "worktree" in body["reason"].lower()
     assert not Path(body["workspace"]["path"], "patched.txt").exists()
+
+
+THINK_MARKER = "reasoning-marker-7f3a9c"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_issue_to_patch_parses_reasoning_and_redaction_breaking_output_from_the_transient_channel(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    patch = {
+        "summary": "reasoned issue patch",
+        "files": [{"path": "reasoned.txt", "content": "Greeting prompt: welcome aboard\n"}],
+        "tests": [],
+        "risks": [],
+    }
+    reply = ScriptedChatReply(content=f"<think>{THINK_MARKER} reading the issue</think>\n{json.dumps(patch)}")
+    with reasoning_llm_server([reply], model_id="controlled-model") as server:
+        store, client, headers = create_client(tmp_path, monkeypatch)
+        clear_runtime_provider_env(monkeypatch)
+        monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_BASE_URL", server.base_url)
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_API_KEY", "unit-test-openai-compatible-key")
+        monkeypatch.setenv("AIDO_OPENAI_COMPATIBLE_MODEL", "controlled-model")
+        RuntimeConfigRepository(store.connection).set_runtime_setting("runtime.remote.enabled", True)
+        store.connection.execute(
+            "UPDATE runtime_installations SET enabled = 1 WHERE runtime_id = 'openai_compatible'"
+        )
+        store.connection.execute(
+            "UPDATE provider_accounts SET enabled = 1 WHERE provider_id = 'openai_compatible'"
+        )
+        health = client.post(
+            "/api/v1/model-gateway/providers/openai_compatible/health-check", headers=headers
+        )
+        assert health.json()["health"]["healthStatus"] == "healthy"
+        project = create_git_project(store, tmp_path, name="Issue Transient Channel")
+        response = client.post(
+            "/api/v1/workflows/issue-to-patch",
+            headers=headers,
+            json={
+                "projectId": project["id"],
+                "title": "Create reasoned file",
+                "issueText": "Create reasoned.txt.",
+                "preferredRuntime": "openai_compatible",
+                "qaCommands": [[sys.executable, "--version"]],
+                "requireApproval": True,
+            },
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "evidence_ready"
+    assert "reasoned.txt" in body["diffSummary"]["changedFiles"]
+    assert THINK_MARKER not in sqlite_text_dump(store.connection)
+    assert THINK_MARKER not in caplog.text
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_create_pull_request_does_not_call_github_when_branch_push_fails(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    _project, created, _approved, _promoted = create_promoted_issue_to_patch(
+        store,
+        client,
+        headers,
+        tmp_path,
+        monkeypatch,
+        branch_name="aido/promote/pr-push-fails",
+        project_name="PR Push Fails",
+    )
+    runner_module = "local_control_center.workflows.issue_to_patch_runner"
+    monkeypatch.setattr(f"{runner_module}.git_remote_exists", lambda **_kwargs: True)
+    monkeypatch.setattr(
+        f"{runner_module}.push_branch_to_remote",
+        lambda **_kwargs: {"status": "failed", "stderr": "rejected: non-fast-forward"},
+    )
+    server, origin, requests = start_github_pr_http_mock()
+    try:
+        monkeypatch.setenv("AIDO_GITHUB_TOKEN", "unit-test-github-token")
+        monkeypatch.setenv("AIDO_GITHUB_REMOTE", f"{origin}/aido/patches.git")
+
+        response = client.post(
+            f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/pull-request",
+            headers=headers,
+            json={"reason": "Branch push failure must block the PR.", "baseBranch": "main"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pr_failed"
+    assert body["reason"].startswith("Promoted branch push failed before PR creation")
+    assert "non-fast-forward" in body["reason"]
+    assert body["workflowRun"]["status"] == "promoted_to_branch"
+    assert body["evidencePackage"]["qaVerdict"] == "failed"
+    assert body["pullRequest"]["status"] == "failed"
+    assert requests == []
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_promote_patch_to_branch_fails_when_promotion_evidence_contract_is_incomplete(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Promotion Contract Gap")
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    created = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch for contract gap",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": True,
+        },
+    ).json()
+    approve_issue_to_patch_for_integration(client, headers, created)
+    runner_module = sys.modules["local_control_center.workflows.issue_to_patch_runner"]
+    real_contract_errors = runner_module.evidence_package_contract_errors
+
+    def contract_errors(evidence: dict[str, Any], **kwargs: Any) -> list[str]:
+        if evidence.get("taskId") == "promote_patch_to_branch" and kwargs.get("require_runtime_links"):
+            return ["forced contract gap"]
+        return real_contract_errors(evidence, **kwargs)
+
+    monkeypatch.setattr(runner_module, "evidence_package_contract_errors", contract_errors)
+
+    promoted = client.post(
+        f"/api/v1/workflows/issue-to-patch/{created['workflowRun']['id']}/promote",
+        headers=headers,
+        json={"reason": "Promote despite evidence gap.", "branchName": "aido/promote/contract-gap"},
+    )
+
+    assert promoted.status_code == 202
+    body = promoted.json()
+    assert body["status"] == "promotion_failed"
+    assert "Promotion evidence package contract is incomplete: forced contract gap" in body["reason"]
+    assert body["workflowRun"]["status"] == "promotion_failed"
+    assert body["workflowRun"]["completedAt"] is None
+    assert body["workflowRun"]["metadata"]["promotedBranchName"] is None
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert body["agentRun"]["status"] == "failed"
+    assert body["job"]["status"] == "failed"
+
+
+@pytest.mark.skipif(not git_available(), reason="git CLI is not available")
+def test_issue_to_patch_run_is_not_completed_when_evidence_contract_is_incomplete(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project = create_git_project(store, tmp_path, name="Run Contract Gap")
+    monkeypatch.setattr(
+        "local_control_center.workflows.issue_to_patch_runner.RuntimeStatusService.list_provider_statuses",
+        lambda _service: controlled_issue_to_patch_runtime_status(),
+    )
+    runner_module = sys.modules["local_control_center.workflows.issue_to_patch_runner"]
+    real_contract_errors = runner_module.evidence_package_contract_errors
+
+    def contract_errors(evidence: dict[str, Any], **kwargs: Any) -> list[str]:
+        if kwargs.get("require_runtime_links") and not kwargs.get("require_workflow_run"):
+            return ["forced contract gap"]
+        return real_contract_errors(evidence, **kwargs)
+
+    monkeypatch.setattr(runner_module, "evidence_package_contract_errors", contract_errors)
+
+    response = client.post(
+        "/api/v1/workflows/issue-to-patch",
+        headers=headers,
+        json={
+            "projectId": project["id"],
+            "title": "Create patch with contract gap",
+            "issueText": "Create patched.txt.",
+            "preferredRuntime": "codex_cli",
+            "qaCommands": [[sys.executable, "--version"]],
+            "requireApproval": False,
+        },
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "evidence_ready"
+    assert body["reason"] == "Evidence package contract is incomplete or unverifiable."
+    assert body["evidencePackage"]["qaVerdict"] == "blocked"
+    assert body["workflowRun"]["status"] == "evidence_ready"
+    assert body["agentRun"]["status"] == "failed"

@@ -32,6 +32,14 @@
 	background: var(--color-surface-card-hover);
 }
 
+/* Disabled reads as unavailable, not just faded: the global opacity (base.css) alone left a secondary
+   button's label close to an enabled one on both themes. Size and position stay put. */
+.button:disabled:not(.primary):not(.danger) {
+	border-color: var(--color-border-default);
+	background: transparent;
+	color: var(--color-text-disabled);
+}
+
 .button.primary:hover:not(:disabled) {
 	background: var(--color-accent-strong);
 	border-color: var(--color-accent-strong);
@@ -58,8 +66,15 @@
 		color var(--duration-normal) var(--ease-standard);
 }
 
+.icon-button:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Size hooks: a dense container (a provider card) sets --badge-height / --badge-font-size once
+ * instead of re-targeting `.badge` with descendant selectors. */
 .badge {
-	min-height: 1.75rem;
+	min-height: var(--badge-height, 1.75rem);
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-2);
@@ -68,7 +83,7 @@
 	border-radius: var(--radius-pill);
 	background: var(--color-surface-inset);
 	color: var(--color-text-secondary);
-	font-size: var(--font-size-sm);
+	font-size: var(--badge-font-size, var(--font-size-sm));
 	font-weight: var(--weight-semibold);
 	white-space: nowrap;
 }
@@ -78,9 +93,13 @@
 	color: color-mix(in oklch, var(--color-status-success) 82%, var(--color-text-primary));
 }
 
+/* Warning mixes run in oklab, never oklch: the oklch hue path from amber (82) to the blue-grey text
+ * and borders (255) crosses green and turned every warning olive. 78% warning toward the primary
+ * text keeps amber at >= 5.2:1 (light) and >= 8.3:1 (dark) on every card/inset surface. The same
+ * space is used for every warning mix in the design system. */
 .badge[data-tone="warn"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 48%, var(--color-border-default));
-	color: color-mix(in oklch, var(--color-status-warning) 78%, var(--color-text-primary));
+	border-color: color-mix(in oklab, var(--color-status-warning) 48%, var(--color-border-default));
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
 }
 
 .badge[data-tone="danger"] {
@@ -113,7 +132,7 @@
 
 .status-dot[data-tone="warn"] {
 	background: var(--color-status-warning);
-	box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-status-warning) 20%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-status-warning) 20%, transparent);
 }
 
 .status-dot[data-tone="danger"] {
@@ -224,6 +243,16 @@
 	color: var(--color-text-secondary);
 	line-height: var(--line-normal);
 	overflow-wrap: anywhere;
+}
+
+/* Status reasons on provider/runtime cards: two lines at most so a grid of cards stays scannable;
+   the full text lives in the title tooltip of the same paragraph. */
+.card-reason {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
 }
 
 /* Workspace dialog: mode choice (step 1) and detection cards (step 2). */
@@ -597,20 +626,12 @@ kbd.command-kbd {
 	font-weight: var(--weight-semibold);
 }
 
-.diff-before {
-	border-color: color-mix(
-		in oklch,
-		var(--color-status-danger) 34%,
-		var(--color-border-default)
-	) !important;
+.diff-row > .diff-before {
+	border-color: color-mix(in oklch, var(--color-status-danger) 34%, var(--color-border-default));
 }
 
-.diff-after {
-	border-color: color-mix(
-		in oklch,
-		var(--color-status-success) 34%,
-		var(--color-border-default)
-	) !important;
+.diff-row > .diff-after {
+	border-color: color-mix(in oklch, var(--color-status-success) 34%, var(--color-border-default));
 }
 
 .form-grid {
@@ -627,6 +648,27 @@ kbd.command-kbd {
 	border-radius: var(--radius-lg);
 	color: var(--color-text-secondary);
 	background: color-mix(in oklch, var(--color-surface-card) 72%, transparent);
+}
+
+/* A call-to-action hugs its label instead of stretching across the empty card. */
+.empty-state > .button {
+	justify-self: start;
+	margin-top: var(--space-1);
+}
+
+.empty-state--compact {
+	gap: var(--space-1);
+	padding: var(--space-3);
+	border-color: var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.empty-state--compact strong {
+	font-weight: var(--weight-medium);
+	color: var(--color-text-secondary);
 }
 
 .drawer {
@@ -734,6 +776,12 @@ kbd.command-kbd {
 
 .settings-console-link:hover {
 	text-decoration: underline;
+}
+
+.settings-console-link:focus-visible {
+	outline: none;
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-focus);
 }
 
 /* Group of "config lives elsewhere" deep links (wraps .settings-console-link). */
@@ -855,6 +903,90 @@ kbd.command-kbd {
 	background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-card));
 }
 
+/* These two setup journeys share the existing stepper and tokens, not a new shell. */
+.workspace-setup-wizard .wizard-steps {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.provider-setup-wizard .wizard-steps {
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.workspace-setup-wizard .wizard-steps li,
+.provider-setup-wizard .wizard-steps li {
+	min-width: 0;
+	padding: var(--space-2);
+	font-size: var(--font-size-xs);
+	overflow-wrap: anywhere;
+}
+
+/* Add-credential form: a framed card, three aligned columns (Label | Source | Auth mode, then
+ * Credential ref | Credential | Add) with the button sitting on the field baseline. */
+.credential-manager > form {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	align-items: end;
+	gap: var(--space-3) var(--space-4);
+	padding: var(--space-4);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-lg);
+	background: var(--color-surface-card);
+}
+
+.credential-form-title {
+	grid-column: 1 / -1;
+	margin: 0;
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-primary);
+}
+
+.credential-manager > form > .settings-action {
+	justify-self: start;
+}
+
+@media (max-width: 900px) {
+	.credential-manager > form {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 600px) {
+	.credential-manager > form {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	/* Phones: five labelled cells broke words mid-way ("Credenti…"). The stepper becomes one row of
+	 * equal step-number chips; only the current step's label shows, lifted (absolute, relative to
+	 * the list) into a caption line reserved under the row. The other labels stay for screen readers. */
+	.provider-setup-wizard .wizard-steps {
+		position: relative;
+		grid-template-columns: none;
+		grid-auto-flow: column;
+		grid-auto-columns: minmax(0, 1fr);
+		padding-bottom: calc(var(--font-size-sm) * var(--line-snug) + var(--space-2));
+	}
+	.provider-setup-wizard .wizard-steps li {
+		justify-items: center;
+		overflow-wrap: normal;
+	}
+	.provider-setup-wizard .wizard-steps li > strong {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.provider-setup-wizard .wizard-steps li.current > strong {
+		inset-inline-start: 0;
+		bottom: 0;
+		width: auto;
+		height: auto;
+		clip-path: none;
+		font-size: var(--font-size-sm);
+		line-height: var(--line-snug);
+	}
+}
+
 .review-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -889,6 +1021,34 @@ kbd.command-kbd {
 	background: var(--color-surface-inset);
 	color: var(--color-text-primary);
 	padding: var(--space-2) var(--space-3);
+	font: inherit;
+	transition:
+		border-color var(--duration-fast) var(--ease-standard),
+		box-shadow var(--duration-fast) var(--ease-standard),
+		background-color var(--duration-fast) var(--ease-standard);
+}
+
+.input:hover:not(:disabled):not(:focus),
+.textarea:hover:not(:disabled):not(:focus),
+.select:hover:not(:disabled):not(:focus) {
+	border-color: var(--color-border-strong);
+}
+
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+	background: transparent;
+	color: var(--color-text-disabled);
+	cursor: not-allowed;
+}
+
+/* Errors only after the user committed a value or tried to submit (:user-invalid), never on an
+ * untouched required field; border plus tint so the state is not carried by hue alone. */
+.input:user-invalid,
+.textarea:user-invalid,
+.select:user-invalid {
+	border-color: var(--color-status-danger);
+	background: color-mix(in oklch, var(--color-status-danger) 7%, var(--color-surface-inset));
 }
 
 .input::placeholder,
@@ -907,6 +1067,173 @@ kbd.command-kbd {
 .textarea {
 	min-height: 5.5rem;
 	resize: vertical;
+}
+
+/* Switch: `label.setting-switch > input[type=checkbox] + .setting-switch-track + .setting-switch-state`.
+ * The native checkbox stays the control (role, checked state, keyboard, form semantics): it is only
+ * made transparent and stretched over the whole label, so the pointer target is the full label
+ * (>= 24px tall, WCAG 2.5.8) and focus still lands on a real input. The track mirrors the input's
+ * state through sibling selectors; checked uses the accent + inverse pair of `.button.primary`. */
+.setting-switch {
+	position: relative;
+	min-height: 1.5rem;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-medium);
+	white-space: nowrap;
+	cursor: pointer;
+	user-select: none;
+}
+
+.setting-switch > input[type="checkbox"] {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: inherit;
+}
+
+.setting-switch-track {
+	position: relative;
+	flex: 0 0 auto;
+	width: 2.25rem;
+	height: 1.25rem;
+	display: inline-flex;
+	align-items: center;
+	padding: 0 0.1875rem;
+	/* Unchecked boundary mixes toward muted text so the track keeps >= 3:1 against light panels,
+	 * where --color-border-strong alone falls just short of the non-text contrast minimum. */
+	border: 1px solid color-mix(in oklch, var(--color-border-strong) 50%, var(--color-text-muted));
+	border-radius: var(--radius-pill);
+	background: var(--color-surface-inset);
+	transition:
+		background-color var(--duration-fast) var(--ease-standard),
+		border-color var(--duration-fast) var(--ease-standard),
+		box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.setting-switch-thumb {
+	width: 0.8125rem;
+	height: 0.8125rem;
+	border-radius: var(--radius-pill);
+	background: var(--color-text-secondary);
+	transition:
+		transform var(--duration-normal) var(--ease-emphasized),
+		background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Reserves the width of the longer state word so toggling never shifts the track sideways. */
+.setting-switch-state {
+	min-inline-size: 3ch;
+}
+
+.setting-switch:hover .setting-switch-track {
+	border-color: var(--color-text-secondary);
+}
+
+.setting-switch > input:checked + .setting-switch-track {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+.setting-switch:hover > input:checked + .setting-switch-track {
+	border-color: var(--color-accent-strong);
+	background: var(--color-accent-strong);
+}
+
+.setting-switch > input:checked + .setting-switch-track .setting-switch-thumb {
+	background: var(--color-text-inverse);
+	transform: translateX(0.9375rem);
+}
+
+.setting-switch > input:checked ~ .setting-switch-state {
+	color: var(--color-text-primary);
+}
+
+/* The ring is drawn on the visible track; the transparent input keeps no outline of its own. */
+.setting-switch > input:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+.setting-switch > input:focus-visible + .setting-switch-track {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 2px;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Disabled (native) and pending (`data-disabled`, set while a save is in flight) read the same,
+ * and hover no longer promises an action. */
+.setting-switch:has(> input:disabled),
+.setting-switch[data-disabled="true"] {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.setting-switch:has(> input:disabled):hover .setting-switch-track,
+.setting-switch[data-disabled="true"]:hover .setting-switch-track {
+	border-color: color-mix(in oklch, var(--color-border-strong) 50%, var(--color-text-muted));
+}
+
+.setting-switch:has(> input:disabled):hover > input:checked + .setting-switch-track,
+.setting-switch[data-disabled="true"]:hover > input:checked + .setting-switch-track {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+/* Forced colors drop authored backgrounds: repaint the track/thumb with system colors so the
+ * on/off position stays visible. */
+@media (forced-colors: active) {
+	.setting-switch-track,
+	.setting-switch-thumb {
+		forced-color-adjust: none;
+	}
+
+	.setting-switch-track {
+		border-color: CanvasText;
+		background: Canvas;
+	}
+
+	.setting-switch-thumb {
+		background: CanvasText;
+	}
+
+	.setting-switch > input:checked + .setting-switch-track {
+		border-color: Highlight;
+		background: Highlight;
+	}
+
+	.setting-switch > input:checked + .setting-switch-track .setting-switch-thumb {
+		background: HighlightText;
+	}
+
+	.setting-switch > input:focus-visible + .setting-switch-track {
+		outline: 2px solid CanvasText;
+	}
+
+	/* Opacity alone does not survive every high-contrast palette, and a disabled switch painted in
+	 * Highlight reads as actionable: follow the system convention and draw it in GrayText. */
+	.setting-switch:has(> input:disabled) .setting-switch-track {
+		border-color: GrayText;
+	}
+
+	.setting-switch:has(> input:disabled) > input:checked + .setting-switch-track {
+		border-color: GrayText;
+		background: GrayText;
+	}
+
+	.setting-switch:has(> input:disabled)
+		> input:checked
+		+ .setting-switch-track
+		.setting-switch-thumb {
+		background: Canvas;
+	}
 }
 
 /* Column chooser: a compact disclosure above wide tables that reveals advanced columns. */
@@ -1006,8 +1333,11 @@ kbd.command-kbd {
 }
 
 /* ---- Home — workspace gallery ----
-   Card-first landing. Reuses the shared card primitive and `.masonry-grid`
-   (defined in layout.css) so the gallery stays consistent with the IDE shell. */
+   Card-first landing: a compact hero, the active projects as an even grid, then one band for what
+   needs attention. The grids reuse `.masonry-grid` (layout.css) for the column recipe and override
+   its `align-items: start` so every card in a row takes the row's height: the project wall reads as
+   one calm rhythm instead of a ragged stack of boxes. Hairline borders, no resting shadow; hover
+   and focus carry the elevation. */
 .home {
 	display: grid;
 	gap: var(--space-7);
@@ -1016,13 +1346,12 @@ kbd.command-kbd {
 .home-hero {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
-	gap: var(--space-5) var(--space-6);
+	gap: var(--space-4) var(--space-6);
 	align-items: end;
-	padding: var(--space-7);
+	padding: var(--space-6);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	background: var(--color-surface-panel);
-	box-shadow: var(--shadow-sm);
 }
 
 .home-hero-text {
@@ -1040,7 +1369,7 @@ kbd.command-kbd {
 .home-hero-title {
 	margin: 0;
 	font-family: var(--font-display);
-	font-size: var(--font-size-3xl);
+	font-size: var(--font-size-2xl);
 	line-height: var(--line-tight);
 	letter-spacing: 0;
 }
@@ -1063,79 +1392,118 @@ kbd.command-kbd {
 	padding-inline: var(--space-5);
 }
 
+/* Empty state: one quiet row (icon, copy, action) instead of a tall dashed well. */
 .home-empty {
 	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-areas:
+		"icon title"
+		"icon body"
+		"icon action";
 	justify-items: start;
-	gap: var(--space-3);
-	padding: var(--space-9) var(--space-7);
+	column-gap: var(--space-4);
+	row-gap: var(--space-2);
+	padding: var(--space-6);
 	border: 1px dashed var(--color-border-default);
 	border-radius: var(--radius-lg);
 	background: color-mix(in oklch, var(--color-surface-card) 70%, transparent);
 }
 
 .home-empty-icon {
+	grid-area: icon;
 	display: inline-grid;
 	place-items: center;
-	width: 3.25rem;
-	height: 3.25rem;
-	border: 1px solid var(--color-border-default);
+	width: 3rem;
+	height: 3rem;
+	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	color: var(--color-accent-secondary);
 	background: var(--color-surface-panel);
 }
 
 .home-empty h2 {
+	grid-area: title;
 	margin: 0;
 	font-family: var(--font-display);
-	font-size: var(--font-size-2xl);
+	font-size: var(--font-size-xl);
 	line-height: var(--line-tight);
 }
 
 .home-empty p {
+	grid-area: body;
 	max-width: 54ch;
 	margin: 0;
 	color: var(--color-text-secondary);
 	line-height: var(--line-normal);
 }
 
+.home-empty .button {
+	grid-area: action;
+	margin-top: var(--space-1);
+}
+
 .home-band {
 	display: grid;
-	gap: var(--space-4);
+	gap: var(--space-3);
 }
 
 .home-band-head {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: baseline;
+	align-items: center;
 	justify-content: space-between;
-	gap: var(--space-3);
+	gap: var(--space-2) var(--space-3);
 }
 
 .home-band-title {
 	margin: 0;
 	display: inline-flex;
-	align-items: baseline;
+	align-items: center;
 	gap: var(--space-2);
 	font-family: var(--font-display);
-	font-size: var(--font-size-xl);
+	font-size: var(--font-size-lg);
 	line-height: var(--line-tight);
+}
+
+/* Project count beside the band title: a quiet numeral, not another badge. */
+.home-band-count {
+	min-width: 1.5rem;
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-pill);
+	background: var(--color-surface-inset);
+	color: var(--color-text-muted);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-semibold);
+	line-height: 1.5rem;
+	text-align: center;
 }
 
 .home-band-link {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
-	padding: var(--space-1) var(--space-2);
+	min-height: var(--control-height-sm);
+	padding: 0 var(--space-2);
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
 	font-weight: var(--weight-semibold);
-	transition: color var(--duration-normal) var(--ease-standard);
+	transition:
+		color var(--duration-normal) var(--ease-standard),
+		background-color var(--duration-normal) var(--ease-standard);
 }
 
 .home-band-link:hover {
+	background: var(--color-surface-card-hover);
 	color: var(--color-text-primary);
+}
+
+.home-band-link:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
 }
 
 .home-quick-links {
@@ -1144,15 +1512,30 @@ kbd.command-kbd {
 	gap: var(--space-1);
 }
 
+/* Even rows: every card stretches to its row's height (see the section comment). */
+.home-projects,
+.home-attention {
+	gap: var(--space-3);
+	align-items: stretch;
+}
+
+.home-projects {
+	grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr));
+}
+
+.home-attention {
+	grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr));
+}
+
 .home-card {
 	min-width: 0;
 	display: grid;
+	align-content: start;
 	gap: var(--space-2);
 	padding: var(--space-4);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-lg);
 	background: var(--color-surface-card);
-	box-shadow: var(--shadow-xs);
 	color: var(--color-text-primary);
 	text-align: left;
 	cursor: pointer;
@@ -1166,9 +1549,7 @@ kbd.command-kbd {
 
 .home-card:hover {
 	border-color: var(--color-border-default);
-	background: var(--color-surface-card-hover);
 	box-shadow: var(--shadow-sm);
-	transform: translateY(-1px);
 }
 
 .home-card:focus-visible {
@@ -1177,11 +1558,37 @@ kbd.command-kbd {
 	box-shadow: var(--shadow-focus);
 }
 
+/* Selected project: accent hairline around the whole card (no side stripe) plus the "Selected" tag. */
 .home-card[data-selected="true"] {
-	border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-border-default));
-	box-shadow:
-		inset 3px 0 0 var(--color-accent),
-		var(--shadow-sm);
+	border-color: color-mix(in oklch, var(--color-accent) 62%, var(--color-border-subtle));
+}
+
+.home-card-cta {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-accent-strong);
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+}
+
+/* Project card: head / stats / footer bands; the footer pins to the bottom of a stretched card so
+ * the "Open" action sits on the same line across a row. */
+.home-card[data-kind="workspace"] {
+	grid-template-rows: auto auto 1fr;
+	gap: var(--space-3);
+}
+
+/* Attention cards vary in content (names, a command, nothing): a flex column whose last child, the
+ * call to action, takes the free space above it, so the actions of a row line up at the bottom. */
+.home-card:not([data-kind="workspace"]) {
+	display: flex;
+	flex-direction: column;
+}
+
+.home-card:not([data-kind="workspace"]) > .home-card-cta {
+	margin-top: auto;
+	padding-top: var(--space-1);
 }
 
 .home-card-head {
@@ -1206,9 +1613,15 @@ kbd.command-kbd {
 	color: var(--color-accent-secondary);
 }
 
+/* Status pills on gallery cards sit one step smaller than a form badge. */
+.home-card-head > .badge {
+	min-height: 1.5rem;
+	font-size: var(--font-size-xs);
+}
+
 .home-card-title {
 	font-family: var(--font-display);
-	font-size: var(--font-size-lg);
+	font-size: var(--font-size-md);
 	font-weight: var(--weight-bold);
 	line-height: var(--line-snug);
 	overflow-wrap: anywhere;
@@ -1224,20 +1637,118 @@ kbd.command-kbd {
 
 .home-card-path {
 	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
 	-webkit-line-clamp: 2;
+	line-clamp: 2;
 }
 
 .home-card-body {
 	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
 	line-height: var(--line-normal);
 	-webkit-line-clamp: 3;
+	line-clamp: 3;
 }
 
-.home-card-meta {
+/* Project head: glyph tile | name over path | optional "Selected" tag. Name and path are one line
+ * each (the path is already tail-shortened by compactPath; the full values live in the tooltips). */
+.home-project-top {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: start;
+	gap: var(--space-3);
+}
+
+.home-project-glyph {
+	display: inline-grid;
+	place-items: center;
+	width: 2.25rem;
+	height: 2.25rem;
+	border-radius: var(--radius-md);
+	background: color-mix(in oklch, var(--color-accent) 12%, var(--color-surface-card));
+	color: var(--color-accent-strong);
+}
+
+.home-project-heading {
+	min-width: 0;
+	display: grid;
+	gap: 0.125rem;
+}
+
+.home-project-name,
+.home-project-path {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.home-project-path {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.home-project-current {
+	margin-inline-start: auto;
+	padding: 0.125rem var(--space-2);
+	border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-border-subtle));
+	border-radius: var(--radius-pill);
+	color: var(--color-accent-strong);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+/* Counts read as icon + words, not as more pills; only a pending review earns the warning tone. */
+.home-project-stats {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
+	gap: var(--space-1) var(--space-4);
+}
+
+.home-stat {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.home-stat[data-active="true"] {
+	color: var(--color-text-secondary);
+}
+
+.home-stat[data-active="true"] > svg {
+	color: var(--color-accent-strong);
+}
+
+.home-stat[data-tone="warn"] {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+	font-weight: var(--weight-medium);
+}
+
+.home-card-foot {
+	align-self: end;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
 	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.home-card-time {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-xs);
+}
+
+.home-card-names {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
 }
 
 .home-chip {
@@ -1247,34 +1758,64 @@ kbd.command-kbd {
 	padding: 0.1rem var(--space-2);
 	border: 1px solid var(--color-border-subtle);
 	border-radius: var(--radius-pill);
-	color: var(--color-text-muted);
+	color: var(--color-text-secondary);
 	font-size: var(--font-size-xs);
 	font-weight: var(--weight-medium);
 }
 
-.home-chip[data-tone="warn"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 46%, var(--color-border-default));
-	color: color-mix(in oklch, var(--color-status-warning) 78%, var(--color-text-primary));
+.home-card-cta > svg {
+	transition: transform var(--duration-normal) var(--ease-standard);
 }
 
-.home-card-cta {
-	margin-top: var(--space-1);
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	color: var(--color-accent-strong);
+.home-card:hover .home-card-cta > svg,
+.home-card:focus-visible .home-card-cta > svg {
+	transform: translateX(2px);
+}
+
+/* Projects lanes reuse the Home project anatomy on a static card; the footer pins to the bottom of
+ * the stretched card so the Select buttons of a row share one line. */
+.project-lane-card {
+	grid-template-rows: auto auto 1fr;
+}
+
+/* Selection reads as an accent border all round, like the Home card, not the shared inset stripe. */
+.card.project-lane-card[data-selected="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 62%, var(--color-border-subtle));
+	box-shadow: none;
+}
+
+/* Approvals / workspace panels under the lanes: content starts at the top of a stretched panel
+ * instead of floating in the middle of the empty height its taller neighbour gives it. */
+.projects-side > .surface {
+	align-content: start;
+}
+
+.button.project-lane-select {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-3);
 	font-size: var(--font-size-sm);
-	font-weight: var(--weight-semibold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.home-card:hover .home-card-cta > svg,
+	.home-card:focus-visible .home-card-cta > svg {
+		transform: none;
+	}
 }
 
 @media (max-width: 720px) {
+	.home {
+		gap: var(--space-6);
+	}
+
 	.home-hero {
 		grid-template-columns: 1fr;
 		align-items: start;
+		padding: var(--space-5);
 	}
 
 	.home-hero-title {
-		font-size: var(--font-size-2xl);
+		font-size: var(--font-size-xl);
 	}
 
 	.home-hero-actions {
@@ -1282,7 +1823,29 @@ kbd.command-kbd {
 	}
 
 	.home-hero-actions .button {
-		flex: 1 1 12rem;
+		flex: 1 1 10rem;
+	}
+
+	.home-empty {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"icon"
+			"title"
+			"body"
+			"action";
+		padding: var(--space-5);
+	}
+
+	/* The quick links become one sideways row under the title rather than a ragged wrap. */
+	.home-quick-links {
+		width: 100%;
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+
+	.home-band-link {
+		flex: 0 0 auto;
 	}
 }
 
@@ -1450,9 +2013,9 @@ kbd.command-kbd {
 }
 
 .run-flow-node[data-status="blocked"] {
-	border-color: color-mix(in oklch, var(--color-status-warning) 55%, var(--color-border-default));
-	background: color-mix(in oklch, var(--color-status-warning) 14%, var(--color-surface-inset));
-	color: color-mix(in oklch, var(--color-status-warning) 82%, var(--color-text-primary));
+	border-color: color-mix(in oklab, var(--color-status-warning) 55%, var(--color-border-default));
+	background: color-mix(in oklab, var(--color-status-warning) 14%, var(--color-surface-inset));
+	color: color-mix(in oklab, var(--color-status-warning) 82%, var(--color-text-primary));
 }
 
 .run-flow-step[aria-current="step"] .run-flow-node {
@@ -1642,7 +2205,7 @@ kbd.command-kbd {
 }
 
 .run-flow-rail-current[data-status="blocked"] .run-flow-rail-state {
-	color: color-mix(in oklch, var(--color-status-warning) 82%, var(--color-text-primary));
+	color: color-mix(in oklab, var(--color-status-warning) 82%, var(--color-text-primary));
 }
 
 .tnum {

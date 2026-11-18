@@ -2,20 +2,24 @@
 
 Combina el perfil de permisos del rol, la clasificacion de riesgo del comando y el confinamiento
 al workspace para emitir la decision y su razon auditada. Invariantes que garantiza: ninguna
-ruta fuera del workspace asignado se permite sin aprobacion; los deploys a prod, force-push y
+ruta fuera del workspace asignado se permite sin aprobacion; ningun ejecutable corre si su
+``argv[0]`` no viene del PATH o del workspace; los deploys a prod, force-push y
 acciones criticas escalan a revision humana; cada operacion de agente exige su propio agentId,
 tool, perfil y contexto (workspace + agent run) o se deniega. Funcion pura: no ejecuta ni
 persiste, solo devuelve la decision; no lanza.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from .command_classifier import classify_command
+from .executable_origin import executable_origin_is_trusted, is_path_inside
 
 PROFILE_DEFAULTS: dict[str, str] = {
     "product_owner": "plan",
@@ -41,23 +45,99 @@ PROFILE_DEFAULTS: dict[str, str] = {
     "release_manager": "release",
 }
 
+GIT_WORKSPACE_AGENT_ID = "git_workspace_agent"
+GIT_WORKSPACE_READ_COMMANDS = {"status", "diff", "log", "rev-parse"}
+GIT_BRANCH_INVENTORY_READ_COMMANDS = {"for-each-ref", "merge-base", "cherry", "rev-list"}
+"""Plumbing read-only que usa el gestor de ramas para inventariar (fechas, merged, ahead/behind, equivalencia
+de parches). Ninguno mueve refs ni toca el árbol de trabajo.
+"""
+GIT_PROTECTED_BRANCHES = {"main", "master", "dev", "develop", "HEAD"}
+GIT_FLOW_RENAME_PREFIXES = ("feature/", "bugfix/", "release/", "hotfix/", "support/")
+GIT_BRANCH_READ_FLAGS = {"--show-current", "--remotes", "-r", "--list"}
+GIT_BRANCH_MUTATION_FLAGS = {
+    "-d",
+    "-D",
+    "--delete",
+    "-f",
+    "--force",
+    "-m",
+    "-M",
+    "--move",
+    "-c",
+    "-C",
+    "--copy",
+}
+GIT_CHECKOUT_BLOCKED_FLAGS = {"-f", "--force", "--orphan", "--detach", "-B", "-b"}
+GIT_WORKTREE_LIST_FLAGS = {"--porcelain"}
+MODEL_RUNTIME_TOOLS = {"ollama", "openai_compatible", "openrouter", "nvidia_nim", "anthropic_api"}
+MODEL_RUNTIME_REASON = "configured Ollama, OpenAI-compatible, OpenRouter, NVIDIA NIM or Anthropic adapters"
+PLAN_EXECUTION_ADAPTER_TOOLS = {
+    *MODEL_RUNTIME_TOOLS,
+    "openhands",
+    "swe_agent",
+    "workspace_patch",
+}
+RUNTIME_CLI_OPERATIONS = {
+    "architect_agent_runtime",
+    "codex_compatibility_smoke",
+    "developer_agent_runtime",
+    "product_owner_runtime",
+}
+"""Operaciones que ejecutan la CLI de IA que el operador registro en la instalacion del runtime.
 
-def is_path_inside(path: str | None, root: str | None) -> bool:
-    """Confirma que ``path`` resuelve dentro de ``root`` tras normalizar ``..`` y symlinks.
+Su ``argv[0]`` sale de esa configuracion, no del PATH, y ya lo valida el contrato del runtime
+(`runtime_registry.validate_product_owner_runtime_argv`). Exigirles ademas un origen del PATH
+romperia una CLI instalada a proposito en una ruta propia, asi que quedan fuera de la guarda de
+origen. Es una lista de exclusion, no de inclusion: una operacion de shell nueva nace protegida.
+"""
 
-    Considera dentro cuando falta path o root (no hay restriccion declarada). Resuelve ambas
-    rutas para evitar escapes via traversal; ante rutas invalidas devuelve ``False`` (fuera),
-    fallando hacia el lado seguro en vez de lanzar.
-    """
-    if not path or not root:
-        return True
-    try:
-        candidate = Path(path).resolve(strict=False)
-        workspace_root = Path(root).resolve(strict=False)
-        candidate.relative_to(workspace_root)
-        return True
-    except (OSError, ValueError):
+
+def _model_runtime_binding_is_valid(input_payload: dict[str, Any], tool: str) -> bool:
+    runtime_id = str(input_payload.get("runtimeId") or "")
+    provider_id = str(input_payload.get("providerId") or "")
+    if tool not in MODEL_RUNTIME_TOOLS or not runtime_id or provider_id != runtime_id:
         return False
+    return input_payload.get("providerFamily") == tool
+
+
+def _is_git_read_unsafe_flag(arg: str) -> bool:
+    """Marca flags de lectura que escriben archivos, saltan el index o ejecutan drivers externos."""
+    return (
+        arg == "--output"
+        or arg.startswith(("--output=", "-O"))
+        or arg
+        in {
+            "--no-index",
+            "--ext-diff",
+            "--textconv",
+        }
+    )
+
+
+def _is_safe_git_arg(value: str | None) -> bool:
+    text = (value or "").strip()
+    if not text or text != value or text.startswith("-") or len(text) > 200:
+        return False
+    if ".." in text or "@{" in text or "\n" in text or "\r" in text:
+        return False
+    return not any(char in set(" ~^:?*[\\") or ord(char) < 32 for char in text)
+
+
+def _is_safe_remote_name(value: str | None) -> bool:
+    text = (value or "").strip()
+    if not text or text != value or text.startswith("-") or len(text) > 80:
+        return False
+    return all(char.isalnum() or char in {".", "_", "-"} for char in text)
+
+
+def _remote_url_embeds_credentials(value: str | None) -> bool:
+    text = (value or "").strip()
+    parsed = urlparse(text)
+    if parsed.scheme == "https":
+        return bool(parsed.username or parsed.password)
+    if parsed.scheme == "ssh":
+        return bool(parsed.password)
+    return False
 
 
 def permission_profile_for(input_payload: dict[str, Any]) -> str:
@@ -110,10 +190,662 @@ def allowlisted_shell_categories(profile: str, categories: list[str]) -> list[st
             allowed.append("allowlisted_diagnostic")
         if "read_only" in categories:
             allowed.append("allowlisted_read")
+        if "dependency_install_frozen" in categories:
+            allowed.append("allowlisted_dependency_install")
     return allowed
 
 
-def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
+def evaluate_git_workspace_command(
+    input_payload: dict[str, Any], *, permission_profile: str, categories: list[str]
+) -> dict[str, Any]:
+    """Evalua comandos Git locales del slice Git Workspace.
+
+    Esta rama no concede Git general. Solo permite argv estructurado, ejecutable ``git`` y los
+    subcomandos que el slice usa para status/branches/diff/worktree y branch/checkout seguros.
+    """
+    if input_payload.get("agentId") != GIT_WORKSPACE_AGENT_ID:
+        categories.append("git_workspace_agent_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace commands are restricted to the GitWorkspace agent profile.",
+            "categories": categories,
+        }
+    if input_payload.get("tool") != "shell":
+        categories.append("git_workspace_tool_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace commands must execute through shell with structured argv.",
+            "categories": categories,
+        }
+    if permission_profile != "dev_safe":
+        categories.append("git_workspace_profile_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace execution requires the dev_safe permission profile.",
+            "categories": categories,
+        }
+    if (
+        not input_payload.get("workspaceId")
+        or not input_payload.get("workspacePath")
+        or not input_payload.get("agentRunId")
+    ):
+        categories.append("git_workspace_context_required")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace execution requires workspace and agent run context.",
+            "categories": categories,
+        }
+    if input_payload.get("secretsRequired"):
+        categories.append("git_workspace_secret_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace commands must not receive injected secrets.",
+            "categories": categories,
+        }
+    argv = input_payload.get("commandArgv")
+    if (
+        not isinstance(argv, list)
+        or len(argv) < 2
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
+        categories.append("git_workspace_argv_required")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace execution requires argv shaped as [git, subcommand, ...].",
+            "categories": categories,
+        }
+    executable = Path(str(argv[0])).name.lower()
+    if executable not in {"git", "git.exe", "git.cmd"}:
+        categories.append("git_workspace_executable_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace execution is limited to the local git executable.",
+            "categories": categories,
+        }
+    subcommand = str(argv[1]).lower()
+    args = [str(item) for item in argv[2:]]
+    git_operation = str(input_payload.get("gitOperation") or "")
+    network_required = bool(input_payload.get("networkRequired"))
+    if network_required and not (
+        (subcommand == "ls-remote" and git_operation == "remote_test")
+        or (subcommand == "push" and git_operation in {"push_branch", "delete_remote_branch"})
+        or (subcommand == "fetch" and git_operation == "prune_remote_refs")
+    ):
+        categories.append("git_workspace_unapproved_network_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git workspace network access is limited to explicit remote tests and branch pushes.",
+            "categories": categories,
+        }
+    if subcommand in {*GIT_WORKSPACE_READ_COMMANDS, *GIT_BRANCH_INVENTORY_READ_COMMANDS} and any(
+        _is_git_read_unsafe_flag(arg) for arg in args[: args.index("--") if "--" in args else len(args)]
+    ):
+        categories.append("git_workspace_read_flag_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git read commands cannot write files, bypass the index or run external diff drivers.",
+            "categories": categories,
+        }
+    if subcommand in GIT_WORKSPACE_READ_COMMANDS:
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": f"Git {subcommand} is allowlisted for local workspace evidence.",
+            "categories": [*categories, "git_workspace_command", f"git_{subcommand}"],
+        }
+    if subcommand in GIT_BRANCH_INVENTORY_READ_COMMANDS:
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": f"Git {subcommand} is allowlisted as read-only branch inventory plumbing.",
+            "categories": [*categories, "git_workspace_command", f"git_{subcommand.replace('-', '_')}"],
+        }
+    if subcommand == "merge-tree":
+        if (
+            git_operation != "branch_inventory"
+            or len(args) != 3
+            or args[0] != "--write-tree"
+            or not all(_is_safe_git_arg(arg) for arg in args[1:])
+        ):
+            categories.append("git_workspace_merge_tree_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git merge-tree is limited to `merge-tree --write-tree <base> <branch>` for inventory.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "low",
+            "reason": "Git merge-tree --write-tree is allowlisted to detect squash-merged branches.",
+            "categories": [*categories, "git_workspace_command", "git_merge_tree"],
+        }
+    if subcommand == "fetch":
+        if (
+            git_operation != "prune_remote_refs"
+            or not network_required
+            or len(args) != 2
+            or args[0] != "--prune"
+            or not _is_safe_remote_name(args[1])
+        ):
+            categories.append("git_workspace_fetch_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git fetch is limited to `fetch --prune <remote>` with prune_remote_refs.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git fetch --prune is allowlisted to drop stale remote-tracking refs.",
+            "categories": [*categories, "git_workspace_command", "git_fetch_prune"],
+        }
+    if subcommand == "init":
+        if git_operation != "init_repository":
+            categories.append("git_workspace_init_context_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git init requires the gitOperation=init_repository context.",
+                "categories": categories,
+            }
+        if args and not (
+            len(args) == 2 and args[0] in {"--initial-branch", "-b"} and args[1] in {"main", "dev"}
+        ):
+            categories.append("git_workspace_init_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git init is limited to --initial-branch main/dev.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git init is allowlisted for project repository setup.",
+            "categories": [*categories, "git_workspace_command", "git_init"],
+        }
+    if subcommand == "push" and git_operation == "delete_remote_branch":
+        if (
+            not network_required
+            or len(args) != 3
+            or not _is_safe_remote_name(args[0])
+            or args[1] != "--delete"
+            or not _is_safe_git_arg(args[2])
+            or args[2] in GIT_PROTECTED_BRANCHES
+        ):
+            categories.append("git_workspace_push_delete_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Remote branch delete is limited to `push <remote> --delete <non-protected-branch>`.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "high",
+            "reason": "Remote branch delete is allowlisted for operator-confirmed branch cleanup.",
+            "categories": [*categories, "git_workspace_command", "git_push_delete_branch"],
+        }
+    if subcommand == "push":
+        if (
+            git_operation != "push_branch"
+            or not network_required
+            or len(args) != 2
+            or not _is_safe_remote_name(args[0])
+            or not _is_safe_git_arg(args[1])
+        ):
+            categories.append("git_workspace_push_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git push is limited to `push <remote> <branch>` (no force/refspec) with push_branch.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "high",
+            "reason": "Git branch push is allowlisted for the configured landing flow.",
+            "categories": [*categories, "git_workspace_command", "git_push_branch"],
+        }
+    if subcommand == "merge":
+        merge_ok = (
+            len(args) == 4
+            and args[0] == "--no-ff"
+            and args[1] == "-m"
+            and bool(str(args[2]).strip())
+            and not str(args[2]).startswith("-")
+            and _is_safe_git_arg(args[3])
+            and args[3] not in GIT_PROTECTED_BRANCHES
+        )
+        abort_ok = args == ["--abort"]
+        if git_operation != "merge_work_branch" or not (merge_ok or abort_ok):
+            categories.append("git_workspace_merge_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git merge is limited to `merge --no-ff -m <msg> <work-branch>` or `merge --abort`.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git work-branch merge into the checked-out base is allowlisted for landing.",
+            "categories": [*categories, "git_workspace_command", "git_merge_work_branch"],
+        }
+    if subcommand == "add":
+        if git_operation == "stage_changes" and args == ["-A"]:
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git add -A is allowlisted to stage the isolated worktree before commit.",
+                "categories": [*categories, "git_workspace_command", "git_add"],
+            }
+        if git_operation == "diff_capture_intent_to_add" and args == ["--intent-to-add", "--", "."]:
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git intent-to-add is allowlisted only to capture untracked files in diff evidence.",
+                "categories": [*categories, "git_workspace_command", "git_intent_to_add"],
+            }
+        categories.append("git_workspace_add_shape_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": (
+                "Git add is limited to `add -A` (stage_changes) or "
+                "`add --intent-to-add -- .` (diff_capture_intent_to_add)."
+            ),
+            "categories": categories,
+        }
+    if subcommand == "commit":
+        message_ok = (
+            len(args) >= 2 and args[-2] == "-m" and bool(args[-1].strip()) and not args[-1].startswith("-")
+        )
+        prefix_ok = args[:-2] in ([], ["--allow-empty"])
+        if git_operation != "commit_changes" or not message_ok or not prefix_ok:
+            categories.append("git_workspace_commit_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git commit is limited to `commit [--allow-empty] -m <message>` with commit_changes.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git commit is allowlisted to persist agent work on the isolated worktree branch.",
+            "categories": [*categories, "git_workspace_command", "git_commit"],
+        }
+    if subcommand == "remote":
+        if args == ["-v"]:
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git remote listing is allowlisted for local workspace evidence.",
+                "categories": [*categories, "git_workspace_command", "git_remote_read"],
+            }
+        if git_operation == "remote_add":
+            if len(args) != 3 or args[0] != "add" or not _is_safe_remote_name(args[1]):
+                categories.append("git_workspace_remote_add_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git remote add must use argv [git, remote, add, name, url].",
+                    "categories": categories,
+                }
+            if _remote_url_embeds_credentials(args[2]):
+                categories.append("git_workspace_remote_add_secret_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git remote URLs must not embed tokens or credentials.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git remote add is allowlisted after service-level URL validation.",
+                "categories": [*categories, "git_workspace_command", "git_remote_add"],
+            }
+        categories.append("git_workspace_remote_mode_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git remote command is limited to listing or remote add with explicit context.",
+            "categories": categories,
+        }
+    if subcommand == "ls-remote":
+        if git_operation != "remote_test":
+            categories.append("git_workspace_ls_remote_context_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote requires the gitOperation=remote_test context.",
+                "categories": categories,
+            }
+        if not network_required:
+            categories.append("git_workspace_ls_remote_network_required")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote must explicitly declare networkRequired=true.",
+                "categories": categories,
+            }
+        if len(args) != 2 or args[0] != "--heads" or not _is_safe_remote_name(args[1]):
+            categories.append("git_workspace_ls_remote_shape_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git ls-remote is limited to argv [git, ls-remote, --heads, remote].",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git remote test is allowlisted with explicit network gating.",
+            "categories": [*categories, "git_workspace_command", "git_remote_test"],
+        }
+    if subcommand == "branch":
+        git_operation = str(input_payload.get("gitOperation") or "")
+        if git_operation == "init_default_branch":
+            if len(args) != 2 or args[0] != "-M" or args[1] not in {"main", "dev"}:
+                categories.append("git_workspace_init_default_branch_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git default branch rename is limited to -M main/dev after init.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git default branch rename is allowlisted for project repository setup.",
+                "categories": [*categories, "git_workspace_command", "git_init_default_branch"],
+            }
+        if git_operation == "advance_base_after_merge":
+            if len(args) != 3 or args[0] != "-f" or not all(_is_safe_git_arg(arg) for arg in args[1:]):
+                categories.append("git_workspace_branch_advance_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git base advance is limited to `branch -f <base> <landing-ref>`.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Fast-forward base advance after a verified landing merge is allowlisted.",
+                "categories": [*categories, "git_workspace_command", "git_branch_advance_base"],
+            }
+        if git_operation == "delete_branch":
+            if (
+                len(args) != 2
+                or args[0] not in {"-D", "--delete"}
+                or not _is_safe_git_arg(args[1])
+                or args[1] in GIT_PROTECTED_BRANCHES
+            ):
+                categories.append("git_workspace_branch_delete_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch delete is limited to -D of a safe non-protected work branch.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git work-branch delete is allowlisted for workspace GC.",
+                "categories": [*categories, "git_workspace_command", "git_branch_delete"],
+            }
+        if git_operation == "rename_branch":
+            if (
+                len(args) != 3
+                or args[0] != "-m"
+                or not all(_is_safe_git_arg(arg) for arg in args[1:])
+                or args[1] in GIT_PROTECTED_BRANCHES
+                or args[2] in GIT_PROTECTED_BRANCHES
+                or not args[2].startswith(GIT_FLOW_RENAME_PREFIXES)
+            ):
+                categories.append("git_workspace_branch_rename_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch rename is limited to `branch -m <branch> <gitflow-prefixed-name>`.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git branch rename to a gitflow prefix is allowlisted for local branches.",
+                "categories": [*categories, "git_workspace_command", "git_branch_rename"],
+            }
+        if git_operation == "create_branch":
+            if any(arg in GIT_BRANCH_MUTATION_FLAGS or arg.startswith("-") for arg in args):
+                categories.append("git_workspace_branch_flag_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch creation cannot include mutation flags.",
+                    "categories": categories,
+                }
+            if not args or not all(_is_safe_git_arg(arg) for arg in args):
+                categories.append("git_workspace_branch_name_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git branch creation requires safe branch/base refs.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git branch creation is allowlisted inside the allocated workspace.",
+                "categories": [*categories, "git_workspace_command", "git_branch_create"],
+            }
+        if all(arg in GIT_BRANCH_READ_FLAGS or arg.startswith("--format=") for arg in args):
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git branch listing is allowlisted for local workspace evidence.",
+                "categories": [*categories, "git_workspace_command", "git_branch_read"],
+            }
+        categories.append("git_workspace_branch_mode_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git branch command is limited to branch creation or read-only branch listing.",
+            "categories": categories,
+        }
+    if subcommand == "checkout":
+        if input_payload.get("gitOperation") != "checkout":
+            categories.append("git_workspace_checkout_context_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git checkout requires the gitOperation=checkout context.",
+                "categories": categories,
+            }
+        if any(arg in GIT_CHECKOUT_BLOCKED_FLAGS or arg.startswith("-") for arg in args):
+            categories.append("git_workspace_checkout_flag_denied")
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "reason": "Git checkout cannot include branch creation, detach or force flags.",
+                "categories": categories,
+            }
+        return {
+            "decision": "allow",
+            "riskLevel": "medium",
+            "reason": "Git checkout is allowlisted after service-level dirty-tree preflight.",
+            "categories": [*categories, "git_workspace_command", "git_checkout"],
+        }
+    if subcommand == "worktree":
+        git_operation = str(input_payload.get("gitOperation") or "")
+        if args[:1] == ["list"] and all(arg in GIT_WORKTREE_LIST_FLAGS for arg in args[1:]):
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git worktree listing is allowlisted for local workspace evidence.",
+                "categories": [*categories, "git_workspace_command", "git_worktree_list"],
+            }
+        if git_operation == "worktree_add":
+            if len(args) != 5 or args[0] != "add" or args[1] != "-b":
+                categories.append("git_workspace_worktree_add_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git worktree add must use argv [git, worktree, add, -b, branch, path, base].",
+                    "categories": categories,
+                }
+            branch, target_path, base_ref = args[2], args[3], args[4]
+            if any(
+                not item or item.startswith("-") or "\n" in item or "\r" in item
+                for item in (branch, target_path, base_ref)
+            ):
+                categories.append("git_workspace_worktree_add_arg_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git worktree add arguments must be non-empty refs/paths, not flags.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git worktree creation is allowlisted for isolated workspace setup.",
+                "categories": [*categories, "git_workspace_command", "git_worktree_add"],
+            }
+        if git_operation == "worktree_remove":
+            if (
+                len(args) != 3
+                or args[0] != "remove"
+                or args[1] != "--force"
+                or not args[2]
+                or args[2].startswith("-")
+            ):
+                categories.append("git_workspace_worktree_remove_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git worktree removal must use argv [git, worktree, remove, --force, path].",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git worktree cleanup is allowlisted for archived isolated workspaces.",
+                "categories": [*categories, "git_workspace_command", "git_worktree_remove"],
+            }
+        if git_operation == "worktree_prune":
+            if args != ["prune"]:
+                categories.append("git_workspace_worktree_prune_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git worktree prune must use argv [git, worktree, prune] with no extra flags.",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "low",
+                "reason": "Git worktree prune only drops admin entries of missing worktree directories.",
+                "categories": [*categories, "git_workspace_command", "git_worktree_prune"],
+            }
+        categories.append("git_workspace_worktree_mode_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git worktree command is limited to list, add, remove, or prune with explicit context.",
+            "categories": categories,
+        }
+    if subcommand == "apply":
+        git_operation = str(input_payload.get("gitOperation") or "")
+        if git_operation == "apply_check":
+            if len(args) != 2 or args[0] != "--check" or not args[1] or args[1].startswith("-"):
+                categories.append("git_workspace_apply_check_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git apply check must use argv [git, apply, --check, patch_path].",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git apply --check is allowlisted for verified patch promotion.",
+                "categories": [*categories, "git_workspace_command", "git_apply_check"],
+            }
+        if git_operation == "apply_patch":
+            if len(args) != 1 or not args[0] or args[0].startswith("-"):
+                categories.append("git_workspace_apply_shape_denied")
+                return {
+                    "decision": "deny",
+                    "riskLevel": "high",
+                    "reason": "Git apply must use argv [git, apply, patch_path].",
+                    "categories": categories,
+                }
+            return {
+                "decision": "allow",
+                "riskLevel": "medium",
+                "reason": "Git apply is allowlisted only for approved patch promotion.",
+                "categories": [*categories, "git_workspace_command", "git_apply_patch"],
+            }
+        categories.append("git_workspace_apply_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Git apply requires explicit apply_check or apply_patch context.",
+            "categories": categories,
+        }
+    return {
+        "decision": "deny",
+        "riskLevel": "high",
+        "reason": "Git workspace command is not in the allowed local Git subcommand set.",
+        "categories": [*categories, "git_workspace_command_denied"],
+    }
+
+
+WINDOWS_LAUNCHER_SUFFIXES = frozenset({".cmd", ".bat", ".exe", ".ps1"})
+"""Extensiones de lanzador Windows que no forman parte del nombre lógico del ejecutable."""
+
+
+def _executed_argv_command(input_payload: dict[str, Any], operation: str) -> str | None:
+    """Reconstruye el comando que el sandbox ejecutara realmente a partir de ``commandArgv``.
+
+    El campo ``command`` es solo display; el sandbox corre el argv. Para una ejecucion de shell
+    estructurada la politica juzga el argv (con ``argv[0]`` reducido a su basename sin extension de lanzador
+    Windows, como el resto de los clasificadores; el origen del ejecutable se valida aparte sobre
+    la ruta cruda); devuelve ``None`` cuando no aplica esa reconstruccion.
+    """
+    argv = input_payload.get("commandArgv")
+    if (
+        input_payload.get("execute") is not True
+        or str(input_payload.get("tool") or "") != "shell"
+        or operation in RUNTIME_CLI_OPERATIONS
+        or not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(item, str) and item for item in argv)
+    ):
+        return None
+    executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1]
+    stem, dot, suffix = executable.rpartition(".")
+    if dot and stem and f".{suffix.lower()}" in WINDOWS_LAUNCHER_SUFFIXES:
+        executable = stem
+    return shlex.join([executable, *argv[1:]])
+
+
+def evaluate_action(input_payload: dict[str, Any], *, trusted_smoke_approval: bool = False) -> dict[str, Any]:
     """Evalua una accion y devuelve ``{decision, riskLevel, reason, categories}``.
 
     Aplica las puertas de seguridad en orden de severidad: confinamiento al workspace, deploy a
@@ -123,14 +855,20 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
     shell ni adaptadores; lo no allowlisted cae a ``requires_approval``, no a ``allow``.
     """
     command = str(input_payload.get("command") or "")
+    operation = str(input_payload.get("operation") or "")
+    argv_command = _executed_argv_command(input_payload, operation)
+    caller_classification = classify_command(command)
+    if argv_command is not None:
+        command = argv_command
     git_operation = str(input_payload.get("gitOperation") or input_payload.get("git_operation") or "")
     deployment_target = str(
         input_payload.get("deploymentTarget") or input_payload.get("deployment_target") or ""
     )
     tool = str(input_payload.get("tool") or "")
-    operation = str(input_payload.get("operation") or "")
     permission_profile = permission_profile_for(input_payload)
     classification = classify_command(command)
+    if argv_command is not None and caller_classification["riskLevel"] == "critical":
+        classification = caller_classification
     categories = list(classification["categories"])
     if not is_path_inside(input_payload.get("path"), input_payload.get("workspacePath")):
         categories.append("path_outside_workspace")
@@ -138,6 +876,22 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "decision": "requires_approval",
             "riskLevel": "medium",
             "reason": "Action path is outside the allocated workspace.",
+            "categories": categories,
+        }
+
+    if (
+        input_payload.get("execute") is True
+        and tool == "shell"
+        and operation not in RUNTIME_CLI_OPERATIONS
+        and not executable_origin_is_trusted(
+            input_payload.get("commandArgv"), workspace_path=input_payload.get("workspacePath")
+        )
+    ):
+        categories.append("executable_origin_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "high",
+            "reason": "Executable must resolve from PATH or the allocated workspace; its argv[0] does not.",
             "categories": categories,
         }
 
@@ -149,11 +903,41 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
     if git_operation in {"force_push", "push_main"} or classification["riskLevel"] == "critical":
+        if operation == "git_workspace_command":
+            scoped = evaluate_git_workspace_command(
+                input_payload, permission_profile=permission_profile, categories=list(categories)
+            )
+            if scoped["decision"] == "deny":
+                return scoped
         return {
             "decision": "requires_human",
             "riskLevel": "critical",
             "reason": "Dangerous git or destructive shell action requires human review.",
             "categories": categories,
+        }
+
+    if operation == "git_workspace_command":
+        return evaluate_git_workspace_command(
+            input_payload, permission_profile=permission_profile, categories=categories
+        )
+
+    if operation == "codex_compatibility_smoke":
+        allowed = (
+            trusted_smoke_approval is True
+            and input_payload.get("smokeApproved") is True
+            and tool == "shell"
+            and input_payload.get("runtimeId") == "codex_cli"
+            and permission_profile == "plan"
+            and bool(input_payload.get("workspaceId"))
+            and bool(input_payload.get("workspacePath"))
+            and not input_payload.get("networkRequired")
+            and not input_payload.get("secretsRequired")
+        )
+        return {
+            "decision": "allow" if allowed else "deny",
+            "riskLevel": "medium",
+            "reason": "Codex compatibility smoke requires a claimed, command-bound explicit approval.",
+            "categories": [*categories, "codex_compatibility_smoke"],
         }
 
     if operation == "qa_agent_command":
@@ -385,12 +1169,20 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "categories": categories,
             }
         if operation == "developer_agent_runtime":
-            if tool != "shell" or input_payload.get("runtimeId") not in {"codex_cli", "claude_code_cli"}:
+            if tool != "shell" or input_payload.get("runtimeId") not in {
+                "codex_cli",
+                "claude_code_cli",
+                "openhands",
+                "swe_agent",
+            }:
                 categories.append("developer_agent_cli_runtime_denied")
                 return {
                     "decision": "deny",
                     "riskLevel": "high",
-                    "reason": "DeveloperAgent CLI execution is limited to configured Codex or Claude CLI runtimes.",
+                    "reason": (
+                        "DeveloperAgent CLI execution is limited to configured Codex, Claude, "
+                        "OpenHands, or SWE-agent CLI runtimes."
+                    ),
                     "categories": categories,
                 }
             if input_payload.get("networkRequired") or input_payload.get("secretsRequired"):
@@ -408,12 +1200,12 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "categories": [*categories, "developer_agent_runtime"],
             }
         if operation == "developer_agent_model_call":
-            if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+            if not _model_runtime_binding_is_valid(input_payload, tool):
                 categories.append("developer_agent_model_runtime_denied")
                 return {
                     "decision": "deny",
                     "riskLevel": "high",
-                    "reason": "DeveloperAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                    "reason": f"DeveloperAgent model execution is limited to {MODEL_RUNTIME_REASON}.",
                     "categories": categories,
                 }
             return {
@@ -469,7 +1261,7 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "categories": [*categories, "developer_agent_qa_gated"],
             }
 
-    if operation == "architect_agent_model_call":
+    if operation in {"architect_agent_model_call", "architect_agent_runtime"}:
         if input_payload.get("agentId") != "architect_agent":
             categories.append("architect_agent_denied")
             return {
@@ -486,12 +1278,17 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ArchitectAgent model execution requires the plan permission profile.",
                 "categories": categories,
             }
-        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+        cli_review = operation == "architect_agent_runtime"
+        if (cli_review and (tool != "shell" or input_payload.get("runtimeId") != "claude_code_cli")) or (
+            not cli_review and not _model_runtime_binding_is_valid(input_payload, tool)
+        ):
             categories.append("architect_agent_model_runtime_denied")
             return {
                 "decision": "deny",
                 "riskLevel": "high",
-                "reason": "ArchitectAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                "reason": "ArchitectAgent CLI review requires Claude Code CLI."
+                if cli_review
+                else f"ArchitectAgent model execution is limited to {MODEL_RUNTIME_REASON}.",
                 "categories": categories,
             }
         if (
@@ -514,11 +1311,22 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ArchitectAgent prompts cannot request secret-bearing execution.",
                 "categories": categories,
             }
+        if cli_review and (
+            input_payload.get("providerTransportRequired") is not True or input_payload.get("networkRequired")
+        ):
+            return {
+                "decision": "deny",
+                "riskLevel": "high",
+                "categories": ["architect_cli_transport_denied"],
+                "reason": "ArchitectAgent review permits provider transport only, not independent network access.",
+            }
         return {
             "decision": "allow",
             "riskLevel": "medium",
-            "reason": "ArchitectAgent model execution is allowed for a configured runtime adapter.",
-            "categories": [*categories, "architect_agent_model_call"],
+            "reason": "ArchitectAgent read-only CLI review is allowed through its trusted broker boundary."
+            if cli_review
+            else "ArchitectAgent model execution is allowed for a configured runtime adapter.",
+            "categories": [*categories, operation],
         }
 
     if operation in {"product_owner_runtime", "product_owner_model_call"}:
@@ -573,12 +1381,12 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "ProductOwnerAgent CLI runtime execution is allowed inside the allocated workspace.",
                 "categories": [*categories, "product_owner_runtime"],
             }
-        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+        if not _model_runtime_binding_is_valid(input_payload, tool):
             categories.append("product_owner_model_runtime_denied")
             return {
                 "decision": "deny",
                 "riskLevel": "high",
-                "reason": "ProductOwnerAgent model execution is limited to configured OpenAI-compatible or Ollama adapters.",
+                "reason": f"ProductOwnerAgent model execution is limited to {MODEL_RUNTIME_REASON}.",
                 "categories": categories,
             }
         if input_payload.get("secretsRequired"):
@@ -613,12 +1421,12 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
                 "reason": "SecurityAgent optional model analysis requires the qa permission profile.",
                 "categories": categories,
             }
-        if tool not in {"ollama", "openai_compatible"} or input_payload.get("runtimeId") != tool:
+        if not _model_runtime_binding_is_valid(input_payload, tool):
             categories.append("security_agent_model_runtime_denied")
             return {
                 "decision": "deny",
                 "riskLevel": "high",
-                "reason": "SecurityAgent model analysis is limited to configured OpenAI-compatible or Ollama adapters.",
+                "reason": f"SecurityAgent model analysis is limited to {MODEL_RUNTIME_REASON}.",
                 "categories": categories,
             }
         if (
@@ -769,18 +1577,35 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
 
-    if (
-        tool in {"mcp", "openhands", "swe_agent", "ollama", "openai_compatible", "workspace_patch"}
-        and command
-    ):
+    if tool == "shell" and not command:
         if permission_profile == "plan":
-            categories.append("profile_runtime_adapter_denied")
+            categories.append("profile_shell_denied")
             return {
                 "decision": "deny",
                 "riskLevel": "medium",
-                "reason": "Plan profile cannot execute runtime adapter commands.",
+                "reason": "Plan profile cannot execute shell commands.",
                 "categories": categories,
             }
+        categories.append("shell_command_missing")
+        return {
+            "decision": "requires_approval",
+            "riskLevel": "medium",
+            "reason": "Shell action carries no command or structured argv and requires approval.",
+            "categories": categories,
+        }
+
+    if permission_profile == "plan" and tool in PLAN_EXECUTION_ADAPTER_TOOLS:
+        categories.append("profile_runtime_adapter_denied")
+        return {
+            "decision": "deny",
+            "riskLevel": "medium",
+            "reason": (
+                "Plan profile cannot execute an unscoped runtime adapter; a recognized internal "
+                "operation is required."
+            ),
+            "categories": categories,
+        }
+    if tool in {"mcp", *PLAN_EXECUTION_ADAPTER_TOOLS} and command:
         if classification["riskLevel"] == "critical":
             return {
                 "decision": "requires_human",
@@ -816,8 +1641,8 @@ def evaluate_action(input_payload: dict[str, Any]) -> dict[str, Any]:
             "categories": categories,
         }
     return {
-        "decision": "allow",
-        "riskLevel": "low",
-        "reason": "Read-only or low-risk action allowed by internal policy.",
-        "categories": categories,
+        "decision": "requires_approval",
+        "riskLevel": "medium",
+        "reason": "Action is not recognized as low-risk by internal policy and requires approval.",
+        "categories": [*categories, "unrecognized_action_gated"],
     }

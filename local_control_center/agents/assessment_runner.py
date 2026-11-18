@@ -8,7 +8,7 @@ deja una decisión de política y su fila de auditoría, sin ejecutar— y solo 
 assessment, sus hallazgos (ya redactados) y un artefacto JSON descargable dentro de una sola
 ``immediate_transaction``, y falla cerrado (status ``blocked``) si la política no concede el permiso.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.projects.assessment import run_project_assessment
 from local_control_center.projects.repository import ProjectsRepository
-from local_control_center.shared.db import immediate_transaction
 from local_control_center.shared.serialization import json_dumps
 
 from .repository import AgentsRepository
@@ -92,11 +91,10 @@ class ProjectAssessmentRunner:
         if decision["decision"] != "allow":
             return self._finalize_blocked(job=job, agent_run=agent_run, decision=decision)
 
-        with immediate_transaction(self.connection):
-            run = run_project_assessment(self.projects, project_id=project_id, root_path=root_path)
-            artifact = self._write_artifact(
-                project_id=project_id, assessment=run["assessment"], findings=run["findings"]
-            )
+        run = run_project_assessment(self.projects, project_id=project_id, root_path=root_path)
+        artifact = self._write_artifact(
+            project_id=project_id, assessment=run["assessment"], findings=run["findings"]
+        )
         assessment = run["assessment"]
         output = {
             "status": "completed",

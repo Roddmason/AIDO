@@ -1,0 +1,394 @@
+"""Servicio de costo/rendimiento por hilo: agrega, de forma honesta, el gasto real de un thread.
+
+Un thread no tiene columna propia en ``usage_ledger``/``routing_decisions``; su ejecución se ancla por el
+prefijo de ``task_id`` que el ``ProductLoopCoordinator`` deriva del ``loopId`` (``product-loop-<12>`` y sus
+hermanos ``product-owner-``/``product-loop-research-``). Este servicio resuelve esos prefijos desde los
+eventos del hilo y proyecta las señales accionables del inspector: presupuesto usado, estimado vs actual,
+tokens conocidos/desconocidos, latencia, modelo elegido, razón, alternativa más barata, calidad/retrabajo
+y la política de costo vigente que gobierna la próxima ejecución.
+
+Invariante central (alineado con el motor y con el gate de front): un costo, token o latencia desconocidos
+se modelan como ``None``, nunca como ``0``. Sumar solo conoce valores presentes; si no hay ninguno, el
+total es ``None`` y el estado es ``unknown``. Solo lee: no ejecuta rutas ni muta estado.
+
+@author AIDO contributors
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from typing import Any
+
+from local_control_center.agents.ai_resource_manager import AIResourceManager
+from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
+from local_control_center.agents.routing_profiles import RoutingProfileStore
+from local_control_center.agents.usage_ledger import UsageLedger
+from local_control_center.product_loop.repository import (
+    ProductLoopRepository,
+    stable_task_suffix,
+)
+from local_control_center.settings.resolver import resolve_setting_value
+from local_control_center.team_scheduler.scheduler import MODES
+
+from .repository import ThreadsRepository
+
+DEVELOPER_ROLE = "developer"
+DEFAULT_TEAM_MODE = "balanced"
+
+
+def _task_prefixes_for_suffix(suffix: str) -> list[str]:
+    """Prefijos de ``task_id`` del coordinator para un sufijo dado (developer/product-owner/research)."""
+    return [
+        f"product-loop-{suffix}",
+        f"product-owner-{suffix}",
+        f"product-loop-research-{suffix}",
+    ]
+
+
+def _task_prefixes_for_loop(loop_id: str) -> list[str]:
+    """Esquema legacy por ``loopId``: sufijo = ``loop_id`` sin el prefijo, primeros 12 caracteres.
+
+    Se conserva para correlacionar el costo de turnos anteriores al esquema estable por hilo
+    (``stable_task_suffix``); el desarrollo actual usa un único sufijo por hilo.
+    """
+    return _task_prefixes_for_suffix(loop_id.replace("product-loop-", "")[:12])
+
+
+class ThreadCostPerformanceService:
+    """Agrega el costo/rendimiento real de un hilo desde el ledger, el ruteo y el loop, sin fabricar datos."""
+
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+        self.threads = ThreadsRepository(connection)
+        self.usage = UsageLedger(connection)
+        self.routing = RoutingProfileStore(connection)
+        self.resources = AIResourceManager(connection)
+        self.loops = ProductLoopRepository(connection)
+        self.benchmarks = ModelBenchmarkStore(connection)
+
+    def snapshot(self, thread_id: str, *, developer_role: str = DEVELOPER_ROLE) -> dict[str, Any]:
+        """Devuelve el snapshot de costo/rendimiento del hilo.
+
+        Raises:
+            KeyError: si el hilo no existe.
+        """
+        thread = self.threads.get_thread(thread_id)
+        loop_ids = self._loop_ids(thread_id)
+        prefixes = self._task_prefixes(thread_id, loop_ids)
+        usage_rows = self.usage.list_usage_for_task_prefixes(prefixes)
+        decisions = self._routing_decisions(prefixes)
+        model_chosen, reason, cheaper = self._routing_view(decisions)
+        return {
+            "threadId": thread_id,
+            "loopIds": loop_ids,
+            "hasData": bool(usage_rows) or bool(decisions),
+            "budgetUsed": self._budget_used(usage_rows, developer_role),
+            "cost": self._cost_summary(usage_rows),
+            "tokens": self._token_summary(usage_rows),
+            "latency": self._latency_summary(usage_rows),
+            "modelChosen": model_chosen,
+            "reasonSelected": reason,
+            "cheaperAlternative": cheaper,
+            "qualityRework": self._quality_rework(loop_ids, model_chosen),
+            "policy": self._policy(thread["projectId"], decisions, developer_role),
+        }
+
+    def _loop_ids(self, thread_id: str) -> list[str]:
+        """Colecciona los ``loopId`` distintos del hilo desde sus eventos, del más antiguo al más reciente."""
+        ordered: list[str] = []
+        for event in self.threads.list_events(thread_id):
+            payload = event.get("payload") or {}
+            loop_id = payload.get("loopId")
+            if isinstance(loop_id, str) and loop_id and loop_id not in ordered:
+                ordered.append(loop_id)
+        return ordered
+
+    def _task_prefixes(self, thread_id: str, loop_ids: list[str]) -> list[str]:
+        prefixes: list[str] = []
+        for prefix in _task_prefixes_for_suffix(stable_task_suffix(thread_id, "")):
+            if prefix not in prefixes:
+                prefixes.append(prefix)
+        for loop_id in loop_ids:
+            for prefix in _task_prefixes_for_loop(loop_id):
+                if prefix not in prefixes:
+                    prefixes.append(prefix)
+        return prefixes
+
+    def _routing_decisions(self, prefixes: list[str]) -> list[dict[str, Any]]:
+        """Devuelve las decisiones de ruteo del hilo desde el rastro que realmente lo ejecutó.
+
+        El Product Loop llama al ``AIResourceManager`` directamente, así que su rastro vive en
+        ``ai_routing_decisions``; ``routing_decisions`` solo se llena cuando el ``ModelRouter`` es el
+        que decide (model gateway, workflows). Se prefiere el primero cuando existe —es el registro de
+        la ejecución del hilo— y se cae al segundo en vez de reportar "sin modelo elegido".
+        """
+        ai_decisions = self.resources.list_routing_decisions_for_task_prefixes(prefixes)
+        if ai_decisions:
+            return ai_decisions
+        return self.routing.list_routing_decisions_for_task_prefixes(prefixes)
+
+    def _budget_used(self, usage_rows: list[dict[str, Any]], developer_role: str) -> dict[str, Any]:
+        """Gasto acumulado del hilo (actual si se conoce, si no estimado) contra el cap por-run efectivo."""
+        used_values: list[float] = []
+        has_actual = False
+        has_estimated = False
+        unknown_calls = 0
+        for row in usage_rows:
+            actual = row.get("actualCostUsd")
+            estimated = row.get("estimatedCostUsd")
+            if actual is not None:
+                used_values.append(float(actual))
+                has_actual = True
+            elif estimated is not None:
+                used_values.append(float(estimated))
+                has_estimated = True
+            else:
+                unknown_calls += 1
+        used_usd = sum(used_values) if used_values and unknown_calls == 0 else None
+        if not used_values:
+            cost_status = "unknown"
+        elif unknown_calls:
+            cost_status = "partial"
+        elif has_actual and has_estimated:
+            cost_status = "mixed"
+        elif has_actual:
+            cost_status = "actual"
+        else:
+            cost_status = "estimated"
+        cap_usd, cap_scope = self._per_run_cap(developer_role)
+        return {
+            "usedUsd": used_usd,
+            "costStatus": cost_status,
+            "callCount": len(usage_rows),
+            "perRunCapUsd": cap_usd,
+            "capScope": cap_scope,
+        }
+
+    def _per_run_cap(self, developer_role: str) -> tuple[float | None, str | None]:
+        """Cap de costo por-run efectivo del rol ejecutor (política de rol), honesto ``None`` si no aplica."""
+        try:
+            policy = self.routing.get_role_policy(developer_role)
+        except KeyError:
+            return None, None
+        cap = policy.get("maxCostPerTaskUsd")
+        if cap is None or float(cap) <= 0:
+            return None, None
+        return float(cap), f"role:{developer_role}"
+
+    def _cost_summary(self, usage_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Estimado vs actual como sumas honestas: ``None`` cuando ninguna fila aporta el valor conocido."""
+        estimated = [
+            float(row["estimatedCostUsd"]) for row in usage_rows if row.get("estimatedCostUsd") is not None
+        ]
+        actual = [float(row["actualCostUsd"]) for row in usage_rows if row.get("actualCostUsd") is not None]
+        return {
+            "estimatedCostUsd": sum(estimated) if len(estimated) == len(usage_rows) and estimated else None,
+            "actualCostUsd": sum(actual) if len(actual) == len(usage_rows) and actual else None,
+        }
+
+    def _token_summary(self, usage_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Tokens totales y el desglose conocidos/desconocidos por llamada según ``tokenStatus``."""
+        known_calls = sum(1 for row in usage_rows if row.get("tokenStatus") == "actual")
+        unknown_calls = len(usage_rows) - known_calls
+        if not usage_rows:
+            token_status = "none"
+        elif unknown_calls == 0:
+            token_status = "actual"
+        elif known_calls == 0:
+            token_status = "unknown"
+        else:
+            token_status = "partial"
+        total_tokens = (
+            sum(int(row.get("totalTokens") or 0) for row in usage_rows)
+            if token_status in {"actual", "none"}
+            else None
+        )
+        return {
+            "totalTokens": total_tokens,
+            "knownCalls": known_calls,
+            "unknownCalls": unknown_calls,
+            "tokenStatus": token_status,
+            "callCount": len(usage_rows),
+        }
+
+    def _latency_summary(self, usage_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Latencia observada por llamada; una llamada sin latencia registrada es desconocida, no 0 ms.
+
+        ``p50Ms`` es la mediana baja del conjunto observado (sin interpolar un valor que nadie midió).
+        Con cero llamadas medidas los tres agregados son ``None`` y el estado es ``unknown``/``none``.
+        """
+        observed = sorted(int(row["latencyMs"]) for row in usage_rows if row.get("latencyMs") is not None)
+        known_calls = len(observed)
+        unknown_calls = len(usage_rows) - known_calls
+        if not usage_rows:
+            latency_status = "none"
+        elif unknown_calls == 0:
+            latency_status = "actual"
+        elif known_calls == 0:
+            latency_status = "unknown"
+        else:
+            latency_status = "partial"
+        return {
+            "p50Ms": observed[(known_calls - 1) // 2] if known_calls else None,
+            "avgMs": round(sum(observed) / known_calls) if known_calls else None,
+            "maxMs": observed[-1] if known_calls else None,
+            "knownCalls": known_calls,
+            "unknownCalls": unknown_calls,
+            "latencyStatus": latency_status,
+            "callCount": len(usage_rows),
+        }
+
+    def _policy(
+        self,
+        project_id: str,
+        decisions: list[dict[str, Any]],
+        developer_role: str,
+    ) -> dict[str, Any]:
+        """Política de costo vigente y el veredicto de aprobación de la última decisión de ruteo.
+
+        Es la mitad accionable del snapshot: ``mode`` y ``forceLocal`` son lo que el operador dejó
+        puesto y gobierna la próxima ejecución; ``approvalRequired``/``premiumApproval`` son lo que la
+        política dictaminó sobre la ejecución ya registrada.
+        """
+        mode = resolve_setting_value(
+            connection=self.connection, key="project.loop.teamMode", project_id=project_id
+        )
+        latest = decisions[0] if decisions else None
+        policy_result = (latest or {}).get("policyResult") or {}
+        premium = policy_result.get("premiumApproval")
+        return {
+            "mode": mode if mode in MODES else DEFAULT_TEAM_MODE,
+            "forceLocal": bool(
+                resolve_setting_value(
+                    connection=self.connection,
+                    key="project.routing.forceLocal",
+                    project_id=project_id,
+                )
+            ),
+            "premiumApprovalOverUsd": self._premium_threshold(developer_role),
+            "approvalRequired": bool(latest.get("approvalRequired")) if latest else False,
+            "premiumApproval": premium if isinstance(premium, dict) else None,
+        }
+
+    def _premium_threshold(self, developer_role: str) -> float | None:
+        """Umbral premium efectivo del rol ejecutor; espeja la precedencia del coordinator."""
+        try:
+            policy = self.routing.get_role_policy(developer_role)
+        except KeyError:
+            return None
+        threshold = policy.get("requiresApprovalOverUsd")
+        if threshold is None:
+            threshold = policy.get("maxCostPerTaskUsd")
+        if threshold is None or float(threshold) <= 0:
+            return None
+        return float(threshold)
+
+    def _routing_view(
+        self, decisions: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None]:
+        """Modelo elegido, razón y alternativa más barata desde la decisión de ruteo más reciente del hilo."""
+        if not decisions:
+            return None, None, None
+        latest = decisions[0]
+        selected_model = latest.get("selectedModel")
+        model_chosen = (
+            {
+                "provider": latest.get("selectedProvider"),
+                "model": selected_model,
+                "runtime": latest.get("selectedRuntime"),
+                "effort": latest.get("selectedEffort"),
+                "mode": latest.get("mode"),
+            }
+            if selected_model
+            else None
+        )
+        reason = latest.get("decisionReason") or None
+        cheaper = self._cheaper_alternative(latest)
+        return model_chosen, reason, cheaper
+
+    def _cheaper_alternative(self, decision: dict[str, Any]) -> dict[str, Any] | None:
+        """Candidato con precio conocido estrictamente más barato que el elegido; ``None`` si no lo hay.
+
+        Si el costo del elegido es desconocido no se puede comparar honestamente y no se propone alternativa.
+        """
+        selected_cost = decision.get("estimatedCostUsd")
+        if selected_cost is None:
+            return None
+        selected_key = (decision.get("selectedProvider"), decision.get("selectedModel"))
+        best: dict[str, Any] | None = None
+        best_cost = float(selected_cost)
+        for candidate in decision.get("candidates") or []:
+            if not candidate.get("priceKnown"):
+                continue
+            cost = candidate.get("estimatedCostUsd")
+            if cost is None:
+                continue
+            if (candidate.get("provider"), candidate.get("model")) == selected_key:
+                continue
+            if float(cost) < best_cost:
+                best = candidate
+                best_cost = float(cost)
+        if best is None:
+            return None
+        return {
+            "provider": best.get("provider"),
+            "model": best.get("model"),
+            "runtime": best.get("runtime"),
+            "estimatedCostUsd": float(best_cost),
+            "deltaUsd": float(selected_cost) - float(best_cost),
+            "priceKnown": True,
+        }
+
+    def _quality_rework(self, loop_ids: list[str], model_chosen: dict[str, Any] | None) -> dict[str, Any]:
+        """Retrabajo real del hilo (FSM) + calidad del modelo elegido (benchmark), rotulada y honesta."""
+        rework_rounds, max_rework = self._rework_counter(loop_ids)
+        benchmark = self._model_benchmark(model_chosen)
+        return {
+            "reworkRounds": rework_rounds,
+            "maxReworkRounds": max_rework,
+            "modelSuccessRate": benchmark.get("successRate") if benchmark else None,
+            "modelQaPassRate": benchmark.get("qaPassRate") if benchmark else None,
+            "modelReworkRate": benchmark.get("reworkRate") if benchmark else None,
+            "benchmarkInsufficientData": bool(benchmark.get("insufficientData")) if benchmark else True,
+            "modelLabel": self._model_label(model_chosen),
+        }
+
+    def _rework_counter(self, loop_ids: list[str]) -> tuple[int | None, int | None]:
+        if not loop_ids:
+            return None, None
+        try:
+            loop = self.loops.get_loop(loop_ids[-1])
+        except KeyError:
+            return None, None
+        fsm = (loop.get("context") or {}).get("fsm") or {}
+        usage = fsm.get("usage") or {}
+        policy = fsm.get("policy") or {}
+        rounds = usage.get("reworkRounds")
+        max_rounds = policy.get("maxReworkRounds")
+        return (
+            int(rounds) if isinstance(rounds, (int, float)) else None,
+            int(max_rounds) if isinstance(max_rounds, (int, float)) else None,
+        )
+
+    def _model_benchmark(self, model_chosen: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not model_chosen or not model_chosen.get("model"):
+            return None
+        provider = model_chosen.get("provider")
+        model = model_chosen.get("model")
+        matches = [
+            row
+            for row in self.benchmarks.list_benchmarks()
+            if row.get("providerId") == provider and row.get("model") == model
+        ]
+        if not matches:
+            return None
+        role_match = next((row for row in matches if row.get("role") == DEVELOPER_ROLE), None)
+        wildcard = next((row for row in matches if row.get("role") in (None, "*")), None)
+        return role_match or wildcard or matches[0]
+
+    def _model_label(self, model_chosen: dict[str, Any] | None) -> str | None:
+        if not model_chosen or not model_chosen.get("model"):
+            return None
+        provider = model_chosen.get("provider")
+        model = model_chosen.get("model")
+        return f"{provider}/{model}" if provider else str(model)

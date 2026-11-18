@@ -8,7 +8,7 @@
  * pointer-down outside closes. Theme, density and About are handled here via hooks;
  * every other command is delegated upward via props. Stateless beyond its own
  * open-menu/focus chrome.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/ui';
@@ -78,14 +78,10 @@ export function MenuBar({
 			'go-threads': () => navigateTo('threads'),
 			'go-home': () => navigateTo('home'),
 			'go-workbench': () => navigateTo('workbench'),
-			'go-runs': () => navigateTo('workflows'),
 			'go-review': () => navigateTo('review-board'),
-			'go-evidence': () => navigateTo('evidence'),
-			'go-governance': () => navigateTo('governance'),
-			'go-audit': () => navigateTo('audit'),
-			'go-models': () => navigateTo('models'),
-			'go-integrations': () => navigateTo('integrations'),
 			'go-memory': () => navigateTo('memory'),
+			'go-workspaces': () => navigateTo('workspaces'),
+			'go-integrations': () => navigateTo('integrations'),
 			'go-settings': () => (onOpenSettings ? onOpenSettings() : navigateTo('home')),
 			'keyboard-shortcuts': onOpenCommandPalette,
 			about: () =>
@@ -146,18 +142,20 @@ export function MenuBar({
 		return () => window.removeEventListener('pointerdown', onPointerDown);
 	}, [openMenu]);
 
+	const menuItemEls = useCallback(
+		(): HTMLButtonElement[] =>
+			Array.from(
+				menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? [],
+			),
+		[],
+	);
+
 	useEffect(() => {
 		if (!openMenu) return;
 		const items = menuItemEls();
 		const target = focusEdgeRef.current === 'last' ? items[items.length - 1] : items[0];
 		target?.focus();
-	}, [openMenu]);
-
-	function menuItemEls(): HTMLButtonElement[] {
-		return Array.from(
-			menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? [],
-		);
-	}
+	}, [openMenu, menuItemEls]);
 
 	const adjacentMenu = (id: MenuId, delta: 1 | -1): MenuId => {
 		const index = MENU_ORDER.indexOf(id);
@@ -239,70 +237,73 @@ export function MenuBar({
 	};
 
 	return (
-		<div
-			ref={containerRef}
-			className="menu-bar"
-			role="menubar"
-			aria-label={t('app.menu.bar', 'Application menu')}
-		>
+		<div ref={containerRef} className="menu-bar">
 			<h1 className="menu-bar-brand" aria-label={t('app.brand.title', 'AIDO Control Center')}>
 				AIDO
 			</h1>
-			{MENUS.map((menu: MenuDef) => {
-				const expanded = openMenu === menu.id;
-				return (
-					<div className="menu-bar-item" key={menu.id}>
-						<button
-							ref={(element) => {
-								buttonRefs.current.set(menu.id, element);
-							}}
-							type="button"
-							role="menuitem"
-							className="menu-bar-button"
-							aria-haspopup="menu"
-							aria-expanded={expanded}
-							tabIndex={openMenu === null || expanded ? 0 : -1}
-							onClick={() => (expanded ? closeMenu(false) : openAt(menu.id, 'first'))}
-							onMouseEnter={() => {
-								if (openMenu && !expanded) openAt(menu.id, 'first');
-							}}
-							onKeyDown={(event) => onButtonKeyDown(event, menu.id)}
-						>
-							{t(menu.labelKey, menu.label)}
-						</button>
-						{expanded ? (
-							<div
-								ref={menuRef}
-								className="menu-dropdown"
-								role="menu"
-								aria-label={t(menu.labelKey, menu.label)}
-								onKeyDown={(event) => onMenuKeyDown(event, menu.id)}
+			<div
+				className="menu-bar-menus"
+				role="menubar"
+				aria-label={t('app.menu.bar', 'Application menu')}
+			>
+				{MENUS.map((menu: MenuDef) => {
+					const expanded = openMenu === menu.id;
+					return (
+						<div className="menu-bar-item" key={menu.id}>
+							<button
+								ref={(element) => {
+									buttonRefs.current.set(menu.id, element);
+								}}
+								type="button"
+								role="menuitem"
+								className="menu-bar-button"
+								aria-haspopup="menu"
+								aria-expanded={expanded}
+								tabIndex={openMenu === null || expanded ? 0 : -1}
+								onClick={() => (expanded ? closeMenu(false) : openAt(menu.id, 'first'))}
+								onMouseEnter={() => {
+									if (openMenu && !expanded) openAt(menu.id, 'first');
+								}}
+								onKeyDown={(event) => onButtonKeyDown(event, menu.id)}
 							>
-								{menu.items.map((item, index) =>
-									item.kind === 'separator' ? (
-										// biome-ignore lint/suspicious/noArrayIndexKey: separators are static and positional.
-										<hr className="menu-separator" key={`sep-${index}`} />
-									) : (
-										<button
-											key={item.command}
-											type="button"
-											role="menuitem"
-											className="menu-dropdown-item"
-											onClick={() => runCommand(item.command)}
-											onMouseEnter={() => {
-												if (item.page) preloadRoute(item.page);
-											}}
-										>
-											<span>{t(item.labelKey, item.label)}</span>
-											{item.shortcut ? <kbd className="menu-shortcut">{item.shortcut}</kbd> : null}
-										</button>
-									),
-								)}
-							</div>
-						) : null}
-					</div>
-				);
-			})}
+								{t(menu.labelKey, menu.label)}
+							</button>
+							{expanded ? (
+								<div
+									ref={menuRef}
+									className="menu-dropdown"
+									role="menu"
+									aria-label={t(menu.labelKey, menu.label)}
+									onKeyDown={(event) => onMenuKeyDown(event, menu.id)}
+								>
+									{menu.items.map((item, index) =>
+										item.kind === 'separator' ? (
+											// biome-ignore lint/suspicious/noArrayIndexKey: separators are static and positional.
+											<hr className="menu-separator" key={`sep-${index}`} />
+										) : (
+											<button
+												key={item.command}
+												type="button"
+												role="menuitem"
+												className="menu-dropdown-item"
+												onClick={() => runCommand(item.command)}
+												onMouseEnter={() => {
+													if (item.page) preloadRoute(item.page);
+												}}
+											>
+												<span>{t(item.labelKey, item.label)}</span>
+												{item.shortcut ? (
+													<kbd className="menu-shortcut">{item.shortcut}</kbd>
+												) : null}
+											</button>
+										),
+									)}
+								</div>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
 		</div>
 	);
 }

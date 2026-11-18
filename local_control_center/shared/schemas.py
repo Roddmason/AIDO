@@ -4,7 +4,7 @@ Define el contrato de salida (con alias camelCase para el frontend) de health,
 handshake, estado de retrieval/telemetría y los registros de evento/auditoría.
 Son DTO de borde: validan y serializan; no contienen lógica de dominio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -59,6 +59,31 @@ class TelemetryStatusResponse(BaseModel):
     """Respuesta de estado de telemetría: envuelve el estado del exportador externo."""
 
     external_exporter: ExternalTelemetryStatus = Field(alias="externalExporter")
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class SqliteDiagnosticsResponse(BaseModel):
+    """Estado observable de la base local y su WAL, sin incluir rutas del host."""
+
+    sqlite_version: str = Field(alias="sqliteVersion")
+    journal_mode: str = Field(alias="journalMode")
+    busy_timeout_ms: int = Field(alias="busyTimeoutMs")
+    wal_auto_checkpoint_pages: int = Field(alias="walAutoCheckpointPages")
+    page_size_bytes: int = Field(alias="pageSizeBytes")
+    database_bytes: int = Field(alias="databaseBytes")
+    wal_bytes: int = Field(alias="walBytes")
+    shared_memory_bytes: int = Field(alias="sharedMemoryBytes")
+
+
+class SqliteCheckpointResponse(BaseModel):
+    """Resultado medible de un checkpoint WAL no interruptivo."""
+
+    mode: str
+    busy: int
+    log_frames: int = Field(alias="logFrames")
+    checkpointed_frames: int = Field(alias="checkpointedFrames")
+    wal_bytes: int = Field(alias="walBytes")
+    duration_ms: int = Field(alias="durationMs")
 
 
 class EventRecord(BaseModel):

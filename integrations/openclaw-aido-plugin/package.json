@@ -15,13 +15,13 @@
     "README.md"
   ],
   "peerDependencies": {
-    "openclaw": ">=2026.5.17"
+    "openclaw": ">=2026.9.6"
   },
   "dependencies": {
     "typebox": "^1.1.38"
   },
   "devDependencies": {
-    "openclaw": "latest",
+    "openclaw": "2026.9.6",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },

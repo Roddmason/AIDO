@@ -1,21 +1,52 @@
 """Contrato y readiness del ArchitectAgent: esquema I/O y selección de runtime de revisión.
 
 Declara los esquemas de entrada/salida del agente arquitecto, los runtimes de modelo elegibles
-(openai_compatible/ollama) y su orden de preferencia, y calcula si hay un runtime ejecutable para
+y Claude CLI de solo lectura, y calcula si hay un runtime ejecutable para
 emitir veredictos de arquitectura fundados en el diff y la evidencia.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .runtime_selection import runtime_disabled_by_operator, runtime_provider_family
+
 ARCHITECT_AGENT_ID = "architect_agent"
-ARCHITECT_AGENT_ALLOWED_TOOLS = ["openai_compatible", "ollama"]
-ARCHITECT_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
-ARCHITECT_AGENT_RUNTIME_ORDER = ["openai_compatible", "ollama"]
+ARCHITECT_AGENT_ALLOWED_TOOLS = sorted(MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+ARCHITECT_AGENT_CLI_RUNTIMES = {"claude_code_cli"}
+_LEGACY_REMOTE_RUNTIME_ORDER = [
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
+ARCHITECT_AGENT_RUNTIME_ORDER = [
+    "ollama",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
+]
 ARCHITECT_AGENT_VERDICTS = {"approved", "approved_with_risks", "changes_required", "rejected", "blocked"}
+RISK_SEVERITIES = {"low", "medium", "high", "critical"}
+
+
+def _review_item_schema(*, risk: bool = False) -> dict[str, Any]:
+    """Expose the domain validator's item requirements to the model, without relaxing them."""
+    properties: dict[str, Any] = {
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "severity": {"type": "string", "enum": sorted(RISK_SEVERITIES)},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    }
+    required = ["title", "description", "evidenceRefs"]
+    if risk:
+        properties["mitigation"] = {"type": "string", "minLength": 1}
+        required.append("mitigation")
+    return {"type": "object", "required": required, "properties": properties}
 
 
 def architect_agent_contract() -> dict[str, Any]:
@@ -53,14 +84,32 @@ def architect_agent_contract() -> dict[str, Any]:
             ],
             "properties": {
                 "verdict": {"type": "string", "enum": sorted(ARCHITECT_AGENT_VERDICTS)},
-                "architectureFindings": {"type": "array", "items": {"type": "object"}},
-                "risks": {"type": "array", "items": {"type": "object"}},
-                "requiredChanges": {"type": "array", "items": {"type": "object"}},
-                "approvalRecommendation": {"type": "object"},
-                "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+                "architectureFindings": {"type": "array", "items": _review_item_schema()},
+                "risks": {"type": "array", "items": _review_item_schema(risk=True)},
+                "requiredChanges": {"type": "array", "items": _review_item_schema()},
+                "approvalRecommendation": {
+                    "type": "object",
+                    "required": ["decision", "reason", "evidenceRefs"],
+                    "properties": {
+                        "decision": {"type": "string", "minLength": 1},
+                        "reason": {"type": "string", "minLength": 1},
+                        "evidenceRefs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                        },
+                    },
+                },
+                "evidenceRefs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
             },
         },
         "allowedTools": ARCHITECT_AGENT_ALLOWED_TOOLS,
+        "readOnlyCliTransport": {
+            "runtimeIds": sorted(ARCHITECT_AGENT_CLI_RUNTIMES),
+            "tool": "shell",
+            "genericShellAllowed": False,
+            "agentToolsEnabled": False,
+        },
         "requiredRuntimeCapabilities": ["chat"],
         "requiredWorkspace": True,
         "requiredEvidence": True,
@@ -69,21 +118,26 @@ def architect_agent_contract() -> dict[str, Any]:
 
 
 def _architect_runtime_reason(runtime: dict[str, Any]) -> str:
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id == "ollama" and not runtime.get("models"):
+    if runtime_provider_family(runtime) == "ollama" and not runtime.get("models"):
         return "Ollama is reachable but no model is available for ArchitectAgent execution."
     return str(runtime.get("reason") or "Runtime is not executable for ArchitectAgent.")
 
 
 def is_architect_runtime(runtime: dict[str, Any]) -> bool:
     """Indica si un runtime es ejecutable como ArchitectAgent (modelo elegible, capability chat, modelo cargado)."""
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
+    runtime_family = runtime_provider_family(runtime)
+    if runtime_disabled_by_operator(runtime):
+        return False
+    if runtime.get("id") in ARCHITECT_AGENT_CLI_RUNTIMES:
+        return bool(runtime.get("executable") and runtime.get("canRunPrompt")) and "chat" in set(
+            runtime.get("capabilities") or []
+        )
+    if runtime_family not in ARCHITECT_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id == "openai_compatible":
-        return "chat" in capabilities or not capabilities
-    if runtime_id == "ollama":
+    if runtime_family in ARCHITECT_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
+    if runtime_family == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))
     return False
 
@@ -103,8 +157,8 @@ def architect_agent_readiness(
     ordered_eligible = sorted(
         eligible,
         key=lambda item: (
-            ARCHITECT_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in ARCHITECT_AGENT_RUNTIME_ORDER
+            ARCHITECT_AGENT_RUNTIME_ORDER.index(runtime_provider_family(item))
+            if runtime_provider_family(item) in ARCHITECT_AGENT_RUNTIME_ORDER
             else len(ARCHITECT_AGENT_RUNTIME_ORDER)
         ),
     )

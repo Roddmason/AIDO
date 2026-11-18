@@ -6,49 +6,474 @@ de ruteo, presupuestos) de forma reentrante: usa ``CREATE TABLE IF NOT EXISTS``,
 ``schema_migrations``. Cada ``init_phaseN_schema`` se ejecuta como su propia unidad DDL;
 re-ejecutar todo el conjunto sobre una base ya migrada no produce cambios.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import errno
+import functools
+import os
 import sqlite3
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
-from .serialization import json_dumps
+from .db import immediate_transaction
+from .serialization import json_dumps, json_loads
 from .time import utc_now
+
+CURRENT_SCHEMA_VERSION = 86
+
+PhaseInitializer = Callable[[sqlite3.Connection], None]
+
+_PHASE_REGISTRY: dict[int, str] = {}
+
+
+def migration(
+    version: int, *, skip_if_applied: bool = False
+) -> Callable[[PhaseInitializer], PhaseInitializer]:
+    """Registra una fase del esquema bajo su número de versión.
+
+    ``skip_if_applied`` delega en el decorador el guard estándar (``SELECT 1 FROM schema_migrations
+    WHERE version = N`` y retorno anticipado). Las fases con guard propio o sin guard no lo activan.
+    """
+
+    def register(phase: PhaseInitializer) -> PhaseInitializer:
+        if version in _PHASE_REGISTRY:
+            raise RuntimeError(f"Fase de esquema duplicada: {version}")
+        _PHASE_REGISTRY[version] = phase.__name__
+        if not skip_if_applied:
+            return phase
+
+        @functools.wraps(phase)
+        def guarded(connection: sqlite3.Connection) -> None:
+            if connection.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)).fetchone():
+                return
+            phase(connection)
+
+        return guarded
+
+    return register
+
+
+def registered_schema_versions() -> tuple[int, ...]:
+    """Versiones registradas, en el orden en que se aplican."""
+    return tuple(sorted(_PHASE_REGISTRY))
+
+
+def _execute_atomic_statements(
+    connection: sqlite3.Connection, statements: list[tuple[str, tuple[object, ...]]]
+) -> None:
+    """Execute a schema rebuild atomically, nesting safely inside an existing transaction."""
+    nested = connection.in_transaction
+    savepoint = "aido_schema_rebuild"
+    connection.execute(f"SAVEPOINT {savepoint}" if nested else "BEGIN IMMEDIATE")
+    try:
+        for statement, parameters in statements:
+            connection.execute(statement, parameters)
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}" if nested else "COMMIT")
+    except Exception:
+        if nested:
+            connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        elif connection.in_transaction:
+            connection.execute("ROLLBACK")
+        raise
+
+
+MIGRATION_LOCK_TIMEOUT_SECONDS = 300.0
+
+
+def _database_file(connection: sqlite3.Connection) -> Path | None:
+    """Archivo de la base ``main``; ``None`` para una base en memoria o temporal."""
+    for row in connection.execute("PRAGMA database_list"):
+        if row[1] == "main" and row[2]:
+            return Path(row[2])
+    return None
+
+
+@contextmanager
+def _migration_lock(connection: sqlite3.Connection) -> Iterator[None]:
+    """Serializa las migraciones entre procesos con un lock de archivo junto a la base.
+
+    El supervisor arranca la API y el worker a la vez y ambos migran la misma base. Cada fase abre
+    una transacción diferida (``SAVEPOINT``) que lee y luego escribe: si el otro proceso escribió
+    entre medio, SQLite no puede promoverla y falla al instante con "database is locked", sin
+    esperar el ``busy_timeout``. Con el lock, el segundo proceso espera y luego ve la base migrada.
+    """
+    database = _database_file(connection)
+    if database is None:
+        yield
+        return
+    lock_path = database.with_name(database.name + ".migrate.lock")
+    with lock_path.open("a+b") as handle:
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+        else:
+            import fcntl
+        deadline = time.monotonic() + MIGRATION_LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        errno.ETIMEDOUT, f"Another AIDO process is still migrating {database.name}."
+                    ) from error
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _schema_is_current(connection: sqlite3.Connection) -> bool:
+    """Todas las fases aplicadas y el catálogo de proveedores sembrado."""
+    schema_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+    ).fetchone()
+    if not schema_exists:
+        return False
+    applied = {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
+    if not applied.issuperset(range(1, CURRENT_SCHEMA_VERSION + 1)):
+        return False
+    provider_catalog_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_accounts'"
+    ).fetchone()
+    return bool(
+        provider_catalog_exists and connection.execute("SELECT 1 FROM provider_accounts LIMIT 1").fetchone()
+    )
 
 
 def initialize_platform_schema(connection: sqlite3.Connection) -> None:
-    """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma."""
-    init_base_schema(connection)
-    init_phase2_schema(connection)
-    init_phase3_schema(connection)
-    init_phase4_schema(connection)
-    init_phase5_schema(connection)
-    init_phase6_schema(connection)
-    init_phase7_schema(connection)
-    init_phase8_schema(connection)
-    init_phase9_schema(connection)
-    init_phase10_schema(connection)
-    init_phase11_schema(connection)
-    init_phase12_schema(connection)
-    init_phase13_schema(connection)
-    init_phase14_schema(connection)
-    init_phase15_schema(connection)
-    init_phase16_schema(connection)
-    init_phase17_schema(connection)
-    init_phase18_schema(connection)
-    init_phase19_schema(connection)
-    init_phase20_schema(connection)
-    init_phase21_schema(connection)
-    init_phase22_schema(connection)
-    init_phase23_schema(connection)
-    init_phase24_schema(connection)
-    init_phase25_schema(connection)
-    init_phase26_schema(connection)
-    init_phase27_schema(connection)
+    """Aplica todas las fases del esquema en orden y siembra los catálogos de la plataforma.
+
+    Una base al día no toma el lock; si falta algo, migra un solo proceso a la vez.
+    """
+    if _schema_is_current(connection):
+        return
+    with _migration_lock(connection):
+        _initialize_platform_schema_unlocked(connection)
+
+
+def _initialize_platform_schema_unlocked(connection: sqlite3.Connection) -> None:
+    """Cuerpo de :func:`initialize_platform_schema`, ya bajo el lock de migración.
+
+    Las fases se resuelven por nombre en el módulo al ejecutarse, de modo que sustituir
+    ``init_phaseN_schema`` (p. ej. con ``monkeypatch``) sigue afectando a la migración.
+    """
+    if _schema_is_current(connection):
+        return
+    module_namespace = globals()
+    for version in registered_schema_versions():
+        module_namespace[_PHASE_REGISTRY[version]](connection)
     seed_platform_catalogs(connection)
+    purge_tombstoned_provider_seeds(connection)
 
 
+@migration(80, skip_if_applied=True)
+def init_phase80_schema(connection: sqlite3.Connection) -> None:
+    """Fase 80: configuración por modelo local y retiro de las capacidades sembradas por runtime.
+
+    ``local_model_settings`` guarda por (cuenta, modelo) el por defecto, el orden, las capacidades opt-in
+    y la capacidad json_schema validada; el resync de ``model_catalog`` no la toca. Las cuentas llama.cpp
+    creadas antes desde el catálogo pierden ``code_edit``/``code_review`` sembrados por runtime: esas
+    capacidades pasan a ser opt-in por modelo (spec §4.3). Las filas del operador no se tocan.
+    """
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS local_model_settings (
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+            code_edit INTEGER NOT NULL DEFAULT 0 CHECK (code_edit IN (0, 1)),
+            code_review INTEGER NOT NULL DEFAULT 0 CHECK (code_review IN (0, 1)),
+            operator_order INTEGER NOT NULL DEFAULT 0 CHECK (operator_order >= 0),
+            json_schema INTEGER NOT NULL DEFAULT 0 CHECK (json_schema IN (0, 1)),
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (provider_id, model)
+        )""",
+                (),
+            ),
+            (
+                """CREATE UNIQUE INDEX IF NOT EXISTS idx_local_model_settings_default
+            ON local_model_settings(provider_id) WHERE is_default = 1""",
+                (),
+            ),
+            (
+                """DELETE FROM runtime_capabilities
+            WHERE capability IN ('code_edit', 'code_review')
+              AND CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.source') END
+                  = 'provider_catalog_from_catalog'
+              AND runtime IN (
+                  SELECT provider_id FROM provider_accounts
+                  WHERE provider_id = 'llama_cpp'
+                     OR provider_catalog_id = 'llama_cpp'
+                     OR CASE WHEN json_valid(metadata_json)
+                        THEN json_extract(metadata_json, '$.providerCatalogId') END = 'llama_cpp'
+              )""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (80, utc_now())),
+        ],
+    )
+
+
+@migration(79)
+def init_phase79_schema(connection: sqlite3.Connection) -> None:
+    """Fase 79: slots durables de concurrencia por endpoint local (`local_endpoint_leases`).
+
+    Una fila por (cuenta, slot) que persiste liberada (`holder` NULL) para que el fence sea monótono por slot;
+    `expires_at` es epoch en segundos de reloj de pared porque lo comparan procesos runner distintos.
+    """
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS local_endpoint_leases (
+            provider_id TEXT NOT NULL,
+            slot INTEGER NOT NULL CHECK (slot >= 0),
+            holder TEXT,
+            fence INTEGER NOT NULL DEFAULT 0 CHECK (fence >= 0),
+            expires_at REAL,
+            PRIMARY KEY (provider_id, slot)
+        )""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (79, utc_now())),
+        ],
+    )
+
+
+@migration(78, skip_if_applied=True)
+def init_phase78_schema(connection: sqlite3.Connection) -> None:
+    """Fase 78: `runtime.local.enabled` nace con el valor que el operador dio a `runtime.ollama.enabled`.
+
+    Ollama deja de ser el único runtime local y su interruptor pasa a sub-interruptor. Sembrar el nuevo desde
+    el anterior evita que quien apagó Ollama encuentre los runtimes locales encendidos tras actualizar. Solo se
+    siembra una vez: después manda lo que el operador fije.
+    """
+    now = utc_now()
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """INSERT OR IGNORE INTO settings_value
+                    (key, scope, scope_id, value_json, updated_at, assigned_by)
+                SELECT 'runtime.local.enabled', scope, scope_id, value_json, ?, assigned_by
+                FROM settings_value WHERE key = 'runtime.ollama.enabled' AND scope = 'general'""",
+                (now,),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (78, now)),
+        ],
+    )
+
+
+@migration(77, skip_if_applied=True)
+def init_phase77_schema(connection: sqlite3.Connection) -> None:
+    """Fase 77: identidad de catálogo, declaración local y concurrencia pasan a campos del servidor.
+
+    `providerCatalogId` vivía en la metadata que el cliente reescribe; desde aquí solo lo escriben el alta
+    desde catálogo y el router de endpoints locales. La metadata se sanea: se retira `providerCatalogId` y un
+    `endpointKind="local"` (declarar local exige el endpoint auditado); `"remote"` se conserva porque solo
+    restringe. El backfill promueve `metadata.providerCatalogId` a la columna solo cuando el id es un catálogo
+    conocido y coincide en `providerType`/`apiFormat`/`providerFamily` con la fila (una cuenta remota con un
+    id de catálogo self-hosted incompatible, escrito antes de esta fase por un PATCH de cliente, queda con la
+    columna en NULL en vez de heredar una clasificación de costo/localidad falsa). Las cuentas llama.cpp
+    existentes reciben su fila propia de `runtime_installations` (antes heredaban la fila compartida y
+    deshabilitada de la familia). Idempotente: se re-ejecuta sin efectos.
+    """
+
+    from local_control_center.agents.provider_catalog import provider_catalog_entry
+
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(provider_accounts)")}
+    statements: list[tuple[str, tuple[object, ...]]] = [
+        (f"ALTER TABLE provider_accounts ADD COLUMN {name} {sql_type}", ())
+        for name, sql_type in (
+            ("provider_catalog_id", "TEXT"),
+            ("local_declaration_json", "TEXT"),
+            ("local_concurrency_limit", "INTEGER"),
+        )
+        if name not in columns
+    ]
+    now = utc_now()
+    candidate_rows = connection.execute(
+        """SELECT provider_id, provider_type, api_format, provider_family,
+                  json_extract(metadata_json, '$.providerCatalogId') AS candidate_catalog_id
+           FROM provider_accounts
+           WHERE json_valid(metadata_json) AND json_type(metadata_json, '$.providerCatalogId') = 'text'"""
+    ).fetchall()
+    for row in candidate_rows:
+        entry = provider_catalog_entry(str(row["candidate_catalog_id"] or ""))
+        if (
+            entry is not None
+            and entry.provider_type == row["provider_type"]
+            and entry.api_format == row["api_format"]
+            and entry.provider_family == row["provider_family"]
+        ):
+            statements.append(
+                (
+                    "UPDATE provider_accounts SET provider_catalog_id = ? "
+                    "WHERE provider_id = ? AND provider_catalog_id IS NULL",
+                    (entry.id, row["provider_id"]),
+                )
+            )
+    statements += [
+        (
+            """UPDATE provider_accounts SET metadata_json = json_remove(metadata_json, '$.providerCatalogId')
+            WHERE json_valid(metadata_json) AND json_type(metadata_json, '$.providerCatalogId') IS NOT NULL""",
+            (),
+        ),
+        (
+            """UPDATE provider_accounts SET metadata_json = json_remove(metadata_json, '$.endpointKind')
+            WHERE json_valid(metadata_json) AND json_extract(metadata_json, '$.endpointKind') = 'local'""",
+            (),
+        ),
+        (
+            """INSERT OR IGNORE INTO runtime_installations
+                (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                 preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                 configuration_source, metadata, created_at, updated_at)
+            SELECT 'runtime-installation-' || provider_id, provider_id, 'local', NULL, NULL, enabled,
+                   '["chat"]', '["analyst","product_owner","developer","technical_lead"]', 'unknown',
+                   NULL, NULL, NULL, 'local_runtime_catalog',
+                   json_object('providerId', provider_id, 'catalogId', provider_catalog_id), ?, ?
+            FROM provider_accounts WHERE provider_catalog_id = 'llama_cpp'""",
+            (now, now),
+        ),
+        ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (77, now)),
+    ]
+    _execute_atomic_statements(connection, statements)
+
+
+@migration(76, skip_if_applied=True)
+def init_phase76_schema(connection: sqlite3.Connection) -> None:
+    """Extend execution provenance to ModelGateway while preserving v75 evidence atomically."""
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE model_execution_health_v76 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider_id TEXT NOT NULL, model TEXT NOT NULL, configuration_fingerprint TEXT NOT NULL,
+            success INTEGER NOT NULL CHECK (success IN (0, 1)),
+            source TEXT NOT NULL CHECK (source IN ('tool_broker', 'test_prompt', 'model_gateway')),
+            http_status INTEGER CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+            started_at TEXT NOT NULL, observed_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """INSERT INTO model_execution_health_v76
+            (id, provider_id, model, configuration_fingerprint, success, source, http_status, started_at, observed_at)
+            SELECT id, provider_id, model, configuration_fingerprint, success, source, http_status, started_at, observed_at
+            FROM model_execution_health""",
+                (),
+            ),
+            ("DROP TABLE model_execution_health", ()),
+            ("ALTER TABLE model_execution_health_v76 RENAME TO model_execution_health", ()),
+            (
+                """CREATE INDEX idx_model_execution_health_latest
+            ON model_execution_health(provider_id, model, started_at DESC, id DESC)""",
+                (),
+            ),
+            ("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", (76, utc_now())),
+        ],
+    )
+
+
+@migration(75)
+def init_phase75_schema(connection: sqlite3.Connection) -> None:
+    """Persist executed model validation independently from provider health and catalog metadata."""
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS model_execution_health (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                configuration_fingerprint TEXT NOT NULL,
+                success INTEGER NOT NULL CHECK (success IN (0, 1)),
+                source TEXT NOT NULL CHECK (source IN ('tool_broker', 'test_prompt')),
+                http_status INTEGER CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+                started_at TEXT NOT NULL,
+                observed_at TEXT NOT NULL
+            )""",
+                (),
+            ),
+            (
+                """CREATE INDEX IF NOT EXISTS idx_model_execution_health_latest
+                ON model_execution_health(provider_id, model, started_at DESC, id DESC)""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (75, utc_now())),
+        ],
+    )
+
+
+@migration(74)
+def init_phase74_schema(connection: sqlite3.Connection) -> None:
+    """Evidencia shadow independiente de estados operacionales y aprendizaje efectivo."""
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS decision_receipts (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            project_id TEXT,
+            source_decision_id TEXT,
+            configuration_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')),
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS idx_decisions_project ON decision_receipts(project_id, sequence)",
+                (),
+            ),
+            ("CREATE INDEX IF NOT EXISTS idx_decisions_source ON decision_receipts(source_decision_id)", ()),
+            (
+                """CREATE TABLE IF NOT EXISTS decision_outcomes (
+            decision_id TEXT PRIMARY KEY REFERENCES decision_receipts(id),
+            payload TEXT NOT NULL,
+            observed_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """CREATE TABLE IF NOT EXISTS decision_provider_health (
+            configuration_fingerprint TEXT PRIMARY KEY,
+            failures INTEGER NOT NULL DEFAULT 0,
+            open_until REAL NOT NULL DEFAULT 0
+        )""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (74, utc_now())),
+        ],
+    )
+
+
+@migration(1)
 def init_base_schema(connection: sqlite3.Connection) -> None:
     """Fase 1: crea el núcleo (proyectos, agentes, jobs, eventos, auditoría, memoria, MCP)."""
     connection.executescript(
@@ -321,6 +746,7 @@ def init_base_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(2)
 def init_phase2_schema(connection: sqlite3.Connection) -> None:
     """Fase 2: añade workflows, permisos, evidencia y costos; siembra políticas de permiso base."""
     connection.executescript(
@@ -473,9 +899,9 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
             provider TEXT NOT NULL,
             model TEXT NOT NULL,
             status TEXT NOT NULL,
-            prompt_tokens INTEGER NOT NULL,
-            completion_tokens INTEGER NOT NULL,
-            cost_usd REAL NOT NULL,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            cost_usd REAL,
             metadata TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
@@ -523,6 +949,7 @@ def init_phase2_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+@migration(3)
 def init_phase3_schema(connection: sqlite3.Connection) -> None:
     """Fase 3: añade workspaces, git/PR, skills, artefactos y QA; siembra proveedores de modelo."""
     connection.executescript(
@@ -760,6 +1187,7 @@ def init_phase3_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+@migration(4)
 def init_phase4_schema(connection: sqlite3.Connection) -> None:
     """Fase 4: vincula workspaces a workflow run/step y añade su índice por run."""
     workspace_columns = {
@@ -778,6 +1206,7 @@ def init_phase4_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(5)
 def init_phase5_schema(connection: sqlite3.Connection) -> None:
     """Fase 5: añade gobierno de proyecto (decisiones de arquitectura, riesgos, próximos pasos)."""
     connection.executescript(
@@ -838,6 +1267,7 @@ def init_phase5_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(6)
 def init_phase6_schema(connection: sqlite3.Connection) -> None:
     """Fase 6: vincula jobs y agent runs a workflow run/step y añade sus índices por run."""
     job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -864,6 +1294,7 @@ def init_phase6_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(7)
 def init_phase7_schema(connection: sqlite3.Connection) -> None:
     """Fase 7: asegura las tablas de integraciones y de servidores/llamadas MCP con sus índices."""
     connection.executescript(
@@ -903,6 +1334,7 @@ def init_phase7_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(8)
 def init_phase8_schema(connection: sqlite3.Connection) -> None:
     """Fase 8: añade los grants de permiso emitidos contra action requests aprobados."""
     connection.executescript(
@@ -941,6 +1373,7 @@ def init_phase8_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(9)
 def init_phase9_schema(connection: sqlite3.Connection) -> None:
     """Fase 9: añade los perfiles de sandbox y siembra el perfil Docker por defecto."""
     connection.executescript(
@@ -998,6 +1431,7 @@ def init_phase9_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(10)
 def init_phase10_schema(connection: sqlite3.Connection) -> None:
     """Fase 10: backfill de columnas de expiración/revocación en grants y perfiles de sandbox."""
     _add_column_if_missing(connection, "action_requests", "expires_at", "expires_at TEXT NOT NULL DEFAULT ''")
@@ -1035,6 +1469,7 @@ def init_phase10_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(11)
 def init_phase11_schema(connection: sqlite3.Connection) -> None:
     """Fase 11: añade el historial versionado de revisiones de política (auditoría de cambios)."""
     connection.executescript(
@@ -1113,6 +1548,7 @@ def _remove_legacy_simulation_runtime_records(connection: sqlite3.Connection) ->
     )
 
 
+@migration(12)
 def init_phase12_schema(connection: sqlite3.Connection) -> None:
     """Fase 12: instala el subsistema de ruteo de modelos (cuentas, catálogo, políticas por rol,
     ledger de uso, límites, decisiones) y siembra sus catálogos por defecto."""
@@ -1208,12 +1644,12 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             task_id TEXT,
             request_id TEXT,
             session_id TEXT,
-            input_tokens INTEGER NOT NULL,
-            cached_input_tokens INTEGER NOT NULL,
-            output_tokens INTEGER NOT NULL,
-            reasoning_tokens INTEGER NOT NULL,
-            tool_tokens INTEGER NOT NULL,
-            total_tokens INTEGER NOT NULL,
+            input_tokens INTEGER,
+            cached_input_tokens INTEGER,
+            output_tokens INTEGER,
+            reasoning_tokens INTEGER,
+            tool_tokens INTEGER,
+            total_tokens INTEGER,
             estimated_cost_usd REAL,
             actual_cost_usd REAL,
             currency TEXT NOT NULL,
@@ -1411,9 +1847,9 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         (
             "ollama",
             "ollama",
-            "Ollama Local",
+            "Ollama Local/Remote",
             "local",
-            "custom",
+            "ollama",
             "http://localhost:11434",
             "",
             0,
@@ -1475,7 +1911,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             "gateway",
             "openai_compatible",
             "",
-            "LITELLM_API_KEY",
+            "",
             0,
             "manual",
             "unknown",
@@ -1495,6 +1931,90 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
         ),
         ("openhands", "openhands", "OpenHands", "cli", "cli", "", "", 0, "manual", "unknown"),
         ("swe_agent", "swe_agent", "SWE-agent", "cli", "cli", "", "", 0, "manual", "unknown"),
+        (
+            "deepseek",
+            "deepseek",
+            "DeepSeek",
+            "api",
+            "openai_compatible",
+            "https://api.deepseek.com",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "groq",
+            "groq",
+            "Groq",
+            "api",
+            "openai_compatible",
+            "https://api.groq.com/openai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "mistral",
+            "mistral",
+            "Mistral AI",
+            "api",
+            "openai_compatible",
+            "https://api.mistral.ai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "kimi",
+            "kimi",
+            "Kimi (Moonshot)",
+            "api",
+            "openai_compatible",
+            "https://api.moonshot.ai/v1",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "gemini",
+            "gemini",
+            "Google Gemini",
+            "api",
+            "openai_compatible",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "azure_openai",
+            "azure_openai",
+            "Azure OpenAI",
+            "api",
+            "azure_openai",
+            "",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
+        (
+            "ollama_remote",
+            "ollama_remote",
+            "Ollama Remote",
+            "local",
+            "ollama",
+            "",
+            "",
+            0,
+            "none",
+            "unknown",
+        ),
         ("manual", "manual", "Manual Operator", "manual", "cli", "", "", 1, "none", "healthy"),
     ]
     for row in provider_accounts:
@@ -1507,6 +2027,14 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             """,
             (*row, timestamp, timestamp),
         )
+    connection.execute(
+        """
+        UPDATE provider_accounts
+        SET display_name = 'Ollama Local/Remote', updated_at = ?
+        WHERE provider_id = 'ollama' AND display_name = 'Ollama Local'
+        """,
+        (timestamp,),
+    )
 
     model_catalog = [
         (
@@ -1916,7 +2444,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
             0,
             1,
             1,
-            0,
+            1,
             1,
         ),
         (
@@ -2292,6 +2820,7 @@ def init_phase12_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(13)
 def init_phase13_schema(connection: sqlite3.Connection) -> None:
     """Fase 13: añade los resultados por intento de benchmark de modelos (éxito, QA, costo, latencia)."""
     connection.executescript(
@@ -2336,6 +2865,7 @@ def init_phase13_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(14)
 def init_phase14_schema(connection: sqlite3.Connection) -> None:
     """Fase 14: añade los snapshots de precios de modelos con su procedencia y fecha de vigencia."""
     connection.executescript(
@@ -2365,6 +2895,7 @@ def init_phase14_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(15)
 def init_phase15_schema(connection: sqlite3.Connection) -> None:
     """Fase 15: añade ciclo de vida de memoria (expiración/borrado) y las tablas de i18n."""
     _add_column_if_missing(connection, "memory_items", "expires_at", "expires_at TEXT")
@@ -2404,6 +2935,7 @@ def init_phase15_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(16)
 def init_phase16_schema(connection: sqlite3.Connection) -> None:
     """Fase 16: instala el slice de product discovery (iniciativas, sesiones de descubrimiento,
     mensajes de conversación, preguntas/respuestas de aclaración, briefs versionados, supuestos y
@@ -2587,6 +3119,7 @@ def init_phase16_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(17)
 def init_phase17_schema(connection: sqlite3.Connection) -> None:
     """Fase 17: instala el slice de backlog (epics, user stories, criterios de aceptación,
     grafos de dependencias de historias y tareas, tareas de agente y asignaciones). Modela la HU
@@ -2729,6 +3262,7 @@ def init_phase17_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(18)
 def init_phase18_schema(connection: sqlite3.Connection) -> None:
     """Fase 18: instala el assessment estático de proyectos (project_assessments) y sus hallazgos
     por dimensión (project_findings: stack, módulos, arquitectura, endpoints, datos, tests, cobertura,
@@ -2777,6 +3311,7 @@ def init_phase18_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(19)
 def init_phase19_schema(connection: sqlite3.Connection) -> None:
     """Fase 19: instala la máquina de estados durable del ProductLoopCoordinator (product_loops) y su
     bitácora append-only de transiciones (product_loop_transitions). El estado vive en la base —no solo
@@ -2822,6 +3357,7 @@ def init_phase19_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(20)
 def init_phase20_schema(connection: sqlite3.Connection) -> None:
     """Fase 20: añade la tabla ``iterations`` que el IterationPlanner produce a partir del brief
     aprobado y las historias ready. La iteración es el contenedor del plan (estrategia de workspace,
@@ -2860,6 +3396,7 @@ def init_phase20_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(21)
 def init_phase21_schema(connection: sqlite3.Connection) -> None:
     """Fase 21: instala la configuración persistida de runtimes (runtime_installations, runtime_accounts,
     runtime_preferences) para que la config normal viva en la base —no en variables de entorno— y deja a
@@ -3081,6 +3618,7 @@ def init_phase21_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(22)
 def init_phase22_schema(connection: sqlite3.Connection) -> None:
     """Fase 22: instala el metadato del CredentialManager (credential_refs) y su auditoría append-only
     (credential_audit). SQLite SOLO guarda referencias al almacén externo (keyring/vault/openbao/dpapi/
@@ -3128,6 +3666,7 @@ def init_phase22_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(23)
 def init_phase23_schema(connection: sqlite3.Connection) -> None:
     """Fase 23: stream de sesiones CLI — bitácora acotada de eventos por sesión (cli_session_events).
 
@@ -3158,6 +3697,7 @@ def init_phase23_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(24)
 def init_phase24_schema(connection: sqlite3.Connection) -> None:
     """Fase 24: colaboración basada en artefactos para asignaciones de agentes.
 
@@ -3248,6 +3788,7 @@ def init_phase24_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(25)
 def init_phase25_schema(connection: sqlite3.Connection) -> None:
     """Fase 25: registra feedback del usuario como comandos trazables del Product Loop.
 
@@ -3287,6 +3828,7 @@ def init_phase25_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(26)
 def init_phase26_schema(connection: sqlite3.Connection) -> None:
     """Fase 26: store de dos niveles para ajustes de plataforma (general y por proyecto).
 
@@ -3312,6 +3854,7 @@ def init_phase26_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(27)
 def init_phase27_schema(connection: sqlite3.Connection) -> None:
     """Fase 27: self-improvement durable para propuestas, lessons y performance records.
 
@@ -3396,8 +3939,3299 @@ def init_phase27_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+@migration(28)
+def init_phase28_schema(connection: sqlite3.Connection) -> None:
+    """Fase 28: completa la configuración real de runtimes y sus health-checks persistidos.
+
+    ``runtime_health_checks`` guarda resultados sanitizados de detección/health por runtime. Las
+    instalaciones sembradas cubren los CLIs, Ollama y proveedores API/gateway conocidos; los secretos
+    siguen viviendo en credential/provider stores, no en estas tablas.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS runtime_health_checks (
+            id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL,
+            check_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_runtime_health_checks_runtime_created
+            ON runtime_health_checks(runtime_id, created_at);
+        """
+    )
+    timestamp = utc_now()
+    runtime_installations = [
+        (
+            "codex_cli",
+            "cli",
+            ["code_edit", "issue_to_patch", "chat", "review"],
+            ["developer", "implementer", "technical_lead"],
+        ),
+        (
+            "claude_code_cli",
+            "cli",
+            ["code_edit", "issue_to_patch", "chat", "review"],
+            ["developer", "technical_lead", "product_owner"],
+        ),
+        ("openhands", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("swe_agent", "cli", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("ollama", "local", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("openai_compatible", "api", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("openrouter", "gateway", ["chat"], ["developer", "product_owner", "analyst"]),
+        ("nvidia_nim", "api", ["chat"], ["product_owner", "analyst", "technical_lead"]),
+        ("anthropic_api", "api", ["chat"], ["product_owner", "analyst"]),
+        ("openai_api", "api", ["chat"], ["product_owner", "analyst"]),
+    ]
+    for runtime_id, kind, capabilities, preferred_roles in runtime_installations:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_installations
+                (id, runtime_id, kind, executable_path, detected_version, enabled, capabilities,
+                 preferred_roles, health_status, last_validation_at, last_health_check_at, last_error,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, 'unknown', NULL, NULL, NULL, 'seed', '{}', ?, ?)
+            """,
+            (
+                f"runtime-installation-{runtime_id}",
+                runtime_id,
+                kind,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE runtime_installations
+            SET kind = ?,
+                capabilities = CASE WHEN capabilities = '[]' THEN ? ELSE capabilities END,
+                preferred_roles = CASE WHEN preferred_roles = '[]' THEN ? ELSE preferred_roles END,
+                updated_at = ?
+            WHERE runtime_id = ?
+            """,
+            (kind, json_dumps(capabilities), json_dumps(preferred_roles), timestamp, runtime_id),
+        )
+        if runtime_id in ("openhands", "swe_agent"):
+            continue
+        for capability in capabilities:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_capabilities
+                    (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    f"{runtime_id}:{capability}",
+                    runtime_id,
+                    capability,
+                    json_dumps({"source": "runtime_installations"}),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+    connection.execute(
+        """
+        UPDATE runtime_installations
+        SET preferred_roles = ?, updated_at = ?
+        WHERE runtime_id = 'nvidia_nim' AND preferred_roles = ?
+        """,
+        (
+            json_dumps(["product_owner", "analyst", "technical_lead"]),
+            timestamp,
+            json_dumps(["analyst", "technical_lead"]),
+        ),
+    )
+    for runtime_id, label, capabilities, preferred_roles in [
+        ("openhands", "Local OpenHands CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+        ("swe_agent", "Local SWE-agent CLI", ["code_edit", "issue_to_patch"], ["developer", "implementer"]),
+    ]:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO runtime_accounts
+                (id, runtime_id, account_label, auth_mode, credential_store_kind, credential_ref, enabled,
+                 is_default, capabilities, preferred_roles, health_status, last_validation_at,
+                 configuration_source, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, 'provider_native_cli', 'provider_native_cli', NULL, 0, 1, ?, ?,
+                    'unknown', NULL, 'seed', '{}', ?, ?)
+            """,
+            (
+                f"runtime-account-{runtime_id}-native",
+                runtime_id,
+                label,
+                json_dumps(capabilities),
+                json_dumps(preferred_roles),
+                timestamp,
+                timestamp,
+            ),
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (28, utc_now()),
+    )
+
+
+@migration(29)
+def init_phase29_schema(connection: sqlite3.Connection) -> None:
+    """Fase 29: políticas explícitas de perfiles de equipo y overrides por proyecto."""
+    _add_column_if_missing(
+        connection,
+        "agent_profiles",
+        "default_runtime_policy",
+        "default_runtime_policy TEXT NOT NULL DEFAULT '{}'",
+    )
+    _add_column_if_missing(
+        connection,
+        "agent_profiles",
+        "reviewer_policy",
+        "reviewer_policy TEXT NOT NULL DEFAULT '{}'",
+    )
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS agent_profile_project_overrides (
+            project_id TEXT NOT NULL,
+            agent_profile_id TEXT NOT NULL,
+            runtime_type TEXT,
+            allowed_providers TEXT,
+            allowed_runtimes TEXT,
+            allowed_skills TEXT,
+            allowed_tools TEXT,
+            default_runtime_policy TEXT,
+            reviewer_policy TEXT,
+            max_cost_per_run REAL,
+            max_tokens_per_run INTEGER,
+            max_runtime_seconds INTEGER,
+            requires_approval_over_usd REAL,
+            quality_gates TEXT,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(project_id, agent_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_profile_overrides_profile
+            ON agent_profile_project_overrides(agent_profile_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (29, utc_now()),
+    )
+
+
+@migration(30)
+def init_phase30_schema(connection: sqlite3.Connection) -> None:
+    """Fase 30: vista segura ``credentials`` con los nombres del contrato de producto.
+
+    La tabla fuente sigue siendo ``credential_refs`` para no duplicar metadatos ni alterar clientes
+    existentes. La vista muestra id/label/credentialRef/source/fingerprint/status/timestamps y nunca
+    contiene el valor del secreto.
+    """
+    connection.executescript(
+        """
+        CREATE VIEW IF NOT EXISTS credentials AS
+        SELECT
+            id,
+            name AS label,
+            CASE
+                WHEN backend_kind IN ('env', 'environment_override') THEN 'env:' || locator
+                ELSE backend_kind || ':' || locator
+            END AS credentialRef,
+            CASE
+                WHEN backend_kind = 'env' THEN 'environment_override'
+                ELSE backend_kind
+            END AS source,
+            fingerprint,
+            status,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            last_validated_at AS lastValidatedAt,
+            rotated_at AS lastRotatedAt
+        FROM credential_refs;
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (30, utc_now()),
+    )
+
+
+@migration(31)
+def init_phase31_schema(connection: sqlite3.Connection) -> None:
+    """Fase 31: outputs validados del ProductOwnerAgent para aprobaciones trazables."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS product_owner_outputs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            brief_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            questions TEXT NOT NULL,
+            assumptions TEXT NOT NULL,
+            decisions TEXT NOT NULL,
+            product_brief_patch TEXT NOT NULL,
+            epics TEXT NOT NULL,
+            user_stories TEXT NOT NULL,
+            risks TEXT NOT NULL,
+            recommended_next_action TEXT NOT NULL,
+            runtime_id TEXT NOT NULL,
+            output_artifact_id TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_project
+            ON product_owner_outputs(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_initiative
+            ON product_owner_outputs(initiative_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_product_owner_outputs_brief
+            ON product_owner_outputs(brief_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (31, utc_now()),
+    )
+
+
+@migration(32)
+def init_phase32_schema(connection: sqlite3.Connection) -> None:
+    """Fase 32: threads reales que reemplazan el chat decorativo del shell.
+
+    ``project_threads`` es el header con ownership polimórfico (workspace/loop/story/agent_task/review).
+    ``thread_messages`` y ``thread_agent_events`` son append-only con secuencia monótona por thread
+    (``UNIQUE(thread_id, sequence)``), por lo que el orden no depende del id aleatorio. ``thread_artifacts``
+    enlaza artifacts surgidos en el hilo y ``thread_decisions`` registra las solicitudes de decisión que el
+    coordinator levanta al bloquear. No hay FK físicas (mismo desacople que el resto del esquema).
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_threads (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            owner_type TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            metadata TEXT NOT NULL,
+            archived_at TEXT,
+            archived_by TEXT,
+            deleted_at TEXT,
+            deleted_by TEXT,
+            lifecycle_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS thread_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            author TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(thread_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS thread_artifacts (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            message_id TEXT,
+            artifact_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS thread_agent_events (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            agent_role TEXT,
+            payload TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(thread_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS thread_decisions (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            message_id TEXT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            options TEXT NOT NULL,
+            resolution TEXT,
+            decided_by TEXT,
+            decided_at TEXT,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_threads_owner
+            ON project_threads(project_id, owner_type, owner_id);
+        CREATE INDEX IF NOT EXISTS idx_project_threads_project
+            ON project_threads(project_id, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_messages_thread_seq
+            ON thread_messages(thread_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_thread_artifacts_thread
+            ON thread_artifacts(thread_id, kind);
+        CREATE INDEX IF NOT EXISTS idx_thread_agent_events_thread_seq
+            ON thread_agent_events(thread_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_thread_decisions_thread
+            ON thread_decisions(thread_id, status);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (32, utc_now()),
+    )
+
+
+@migration(33)
+def init_phase33_schema(connection: sqlite3.Connection) -> None:
+    """Fase 33: índices globales para snapshots recientes de eventos y auditoría."""
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_events_created
+            ON events(created_at);
+        CREATE INDEX IF NOT EXISTS idx_audit_events_created
+            ON audit_events(created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (33, utc_now()),
+    )
+
+
+@migration(34)
+def init_phase34_schema(connection: sqlite3.Connection) -> None:
+    """Fase 34: fuentes de research como entidad canónica, no solo metadata de artifacts."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_sources (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            agent_run_id TEXT,
+            evidence_package_id TEXT,
+            artifact_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            trust_level TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            related_artifact_id TEXT,
+            status TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_sources_project_created
+            ON research_sources(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_thread_created
+            ON research_sources(thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_artifact
+            ON research_sources(artifact_id);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (34, utc_now()),
+    )
+
+
+@migration(35)
+def init_phase35_schema(connection: sqlite3.Connection) -> None:
+    """Fase 35: lifecycle real de threads e índice lexical de similitud."""
+    _add_column_if_missing(connection, "project_threads", "archived_at", "archived_at TEXT")
+    _add_column_if_missing(connection, "project_threads", "archived_by", "archived_by TEXT")
+    _add_column_if_missing(connection, "project_threads", "deleted_at", "deleted_at TEXT")
+    _add_column_if_missing(connection, "project_threads", "deleted_by", "deleted_by TEXT")
+    _add_column_if_missing(connection, "project_threads", "lifecycle_reason", "lifecycle_reason TEXT")
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_project_threads_lifecycle
+            ON project_threads(project_id, archived_at, deleted_at, updated_at);
+        CREATE TABLE IF NOT EXISTS thread_memory_index (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            normalized_goal TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            keywords_json TEXT NOT NULL,
+            artifact_refs_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_memory_index_thread
+            ON thread_memory_index(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_thread_memory_index_project_status
+            ON thread_memory_index(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_memory_index_fingerprint
+            ON thread_memory_index(project_id, fingerprint);
+        CREATE TABLE IF NOT EXISTS thread_similarity_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source_thread_id TEXT NOT NULL,
+            candidate_thread_id TEXT NOT NULL,
+            score REAL NOT NULL,
+            reason TEXT NOT NULL,
+            action TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_source
+            ON thread_similarity_events(project_id, source_thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_candidate
+            ON thread_similarity_events(project_id, candidate_thread_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (35, utc_now()),
+    )
+
+
+@migration(36, skip_if_applied=True)
+def init_phase36_schema(connection: sqlite3.Connection) -> None:
+    """Fase 36: habilita instalaciones API/local catalogadas; CLI permanece gated por detección."""
+    timestamp = utc_now()
+    connection.execute(
+        """
+        UPDATE runtime_installations
+        SET enabled = 1,
+            updated_at = ?
+        WHERE kind IN ('api', 'gateway', 'local')
+          AND enabled = 0
+        """,
+        (timestamp,),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (36, utc_now()),
+    )
+
+
+@migration(37)
+def init_phase37_schema(connection: sqlite3.Connection) -> None:
+    """Fase 37: contrato canónico de fuentes de ResearchAgent."""
+    _add_column_if_missing(connection, "research_sources", "url", "url TEXT")
+    _add_column_if_missing(connection, "research_sources", "title", "title TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(
+        connection, "research_sources", "source_type", "source_type TEXT NOT NULL DEFAULT 'web'"
+    )
+    _add_column_if_missing(connection, "research_sources", "related_thread_id", "related_thread_id TEXT")
+    _add_column_if_missing(connection, "research_sources", "related_task_id", "related_task_id TEXT")
+    connection.executescript(
+        """
+        UPDATE research_sources
+        SET url = source_url
+        WHERE (url IS NULL OR url = '') AND source_url IS NOT NULL;
+        UPDATE research_sources
+        SET related_thread_id = thread_id
+        WHERE (related_thread_id IS NULL OR related_thread_id = '') AND thread_id IS NOT NULL;
+        UPDATE research_sources
+        SET title = publisher
+        WHERE title = '' AND publisher IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_research_sources_related_thread
+            ON research_sources(related_thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_sources_related_task
+            ON research_sources(related_task_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (37, utc_now()),
+    )
+
+
+@migration(38)
+def init_phase38_schema(connection: sqlite3.Connection) -> None:
+    """Fase 38: catálogo durable de TeamScheduler v2 y handoffs por agente."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS team_profiles (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            capabilities TEXT NOT NULL,
+            runtime_preference TEXT NOT NULL,
+            provider_preference TEXT NOT NULL,
+            tools_allowed TEXT NOT NULL,
+            required_input_artifacts TEXT NOT NULL,
+            output_artifact_schema TEXT NOT NULL,
+            reviewer_policy TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS team_member_defaults (
+            id TEXT PRIMARY KEY,
+            role TEXT NOT NULL UNIQUE,
+            profile_id TEXT NOT NULL,
+            capabilities TEXT NOT NULL,
+            runtime_preference TEXT NOT NULL,
+            provider_preference TEXT NOT NULL,
+            tools_allowed TEXT NOT NULL,
+            required_input_artifacts TEXT NOT NULL,
+            output_artifact_schema TEXT NOT NULL,
+            reviewer_policy TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agent_handoffs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            assignment_id TEXT NOT NULL,
+            artifact_id TEXT NOT NULL,
+            from_agent_id TEXT NOT NULL,
+            to_agent_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            review_required INTEGER NOT NULL,
+            blocked_reason TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_profiles_role
+            ON team_profiles(role);
+        CREATE INDEX IF NOT EXISTS idx_team_member_defaults_role
+            ON team_member_defaults(role, enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_handoffs_assignment
+            ON agent_handoffs(assignment_id, status);
+        CREATE INDEX IF NOT EXISTS idx_agent_handoffs_project
+            ON agent_handoffs(project_id, status);
+        """
+    )
+    from local_control_center.team_scheduler.scheduler import team_member_defaults, team_profiles
+
+    timestamp = utc_now()
+    for profile in team_profiles():
+        connection.execute(
+            """
+            INSERT INTO team_profiles
+                (id, role, name, capabilities, runtime_preference, provider_preference, tools_allowed,
+                 required_input_artifacts, output_artifact_schema, reviewer_policy, quality_gates,
+                 metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                name = excluded.name,
+                capabilities = excluded.capabilities,
+                runtime_preference = excluded.runtime_preference,
+                provider_preference = excluded.provider_preference,
+                tools_allowed = excluded.tools_allowed,
+                required_input_artifacts = excluded.required_input_artifacts,
+                output_artifact_schema = excluded.output_artifact_schema,
+                reviewer_policy = excluded.reviewer_policy,
+                quality_gates = excluded.quality_gates,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                profile["id"],
+                profile["role"],
+                profile["name"],
+                json_dumps(profile["capabilities"]),
+                json_dumps(profile["runtimePreference"]),
+                json_dumps(profile["providerPreference"]),
+                json_dumps(profile["toolsAllowed"]),
+                json_dumps(profile["requiredInputArtifacts"]),
+                json_dumps(profile["outputArtifactSchema"]),
+                json_dumps(profile["reviewerPolicy"]),
+                json_dumps(profile["qualityGates"]),
+                json_dumps(profile["metadata"]),
+                timestamp,
+                timestamp,
+            ),
+        )
+    for member in team_member_defaults():
+        metadata = dict(member.get("metadata") or {})
+        connection.execute(
+            """
+            INSERT INTO team_member_defaults
+                (id, role, profile_id, capabilities, runtime_preference, provider_preference,
+                 tools_allowed, required_input_artifacts, output_artifact_schema, reviewer_policy,
+                 quality_gates, enabled, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(role) DO UPDATE SET
+                profile_id = excluded.profile_id,
+                capabilities = excluded.capabilities,
+                runtime_preference = excluded.runtime_preference,
+                provider_preference = excluded.provider_preference,
+                tools_allowed = excluded.tools_allowed,
+                required_input_artifacts = excluded.required_input_artifacts,
+                output_artifact_schema = excluded.output_artifact_schema,
+                reviewer_policy = excluded.reviewer_policy,
+                quality_gates = excluded.quality_gates,
+                enabled = excluded.enabled,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                f"team-member-default-{member['role'].replace('_', '-')}",
+                member["role"],
+                member["id"],
+                json_dumps(metadata.get("capabilities") or []),
+                json_dumps(metadata.get("runtimePreference") or []),
+                json_dumps(metadata.get("providerPreference") or []),
+                json_dumps(member.get("allowedTools") or []),
+                json_dumps(metadata.get("requiredInputArtifacts") or []),
+                json_dumps(member.get("outputSchema") or {}),
+                json_dumps(member.get("reviewerPolicy") or {}),
+                json_dumps(member.get("qualityGates") or []),
+                json_dumps(metadata),
+                timestamp,
+                timestamp,
+            ),
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (38, utc_now()),
+    )
+
+
+@migration(39)
+def init_phase39_schema(connection: sqlite3.Connection) -> None:
+    """Fase 39: sistema formal de plugins, versiones, permisos, skills, agentes, tools y audit."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            trust_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            active_version_id TEXT,
+            capabilities_json TEXT NOT NULL,
+            permissions_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_versions (
+            id TEXT PRIMARY KEY,
+            plugin_id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            manifest_path TEXT NOT NULL,
+            manifest_hash TEXT NOT NULL,
+            package_hash TEXT NOT NULL,
+            min_aido_version TEXT NOT NULL,
+            entrypoints_json TEXT NOT NULL,
+            checksums_json TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            installed_at TEXT NOT NULL,
+            validated_at TEXT NOT NULL,
+            UNIQUE(plugin_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_permissions (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            permission TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_skills (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            contract_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_agents (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            schema_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_tools (
+            id TEXT PRIMARY KEY,
+            plugin_version_id TEXT NOT NULL,
+            tool_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            broker_tool TEXT NOT NULL,
+            policy_required INTEGER NOT NULL,
+            policy_json TEXT NOT NULL,
+            schema_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_install_events (
+            id TEXT PRIMARY KEY,
+            plugin_id TEXT,
+            plugin_version_id TEXT,
+            action TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            manifest_hash TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_plugins_status
+            ON plugins(status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_plugin_versions_plugin
+            ON plugin_versions(plugin_id, version);
+        CREATE INDEX IF NOT EXISTS idx_plugin_permissions_version
+            ON plugin_permissions(plugin_version_id, permission);
+        CREATE INDEX IF NOT EXISTS idx_plugin_skills_version
+            ON plugin_skills(plugin_version_id, skill_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_agents_version
+            ON plugin_agents(plugin_version_id, agent_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_tools_version
+            ON plugin_tools(plugin_version_id, tool_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_install_events_plugin
+            ON plugin_install_events(plugin_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_plugin_install_events_created
+            ON plugin_install_events(created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (39, utc_now()),
+    )
+
+
+@migration(40)
+def init_phase40_schema(connection: sqlite3.Connection) -> None:
+    """Fase 40: targets y entregas n8n como automatización externa project-scoped."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS n8n_webhook_targets (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            url TEXT NOT NULL,
+            credential_ref TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            allowed_event_types TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_n8n_webhook_targets_project_url
+            ON n8n_webhook_targets(project_id, url);
+        CREATE INDEX IF NOT EXISTS idx_n8n_webhook_targets_project_enabled
+            ON n8n_webhook_targets(project_id, enabled, updated_at);
+        CREATE TABLE IF NOT EXISTS n8n_event_deliveries (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            subject_id TEXT,
+            status TEXT NOT NULL,
+            status_code INTEGER,
+            request_payload TEXT NOT NULL,
+            response_body TEXT NOT NULL,
+            error TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_n8n_event_deliveries_target_created
+            ON n8n_event_deliveries(target_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_n8n_event_deliveries_project_event
+            ON n8n_event_deliveries(project_id, event_type, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (40, utc_now()),
+    )
+
+
+@migration(41)
+def init_phase41_schema(connection: sqlite3.Connection) -> None:
+    """Fase 41: migra intake legacy de sessions/chats/pipelines a threads reales.
+
+    Las tablas legacy quedan como historial read-only. La migracion es idempotente y deterministica:
+    cada session/chat/pipeline recibe un thread/message estable con id derivado del registro legacy,
+    y la metadata legacy queda marcada con ``legacyReadOnly`` y el destino migrado.
+    """
+    session_threads: dict[str, str] = {}
+    chat_threads: dict[str, str] = {}
+
+    sessions = connection.execute("SELECT * FROM sessions ORDER BY created_at ASC, rowid ASC").fetchall()
+    for session in sessions:
+        thread_id = _legacy_thread_id(str(session["id"]))
+        session_threads[str(session["id"])] = thread_id
+        metadata = _legacy_metadata(
+            session["metadata"],
+            source="sessions",
+            migrated_to_thread_id=thread_id,
+            legacy_payload={
+                "sessionId": session["id"],
+                "teamId": session["team_id"],
+                "status": session["status"],
+            },
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO project_threads
+                (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                 created_at, updated_at)
+            VALUES (?, ?, 'workspace', ?, ?, 'open', '', ?, ?, ?)
+            """,
+            (
+                thread_id,
+                session["project_id"],
+                session["id"],
+                session["name"],
+                json_dumps(metadata),
+                session["created_at"],
+                session["updated_at"],
+            ),
+        )
+        _mark_legacy_metadata(
+            connection,
+            table="sessions",
+            row_id=str(session["id"]),
+            metadata=metadata,
+        )
+
+    chats = connection.execute("SELECT * FROM chats ORDER BY created_at ASC, rowid ASC").fetchall()
+    for chat in chats:
+        session_id = str(chat["session_id"] or "")
+        thread_id = session_threads.get(session_id) if session_id else None
+        if thread_id is None:
+            thread_id = _legacy_thread_id(str(chat["id"]))
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO project_threads
+                    (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, 'workspace', ?, ?, 'open', ?, ?, ?, ?)
+                """,
+                (
+                    thread_id,
+                    chat["project_id"],
+                    chat["id"],
+                    chat["title"],
+                    _legacy_summary(str(chat["prompt"] or "")),
+                    json_dumps(
+                        {
+                            "legacyReadOnly": True,
+                            "legacy": {
+                                "source": "chats",
+                                "chatId": chat["id"],
+                                "sessionId": chat["session_id"],
+                                "status": chat["status"],
+                            },
+                        }
+                    ),
+                    chat["created_at"],
+                    chat["updated_at"],
+                ),
+            )
+        chat_threads[str(chat["id"])] = thread_id
+        message_id = _legacy_message_id(str(chat["id"]))
+        _insert_legacy_message(
+            connection,
+            message_id=message_id,
+            thread_id=thread_id,
+            project_id=str(chat["project_id"]),
+            kind="user",
+            author="legacy_chat",
+            content=str(chat["prompt"] or ""),
+            metadata={
+                "legacyReadOnly": True,
+                "legacy": {
+                    "source": "chats",
+                    "chatId": chat["id"],
+                    "sessionId": chat["session_id"],
+                    "status": chat["status"],
+                },
+            },
+            created_at=str(chat["created_at"]),
+        )
+        metadata = _legacy_metadata(
+            chat["metadata"],
+            source="chats",
+            migrated_to_thread_id=thread_id,
+            migrated_to_message_id=message_id,
+            legacy_payload={
+                "chatId": chat["id"],
+                "sessionId": chat["session_id"],
+                "status": chat["status"],
+            },
+        )
+        _mark_legacy_metadata(connection, table="chats", row_id=str(chat["id"]), metadata=metadata)
+
+    pipelines = connection.execute("SELECT * FROM pipelines ORDER BY created_at ASC, rowid ASC").fetchall()
+    for pipeline in pipelines:
+        chat_id = str(pipeline["chat_id"] or "")
+        session_id = str(pipeline["session_id"] or "")
+        thread_id = chat_threads.get(chat_id) or session_threads.get(session_id)
+        if thread_id is None:
+            thread_id = _legacy_thread_id(str(pipeline["id"]))
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO project_threads
+                    (id, project_id, owner_type, owner_id, title, status, summary, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, 'workspace', ?, ?, 'open', '', ?, ?, ?)
+                """,
+                (
+                    thread_id,
+                    pipeline["project_id"],
+                    pipeline["id"],
+                    pipeline["title"],
+                    json_dumps(
+                        {
+                            "legacyReadOnly": True,
+                            "legacy": {
+                                "source": "pipelines",
+                                "pipelineId": pipeline["id"],
+                                "sessionId": pipeline["session_id"],
+                                "chatId": pipeline["chat_id"],
+                                "status": pipeline["status"],
+                            },
+                        }
+                    ),
+                    pipeline["created_at"],
+                    pipeline["updated_at"],
+                ),
+            )
+        message_id = _legacy_message_id(str(pipeline["id"]))
+        _insert_legacy_message(
+            connection,
+            message_id=message_id,
+            thread_id=thread_id,
+            project_id=str(pipeline["project_id"]),
+            kind="system_event",
+            author="legacy_pipeline",
+            content=f"Legacy pipeline imported: {pipeline['title']} ({pipeline['status']})",
+            metadata={
+                "legacyReadOnly": True,
+                "legacy": {
+                    "source": "pipelines",
+                    "pipelineId": pipeline["id"],
+                    "sessionId": pipeline["session_id"],
+                    "chatId": pipeline["chat_id"],
+                    "status": pipeline["status"],
+                    "stagesJson": pipeline["stages"],
+                },
+            },
+            created_at=str(pipeline["created_at"]),
+        )
+        metadata = _legacy_metadata(
+            pipeline["metadata"],
+            source="pipelines",
+            migrated_to_thread_id=thread_id,
+            migrated_to_message_id=message_id,
+            legacy_payload={
+                "pipelineId": pipeline["id"],
+                "sessionId": pipeline["session_id"],
+                "chatId": pipeline["chat_id"],
+                "status": pipeline["status"],
+            },
+        )
+        _mark_legacy_metadata(
+            connection,
+            table="pipelines",
+            row_id=str(pipeline["id"]),
+            metadata=metadata,
+        )
+
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (41, utc_now()),
+    )
+
+
+@migration(42)
+def init_phase42_schema(connection: sqlite3.Connection) -> None:
+    """Fase 42: acciones reparables para blockers de threads/product loop."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS remediation_actions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            loop_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            blocker_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_thread_status
+            ON remediation_actions(thread_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_project
+            ON remediation_actions(project_id, blocker_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_remediation_actions_loop
+            ON remediation_actions(loop_id, status, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (42, utc_now()),
+    )
+
+
+@migration(43)
+def init_phase43_schema(connection: sqlite3.Connection) -> None:
+    """Fase 43: metadata segura de remotos Git por proyecto."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS git_remotes (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            scheme TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_tested_at TEXT,
+            last_test_status TEXT,
+            last_test_reason TEXT,
+            metadata TEXT NOT NULL,
+            UNIQUE(project_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_remotes_project
+            ON git_remotes(project_id, name);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (43, utc_now()),
+    )
+
+
+@migration(44)
+def init_phase44_schema(connection: sqlite3.Connection) -> None:
+    """Fase 44: AIResourceManager con ruteo explicable, costos honestos y contexto resumido."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS ai_model_performance (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            context_window INTEGER NOT NULL,
+            max_output_tokens INTEGER NOT NULL,
+            input_price_per_mtok REAL,
+            cached_input_price_per_mtok REAL,
+            output_price_per_mtok REAL,
+            reasoning_price_per_mtok REAL,
+            observed_latency_ms INTEGER,
+            observed_success_rate REAL NOT NULL,
+            rework_rate REAL NOT NULL,
+            total_observed_tokens INTEGER,
+            quality_score REAL NOT NULL,
+            locality TEXT NOT NULL,
+            privacy_level TEXT NOT NULL,
+            profile_source TEXT NOT NULL DEFAULT 'explicit',
+            evidence_json TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(provider_id, model, runtime)
+        );
+        CREATE TABLE IF NOT EXISTS ai_routing_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            task_type TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            selected_provider TEXT,
+            selected_model TEXT,
+            selected_runtime TEXT,
+            reviewer_provider TEXT,
+            reviewer_model TEXT,
+            reviewer_runtime TEXT,
+            local_vs_remote TEXT,
+            cost_tier TEXT,
+            multi_model_quorum INTEGER NOT NULL,
+            context_compression INTEGER NOT NULL,
+            max_tokens INTEGER,
+            budget_stop INTEGER NOT NULL,
+            approval_required INTEGER NOT NULL,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            usage_status TEXT NOT NULL,
+            candidates_json TEXT NOT NULL,
+            rejected_json TEXT NOT NULL,
+            decision_reason TEXT NOT NULL,
+            score_breakdown_json TEXT NOT NULL,
+            policy_result_json TEXT NOT NULL,
+            workflow_run_id TEXT,
+            workflow_step_id TEXT,
+            agent_id TEXT,
+            task_id TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_cost_observations (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+            input_tokens INTEGER,
+            cached_input_tokens INTEGER,
+            output_tokens INTEGER,
+            reasoning_tokens INTEGER,
+            tool_tokens INTEGER,
+            total_tokens INTEGER,
+            estimated_cost_usd REAL,
+            actual_cost_usd REAL,
+            currency TEXT NOT NULL,
+            latency_ms INTEGER,
+            usage_source TEXT NOT NULL,
+            token_status TEXT NOT NULL,
+            cost_status TEXT NOT NULL,
+            raw_usage_json TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_prompt_profiles (
+            id TEXT PRIMARY KEY,
+            task_type TEXT NOT NULL,
+            risk_level TEXT NOT NULL,
+            required_capabilities_json TEXT NOT NULL,
+            privacy_level TEXT NOT NULL,
+            max_context_tokens INTEGER,
+            max_output_tokens INTEGER,
+            budget_usd REAL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_context_summaries (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            source_context_hash TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            token_status TEXT NOT NULL,
+            compression_reason TEXT NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_model_performance_provider_model
+            ON ai_model_performance(provider_id, model, runtime);
+        CREATE INDEX IF NOT EXISTS idx_ai_routing_decisions_created
+            ON ai_routing_decisions(task_type, risk_level, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_cost_observations_provider_created
+            ON ai_cost_observations(provider_id, model, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_context_summaries_project_created
+            ON ai_context_summaries(project_id, created_at);
+        """
+    )
+    _add_column_if_missing(
+        connection,
+        "ai_model_performance",
+        "profile_source",
+        "profile_source TEXT NOT NULL DEFAULT 'explicit'",
+    )
+    rows = connection.execute(
+        "SELECT id, evidence_json FROM ai_model_performance WHERE profile_source = 'explicit'"
+    ).fetchall()
+    for row in rows:
+        evidence = json_loads(row["evidence_json"], [])
+        if any(
+            isinstance(item, dict) and str(item.get("kind") or "") == "model_catalog_baseline"
+            for item in evidence
+        ):
+            connection.execute(
+                "UPDATE ai_model_performance SET profile_source = 'model_catalog' WHERE id = ?",
+                (row["id"],),
+            )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (44, utc_now()),
+    )
+
+
+@migration(45)
+def init_phase45_schema(connection: sqlite3.Connection) -> None:
+    """Fase 45: memoria thread-first para lecciones y funcionalidad existente."""
+    _add_column_if_missing(
+        connection,
+        "thread_similarity_events",
+        "functionality_id",
+        "functionality_id TEXT NOT NULL DEFAULT ''",
+    )
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_lessons (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            title TEXT NOT NULL,
+            lesson TEXT NOT NULL,
+            source_ref TEXT NOT NULL,
+            status TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_lessons_project_status
+            ON project_lessons(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_project_lessons_thread
+            ON project_lessons(thread_id, updated_at);
+        CREATE TABLE IF NOT EXISTS functionality_registry (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            normalized_name TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            source_thread_id TEXT,
+            status TEXT NOT NULL,
+            file_paths_json TEXT NOT NULL,
+            performance_notes_json TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, fingerprint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_functionality_registry_project_status
+            ON functionality_registry(project_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_functionality_registry_source_thread
+            ON functionality_registry(source_thread_id);
+        CREATE INDEX IF NOT EXISTS idx_thread_similarity_events_functionality
+            ON thread_similarity_events(project_id, functionality_id, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (45, utc_now()),
+    )
+
+
+@migration(46)
+def init_phase46_schema(connection: sqlite3.Connection) -> None:
+    """Fase 46: runs y findings durables del ResearchAgent."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_runs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            message_id TEXT,
+            workspace_id TEXT NOT NULL,
+            job_id TEXT,
+            agent_run_id TEXT,
+            task_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            recommendation_json TEXT NOT NULL,
+            citation_check_json TEXT NOT NULL,
+            conflict_count INTEGER NOT NULL,
+            source_count INTEGER NOT NULL,
+            trusted_source_count INTEGER NOT NULL,
+            evidence_package_id TEXT,
+            report_artifact_id TEXT,
+            remediation_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_runs_project_created
+            ON research_runs(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_runs_thread_created
+            ON research_runs(thread_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_runs_job
+            ON research_runs(job_id);
+
+        CREATE TABLE IF NOT EXISTS research_findings (
+            id TEXT PRIMARY KEY,
+            research_run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            thread_id TEXT,
+            finding_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            source_ids_json TEXT NOT NULL,
+            citations_json TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_findings_run
+            ON research_findings(research_run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_findings_project
+            ON research_findings(project_id, finding_type, created_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (46, utc_now()),
+    )
+
+
+@migration(47)
+def init_phase47_schema(connection: sqlite3.Connection) -> None:
+    """Fase 47: permite costo real desconocido en llamadas a modelos."""
+    columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()}
+    cost_column = columns.get("cost_usd")
+    if cost_column is not None and cost_column["notnull"]:
+        _execute_atomic_statements(
+            connection,
+            [
+                ("DROP TABLE IF EXISTS model_calls_cost_nullable", ()),
+                (
+                    """CREATE TABLE model_calls_cost_nullable (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                cost_usd REAL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO model_calls_cost_nullable
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                   prompt_tokens, completion_tokens, cost_usd, metadata, created_at
+            FROM model_calls""",
+                    (),
+                ),
+                ("DROP TABLE model_calls", ()),
+                ("ALTER TABLE model_calls_cost_nullable RENAME TO model_calls", ()),
+            ],
+        )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (47, utc_now()),
+    )
+
+
+@migration(48)
+def init_phase48_schema(connection: sqlite3.Connection) -> None:
+    """Fase 48: metadata reparadora explícita (primary/destructive/technicalReason) por remediation."""
+    _add_column_if_missing(
+        connection, "remediation_actions", "technical_reason", "technical_reason TEXT NOT NULL DEFAULT ''"
+    )
+    _add_column_if_missing(
+        connection, "remediation_actions", "is_primary", "is_primary INTEGER NOT NULL DEFAULT 0"
+    )
+    _add_column_if_missing(
+        connection, "remediation_actions", "is_destructive", "is_destructive INTEGER NOT NULL DEFAULT 0"
+    )
+    _add_column_if_missing(
+        connection,
+        "remediation_actions",
+        "confirmation_required",
+        "confirmation_required INTEGER NOT NULL DEFAULT 0",
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (48, utc_now()),
+    )
+
+
+@migration(49)
+def init_phase49_schema(connection: sqlite3.Connection) -> None:
+    """Fase 49: normaliza el apiFormat del daemon Ollama local a 'ollama'.
+
+    La cuenta sembrada quedó con api_format 'custom', un valor que nadie lee y que dejaba al
+    daemon local fuera de `/api/v1/ollama/endpoints` (filtra por apiFormat == 'ollama'). Alinearlo
+    con `provider_catalog.ollama` lo expone como el endpoint que ya es, sin cambiar su despacho.
+    """
+    connection.execute(
+        """
+        UPDATE provider_accounts
+        SET api_format = 'ollama', updated_at = ?
+        WHERE provider_id = 'ollama' AND api_format <> 'ollama'
+        """,
+        (utc_now(),),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (49, utc_now()),
+    )
+
+
+@migration(50)
+def init_phase50_schema(connection: sqlite3.Connection) -> None:
+    """Fase 50: tokens desconocidos son NULL, nunca un cero fabricado."""
+    statements: list[tuple[str, tuple[object, ...]]] = []
+    usage_columns = {
+        row["name"]: row for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
+    }
+    token_columns = {
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "tool_tokens",
+        "total_tokens",
+    }
+    if any(name in usage_columns and usage_columns[name]["notnull"] for name in token_columns):
+        statements.extend(
+            [
+                ("DROP TABLE IF EXISTS usage_ledger_tokens_nullable", ()),
+                (
+                    """CREATE TABLE usage_ledger_tokens_nullable (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                runtime_type TEXT NOT NULL,
+                agent_id TEXT,
+                role TEXT,
+                workflow_run_id TEXT,
+                workflow_step_id TEXT,
+                job_id TEXT,
+                task_id TEXT,
+                request_id TEXT,
+                session_id TEXT,
+                input_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                tool_tokens INTEGER,
+                total_tokens INTEGER,
+                estimated_cost_usd REAL,
+                actual_cost_usd REAL,
+                currency TEXT NOT NULL,
+                latency_ms INTEGER,
+                raw_usage_json TEXT NOT NULL,
+                usage_source TEXT NOT NULL DEFAULT 'estimated',
+                created_at TEXT NOT NULL
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO usage_ledger_tokens_nullable
+                (id, provider_id, model, runtime_type, agent_id, role, workflow_run_id,
+                 workflow_step_id, job_id, task_id, request_id, session_id, input_tokens,
+                 cached_input_tokens, output_tokens, reasoning_tokens, tool_tokens, total_tokens,
+                 estimated_cost_usd, actual_cost_usd, currency, latency_ms, raw_usage_json,
+                 usage_source, created_at)
+            SELECT id, provider_id, model, runtime_type, agent_id, role, workflow_run_id,
+                   workflow_step_id, job_id, task_id, request_id, session_id,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN input_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN cached_input_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN output_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN reasoning_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN tool_tokens END,
+                   CASE WHEN lower(usage_source) IN ('actual', 'provider', 'provider_reported', 'cli_output') THEN total_tokens END,
+                   estimated_cost_usd, actual_cost_usd, currency, latency_ms, raw_usage_json,
+                   usage_source, created_at
+            FROM usage_ledger""",
+                    (),
+                ),
+                ("DROP TABLE usage_ledger", ()),
+                ("ALTER TABLE usage_ledger_tokens_nullable RENAME TO usage_ledger", ()),
+                (
+                    """CREATE INDEX IF NOT EXISTS idx_usage_ledger_provider_created
+                ON usage_ledger(provider_id, created_at)""",
+                    (),
+                ),
+            ]
+        )
+    statements.append(
+        (
+            """UPDATE usage_ledger
+            SET input_tokens = NULL,
+                cached_input_tokens = NULL,
+                output_tokens = NULL,
+                reasoning_tokens = NULL,
+                tool_tokens = NULL,
+                total_tokens = NULL
+            WHERE lower(usage_source) NOT IN ('actual', 'provider', 'provider_reported', 'cli_output')
+              AND (input_tokens IS NOT NULL OR cached_input_tokens IS NOT NULL
+                   OR output_tokens IS NOT NULL OR reasoning_tokens IS NOT NULL
+                   OR tool_tokens IS NOT NULL OR total_tokens IS NOT NULL)""",
+            (),
+        )
+    )
+
+    model_call_columns = {
+        row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+    }
+    if any(
+        name in model_call_columns and model_call_columns[name]["notnull"]
+        for name in {"prompt_tokens", "completion_tokens"}
+    ):
+        statements.extend(
+            [
+                ("DROP TABLE IF EXISTS model_calls_tokens_nullable", ()),
+                (
+                    """CREATE TABLE model_calls_tokens_nullable (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                cost_usd REAL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
+                    (),
+                ),
+                (
+                    """INSERT INTO model_calls_tokens_nullable
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            SELECT id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                   prompt_tokens, completion_tokens,
+                   cost_usd, metadata, created_at
+            FROM model_calls""",
+                    (),
+                ),
+                ("DROP TABLE model_calls", ()),
+                ("ALTER TABLE model_calls_tokens_nullable RENAME TO model_calls", ()),
+            ]
+        )
+    token_status = "CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.tokenStatus') END"
+    cost_status = "CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.costStatus') END"
+    statements.extend(
+        [
+            (
+                f"""UPDATE model_calls
+                SET prompt_tokens = CASE
+                        WHEN status = 'completed' AND (
+                            ({token_status}) = 'actual'
+                            OR (({token_status}) IS NULL
+                                AND (prompt_tokens > 0 OR completion_tokens > 0))
+                        ) THEN prompt_tokens
+                    END,
+                    completion_tokens = CASE
+                        WHEN status = 'completed' AND (
+                            ({token_status}) = 'actual'
+                            OR (({token_status}) IS NULL
+                                AND (prompt_tokens > 0 OR completion_tokens > 0))
+                        ) THEN completion_tokens
+                    END,
+                    cost_usd = CASE
+                        WHEN status = 'completed' AND (
+                            ({cost_status}) IN ('actual', 'free', 'estimated')
+                            OR (({cost_status}) IS NULL AND cost_usd > 0)
+                        ) THEN cost_usd
+                    END
+                WHERE
+                    (status <> 'completed' AND (
+                        prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL OR cost_usd IS NOT NULL
+                    ))
+                    OR (status = 'completed' AND (
+                        (({token_status}) IS NOT NULL AND ({token_status}) <> 'actual'
+                         AND (prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL))
+                        OR (({token_status}) IS NULL
+                            AND COALESCE(prompt_tokens, 0) = 0
+                            AND COALESCE(completion_tokens, 0) = 0
+                            AND (prompt_tokens IS NOT NULL OR completion_tokens IS NOT NULL))
+                        OR (({cost_status}) IS NOT NULL
+                            AND ({cost_status}) NOT IN ('actual', 'free', 'estimated')
+                            AND cost_usd IS NOT NULL)
+                        OR (({cost_status}) IS NULL AND cost_usd = 0)
+                    ))""",
+                (),
+            ),
+            (
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (50, utc_now()),
+            ),
+        ]
+    )
+    _execute_atomic_statements(connection, statements)
+
+
+@migration(51)
+def init_phase51_schema(connection: sqlite3.Connection) -> None:
+    """Fase 51: alinea la política Product Owner no personalizada con su contrato CLI real."""
+    now = utc_now()
+    connection.execute(
+        """
+        UPDATE role_model_policies
+        SET allow_cli = 1, updated_at = ?
+        WHERE id = 'product_owner'
+          AND allow_cli = 0
+          AND created_at = updated_at
+        """,
+        (now,),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (51, now),
+    )
+
+
+@migration(52)
+def init_phase52_schema(connection: sqlite3.Connection) -> None:
+    """Fase 52: agrega identidad de familia/modo por endpoint y capacidades visuales."""
+    already_applied = connection.execute("SELECT 1 FROM schema_migrations WHERE version = 52").fetchone()
+    savepoint = "aido_phase52_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "provider_family",
+            "provider_family TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "deployment_mode",
+            "deployment_mode TEXT NOT NULL DEFAULT 'custom'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "api_family",
+            "api_family TEXT NOT NULL DEFAULT 'chat_completions'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "terms_mode",
+            "terms_mode TEXT NOT NULL DEFAULT 'unspecified'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "pricing_mode",
+            "pricing_mode TEXT NOT NULL DEFAULT 'unknown'",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "api_family",
+            "api_family TEXT NOT NULL DEFAULT 'chat_completions'",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "supports_image_generation",
+            "supports_image_generation INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            connection,
+            "model_catalog",
+            "supports_image_editing",
+            "supports_image_editing INTEGER NOT NULL DEFAULT 0",
+        )
+        if not already_applied:
+            connection.execute(
+                """
+                UPDATE provider_accounts
+                SET provider_family = CASE
+                        WHEN api_format = 'ollama' THEN 'ollama'
+                        ELSE provider_id
+                    END,
+                    deployment_mode = CASE
+                        WHEN provider_id = 'nvidia_nim' THEN 'hosted_trial'
+                        ELSE 'custom'
+                    END,
+                    api_family = 'chat_completions',
+                    terms_mode = CASE
+                        WHEN provider_id = 'nvidia_nim' THEN 'evaluation'
+                        ELSE 'unspecified'
+                    END,
+                    pricing_mode = 'unknown'
+                """
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (52, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(53)
+def init_phase53_schema(connection: sqlite3.Connection) -> None:
+    """Fase 53: persiste el perfil de contrato por endpoint sin alterar fase 52."""
+    savepoint = "aido_phase53_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_accounts",
+            "adapter_profile",
+            "adapter_profile TEXT NOT NULL DEFAULT 'auto'",
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (53, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(54)
+def init_phase54_schema(connection: sqlite3.Connection) -> None:
+    """Fase 54: agrega políticas y leases atómicos para cuotas de proveedores."""
+    savepoint = "aido_phase54_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_concurrency",
+            "max_concurrency INTEGER CHECK (max_concurrency IS NULL OR max_concurrency > 0)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "window_timezone",
+            "window_timezone TEXT NOT NULL DEFAULT 'UTC'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "enabled",
+            "enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "fallback_retry_after_seconds",
+            "fallback_retry_after_seconds INTEGER NOT NULL DEFAULT 300 "
+            "CHECK (fallback_retry_after_seconds BETWEEN 0 AND 86400)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_cost_per_request_usd",
+            "max_cost_per_request_usd REAL "
+            "CHECK (max_cost_per_request_usd IS NULL OR max_cost_per_request_usd >= 0)",
+        )
+        quota_ddl = """
+            CREATE TABLE IF NOT EXISTS provider_limit_windows (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT NOT NULL,
+                window_kind TEXT NOT NULL CHECK (window_kind IN ('minute', 'day', 'month')),
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                committed_requests INTEGER NOT NULL DEFAULT 0 CHECK (committed_requests >= 0),
+                reserved_requests INTEGER NOT NULL DEFAULT 0 CHECK (reserved_requests >= 0),
+                committed_tokens INTEGER NOT NULL DEFAULT 0 CHECK (committed_tokens >= 0),
+                unverified_tokens INTEGER NOT NULL DEFAULT 0 CHECK (unverified_tokens >= 0),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                known_cost_usd REAL NOT NULL DEFAULT 0 CHECK (known_cost_usd >= 0),
+                unverified_cost_usd REAL NOT NULL DEFAULT 0 CHECK (unverified_cost_usd >= 0),
+                reserved_cost_usd REAL NOT NULL DEFAULT 0 CHECK (reserved_cost_usd >= 0),
+                unknown_usage_count INTEGER NOT NULL DEFAULT 0 CHECK (unknown_usage_count >= 0),
+                unknown_cost_count INTEGER NOT NULL DEFAULT 0 CHECK (unknown_cost_count >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(limit_id, window_kind, window_start),
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS provider_execution_leases (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                state TEXT NOT NULL
+                    CHECK (state IN ('active', 'dispatched', 'committed', 'released', 'expired')),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                reserved_cost_usd REAL CHECK (reserved_cost_usd IS NULL OR reserved_cost_usd >= 0),
+                actual_tokens INTEGER CHECK (actual_tokens IS NULL OR actual_tokens >= 0),
+                actual_cost_usd REAL CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                usage_known INTEGER CHECK (usage_known IS NULL OR usage_known IN (0, 1)),
+                cost_known INTEGER CHECK (cost_known IS NULL OR cost_known IN (0, 1)),
+                expires_at TEXT NOT NULL,
+                execution_id TEXT,
+                branch_id TEXT,
+                dispatched_at TEXT,
+                released_at TEXT,
+                release_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE SET NULL
+            );
+            CREATE TABLE IF NOT EXISTS provider_execution_lease_windows (
+                lease_id TEXT NOT NULL,
+                window_id TEXT NOT NULL,
+                reserved_requests INTEGER NOT NULL DEFAULT 1 CHECK (reserved_requests >= 0),
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                reserved_cost_usd REAL NOT NULL DEFAULT 0 CHECK (reserved_cost_usd >= 0),
+                PRIMARY KEY(lease_id, window_id),
+                FOREIGN KEY(lease_id) REFERENCES provider_execution_leases(id) ON DELETE CASCADE,
+                FOREIGN KEY(window_id) REFERENCES provider_limit_windows(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS provider_limit_observations (
+                id TEXT PRIMARY KEY,
+                limit_id TEXT,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                retry_after_at TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY(limit_id) REFERENCES provider_limits(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_provider_limit_windows_effective
+                ON provider_limit_windows(limit_id, window_kind, window_start);
+            CREATE INDEX IF NOT EXISTS idx_provider_execution_leases_active
+                ON provider_execution_leases(limit_id, state, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_provider_execution_leases_execution
+                ON provider_execution_leases(execution_id, branch_id);
+            CREATE INDEX IF NOT EXISTS idx_provider_limit_observations_provider
+                ON provider_limit_observations(provider_id, model, observed_at);
+            """
+        for statement in quota_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (54, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(55)
+def init_phase55_schema(connection: sqlite3.Connection) -> None:
+    """Fase 55: persiste identidad y settlement seguro de ejecuciones chat multmodelo."""
+    savepoint = "aido_phase55_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        execution_ddl = """
+            CREATE TABLE IF NOT EXISTS ai_executions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                capability TEXT NOT NULL CHECK (capability = 'chat_completions'),
+                strategy TEXT NOT NULL CHECK (strategy IN ('single', 'parallel_compare', 'quorum')),
+                status TEXT NOT NULL CHECK (
+                    status IN ('planned', 'running', 'blocked', 'completed', 'partial', 'failed')
+                ),
+                min_successful INTEGER NOT NULL CHECK (min_successful > 0),
+                max_parallelism INTEGER NOT NULL CHECK (max_parallelism > 0),
+                branch_count INTEGER NOT NULL CHECK (branch_count > 0),
+                successful_branches INTEGER NOT NULL DEFAULT 0 CHECK (successful_branches >= 0),
+                failed_branches INTEGER NOT NULL DEFAULT 0 CHECK (failed_branches >= 0),
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE IF NOT EXISTS ai_execution_branches (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (
+                    status IN ('planned', 'admitted', 'running', 'blocked', 'completed', 'failed')
+                ),
+                lease_id TEXT,
+                reserved_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+                estimated_cost_usd REAL CHECK (
+                    estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+                ),
+                pricing_source TEXT NOT NULL DEFAULT 'unknown',
+                input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                total_tokens INTEGER CHECK (total_tokens IS NULL OR total_tokens >= 0),
+                actual_cost_usd REAL CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                usage_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+                    usage_status IN ('actual', 'unknown')
+                ),
+                cost_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+                    cost_status IN ('actual', 'free', 'unknown')
+                ),
+                latency_ms INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
+                error_code TEXT,
+                content_sha256 TEXT,
+                content_bytes INTEGER CHECK (content_bytes IS NULL OR content_bytes >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(execution_id, ordinal),
+                FOREIGN KEY(execution_id) REFERENCES ai_executions(id) ON DELETE CASCADE,
+                FOREIGN KEY(lease_id) REFERENCES provider_execution_leases(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_executions_project_created
+                ON ai_executions(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_ai_execution_branches_execution
+                ON ai_execution_branches(execution_id, ordinal);
+            CREATE INDEX IF NOT EXISTS idx_ai_execution_branches_provider
+                ON ai_execution_branches(provider_id, model, created_at);
+            """
+        for statement in execution_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (55, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(56, skip_if_applied=True)
+def init_phase56_schema(connection: sqlite3.Connection) -> None:
+    """Fase 56: integra Gemini y agrega ruteo free-tier estricto sin tocar overrides."""
+
+    from local_control_center.agents.provider_catalog import (
+        GEMINI_MODEL_MANIFEST,
+        PROVIDER_CATALOG,
+        PROVIDER_CATALOG_VERSION,
+    )
+    from local_control_center.team_scheduler.scheduler import team_member_defaults
+
+    savepoint = "aido_phase56_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        now = utc_now()
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET provider_family = 'gemini',
+                api_format = 'openai_compatible',
+                api_family = 'chat_completions',
+                base_url = CASE
+                    WHEN TRIM(COALESCE(base_url, '')) = ''
+                    THEN 'https://generativelanguage.googleapis.com/v1beta/openai'
+                    ELSE base_url
+                END,
+                quota_mode = CASE
+                    WHEN quota_mode = 'none' THEN 'provider_reported'
+                    ELSE quota_mode
+                END,
+                pricing_mode = CASE
+                    WHEN pricing_mode = 'free'
+                     AND COALESCE(
+                         CASE WHEN json_valid(metadata_json)
+                              THEN json_extract(metadata_json, '$.freeTierDeclaredByOperator')
+                              ELSE 0 END,
+                         0
+                     ) <> 1
+                    THEN 'unknown'
+                    ELSE pricing_mode
+                END,
+                updated_at = CASE
+                    WHEN provider_family <> 'gemini'
+                      OR api_format <> 'openai_compatible'
+                      OR api_family <> 'chat_completions'
+                      OR TRIM(COALESCE(base_url, '')) = ''
+                      OR quota_mode = 'none'
+                      OR (
+                          pricing_mode = 'free'
+                          AND COALESCE(
+                              CASE WHEN json_valid(metadata_json)
+                                   THEN json_extract(metadata_json, '$.freeTierDeclaredByOperator')
+                                   ELSE 0 END,
+                              0
+                          ) <> 1
+                      )
+                    THEN ? ELSE updated_at
+                END
+            WHERE provider_id = 'gemini'
+            """,
+            (now,),
+        )
+        connection.execute(
+            """
+            UPDATE provider_accounts
+            SET credential_ref = '', updated_at = ?
+            WHERE provider_id = 'litellm'
+              AND credential_ref = 'LITELLM_API_KEY'
+            """,
+            (now,),
+        )
+
+        for model_id, manifest in GEMINI_MODEL_MANIFEST.items():
+            source = f"official_manifest:{PROVIDER_CATALOG_VERSION}"
+            values = (
+                f"gemini:{model_id}",
+                "gemini",
+                model_id,
+                str(manifest.get("displayName") or model_id),
+                str(manifest.get("modelFamily") or "gemini"),
+                "chat_completions",
+                int(manifest.get("contextWindow") or 0),
+                int(manifest.get("maxOutputTokens") or 0),
+                1 if manifest.get("supportsTools") else 0,
+                1 if manifest.get("supportsJson") else 0,
+                1 if manifest.get("supportsStreaming") else 0,
+                1 if manifest.get("supportsVision") else 0,
+                0,
+                0,
+                1 if manifest.get("supportsReasoning") else 0,
+                1 if manifest.get("supportsThinking") else 0,
+                0,
+                0,
+                json_dumps([]),
+                manifest.get("inputPricePerMtok"),
+                manifest.get("cachedInputPricePerMtok"),
+                manifest.get("outputPricePerMtok"),
+                manifest.get("reasoningPricePerMtok"),
+                1 if manifest.get("freeTier") else 0,
+                str(manifest.get("freeTierNotes") or ""),
+                1,
+                source,
+                now,
+                now,
+            )
+            connection.execute(
+                """
+                INSERT INTO model_catalog
+                    (id, provider_id, model, display_name, model_family, api_family,
+                     context_window, max_output_tokens, supports_tools, supports_json,
+                     supports_streaming, supports_vision, supports_embeddings, supports_rerank,
+                     supports_reasoning, supports_thinking, supports_image_generation,
+                     supports_image_editing, effort_levels_json, input_price_per_mtok,
+                     cached_input_price_per_mtok, output_price_per_mtok, reasoning_price_per_mtok,
+                     free_tier, free_tier_notes, enabled, source, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider_id, model) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    model_family = excluded.model_family,
+                    api_family = excluded.api_family,
+                    context_window = excluded.context_window,
+                    max_output_tokens = excluded.max_output_tokens,
+                    supports_tools = excluded.supports_tools,
+                    supports_json = excluded.supports_json,
+                    supports_streaming = excluded.supports_streaming,
+                    supports_vision = excluded.supports_vision,
+                    supports_reasoning = excluded.supports_reasoning,
+                    supports_thinking = excluded.supports_thinking,
+                    input_price_per_mtok = excluded.input_price_per_mtok,
+                    cached_input_price_per_mtok = excluded.cached_input_price_per_mtok,
+                    output_price_per_mtok = excluded.output_price_per_mtok,
+                    reasoning_price_per_mtok = excluded.reasoning_price_per_mtok,
+                    free_tier = excluded.free_tier,
+                    free_tier_notes = excluded.free_tier_notes,
+                    enabled = excluded.enabled,
+                    source = excluded.source,
+                    updated_at = excluded.updated_at
+                WHERE (
+                    model_catalog.created_at = model_catalog.updated_at
+                    AND (
+                        model_catalog.source = 'manual_seed'
+                        OR model_catalog.source LIKE 'provider_account_sync:%'
+                        OR model_catalog.source LIKE 'official_manifest:%'
+                    )
+                )
+                   OR (
+                       model_catalog.source LIKE 'provider_account_sync:%'
+                       AND model_catalog.enabled = 1
+                       AND model_catalog.context_window = 0
+                       AND model_catalog.max_output_tokens = 0
+                       AND model_catalog.free_tier = 0
+                       AND model_catalog.input_price_per_mtok IS NULL
+                       AND model_catalog.cached_input_price_per_mtok IS NULL
+                       AND model_catalog.output_price_per_mtok IS NULL
+                       AND model_catalog.reasoning_price_per_mtok IS NULL
+                   )
+                """,
+                values,
+            )
+
+        provider_families: dict[str, object] = {}
+        for entry in PROVIDER_CATALOG:
+            if entry.provider_type in {"api", "gateway", "local"}:
+                provider_families.setdefault(entry.provider_family, entry)
+        default_roles = [profile["role"] for profile in team_member_defaults()]
+        for provider_family, entry in provider_families.items():
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO runtime_installations
+                    (id, runtime_id, kind, executable_path, detected_version, enabled,
+                     capabilities, preferred_roles, health_status, last_validation_at,
+                     last_health_check_at, last_error, configuration_source, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, NULL, NULL, 1, ?, ?, 'unknown', NULL, NULL, NULL,
+                        'provider_catalog', '{}', ?, ?)
+                """,
+                (
+                    f"runtime-installation-{provider_family}",
+                    provider_family,
+                    entry.provider_type,
+                    json_dumps(list(entry.capabilities)),
+                    json_dumps(default_roles),
+                    now,
+                    now,
+                ),
+            )
+            for capability in entry.capabilities:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO runtime_capabilities
+                        (id, runtime, capability, enabled, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, 1, ?, ?, ?)
+                    """,
+                    (
+                        f"{provider_family}:{capability}",
+                        provider_family,
+                        capability,
+                        json_dumps({"source": f"provider_catalog:{PROVIDER_CATALOG_VERSION}"}),
+                        now,
+                        now,
+                    ),
+                )
+
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_concurrency",
+            "max_concurrency INTEGER CHECK (max_concurrency IS NULL OR max_concurrency > 0)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "window_timezone",
+            "window_timezone TEXT NOT NULL DEFAULT 'UTC'",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "enabled",
+            "enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "fallback_retry_after_seconds",
+            "fallback_retry_after_seconds INTEGER NOT NULL DEFAULT 300 "
+            "CHECK (fallback_retry_after_seconds BETWEEN 0 AND 86400)",
+        )
+        _add_column_if_missing(
+            connection,
+            "provider_limits",
+            "max_cost_per_request_usd",
+            "max_cost_per_request_usd REAL "
+            "CHECK (max_cost_per_request_usd IS NULL OR max_cost_per_request_usd >= 0)",
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO provider_limits
+                (id, provider_id, model, rpm, tpm, daily_requests, daily_tokens,
+                 monthly_requests, monthly_tokens, monthly_budget_usd, current_window_json,
+                 cooldown_until, last_429_at, last_limit_error_at, unknown_limit_strategy,
+                 created_at, updated_at, max_concurrency, window_timezone, enabled,
+                 fallback_retry_after_seconds, max_cost_per_request_usd)
+            VALUES (
+                'gemini:*', 'gemini', '*', NULL, NULL, NULL, NULL,
+                NULL, NULL, NULL, '{}', NULL, NULL, NULL, 'conservative',
+                ?, ?, NULL, 'America/Los_Angeles', 1, 300, NULL
+            )
+            """,
+            (now, now),
+        )
+        free_tier_rules = json_dumps(
+            {
+                "allowPaidFallback": False,
+                "maxCostUsd": 0,
+                "requireExplicitFreeAccount": True,
+                "requireOperatorAttestation": True,
+                "sensitiveDataPolicy": "local_only",
+            }
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO routing_profiles
+                (id, name, mode, objective, rules_json, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "free_tier",
+                "AIDO strict free tier",
+                "free_tier",
+                "use only operator-declared free-tier or local models",
+                free_tier_rules,
+                now,
+                now,
+            ),
+        )
+
+        old_product_owner_preferred = json_dumps(
+            [
+                {"provider": "nvidia_nim", "model": "auto_best_available"},
+                {"provider": "openai_compatible", "model": "configured_model"},
+            ]
+        )
+        connection.execute(
+            """
+            UPDATE role_model_policies
+            SET routing_profile_id = 'free_tier',
+                preferred_json = ?,
+                fallback_json = ?,
+                max_cost_per_task_usd = 0,
+                requires_approval_over_usd = 0,
+                allow_unknown_cost = 0,
+                require_approval_for_unknown_cost = 0,
+                updated_at = ?
+            WHERE id = 'product_owner'
+              AND routing_profile_id = 'balanced_best_value'
+              AND preferred_json = ?
+              AND fallback_json = '[]'
+              AND escalation_json = '[]'
+              AND blocked_json = '[]'
+              AND max_cost_per_task_usd = 0.75
+              AND max_tokens_per_run = 128000
+              AND requires_approval_over_usd = 0.75
+              AND requires_approval_for_reasoning_max = 0
+              AND allow_remote = 1
+              AND allow_local = 1
+              AND allow_cli = 1
+              AND allow_api = 1
+              AND allow_unknown_cost = 1
+              AND require_approval_for_unknown_cost = 1
+              AND EXISTS (
+                  SELECT 1 FROM routing_profiles
+                  WHERE id = 'free_tier'
+                    AND mode = 'free_tier'
+                    AND rules_json = ?
+              )
+            """,
+            (
+                json_dumps(
+                    [
+                        {"provider": "gemini", "model": "gemini-3.5-flash"},
+                        {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+                    ]
+                ),
+                json_dumps([{"provider": "ollama", "model": "local_default"}]),
+                now,
+                old_product_owner_preferred,
+                free_tier_rules,
+            ),
+        )
+        for profile in team_member_defaults():
+            connection.execute(
+                """
+                UPDATE agent_profiles
+                SET allowed_providers = ?, allowed_runtimes = ?,
+                    default_runtime_policy = ?, updated_at = ?
+                WHERE id = ? AND role = ? AND created_at = updated_at
+                """,
+                (
+                    json_dumps(["*"]),
+                    json_dumps(["*"]),
+                    json_dumps(profile["defaultRuntimePolicy"]),
+                    now,
+                    profile["id"],
+                    profile["role"],
+                ),
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (56, now),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(57, skip_if_applied=True)
+def init_phase57_schema(connection: sqlite3.Connection) -> None:
+    """Fase 57: indices de lectura (created_at) para overview y poda; sin tocar datos."""
+
+    savepoint = "aido_phase57_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_created_at ON agent_runs(created_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_created_at ON agent_tool_calls(created_at)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_model_calls_created_at ON model_calls(created_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_cost_usage_created_at ON cost_usage(created_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_type_created_at ON events(type, created_at)"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (57, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(58, skip_if_applied=True)
+def init_phase58_schema(connection: sqlite3.Connection) -> None:
+    """Fase 58: constitución del proyecto (documento versionado que gobierna cada run del loop).
+
+    ``project_constitutions`` guarda un documento por proyecto (``project_id UNIQUE``) con sus
+    principios, no-negociables y gates como JSON, más ``content_hash`` (huella del contenido que se
+    sella en cada run y se muestra en el render de disco para que un humano note ediciones locales);
+    ``project_constitution_versions`` es el historial inmutable (``UNIQUE(constitution_id,
+    version)``), calcando el par ``product_briefs``/``product_brief_versions``.
+    """
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS project_constitutions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            principles TEXT NOT NULL,
+            non_negotiables TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            source TEXT NOT NULL,
+            enforcement TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS project_constitution_versions (
+            id TEXT PRIMARY KEY,
+            constitution_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            principles TEXT NOT NULL,
+            non_negotiables TEXT NOT NULL,
+            quality_gates TEXT NOT NULL,
+            source TEXT NOT NULL,
+            enforcement TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            change_summary TEXT NOT NULL,
+            authored_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(constitution_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_constitution_versions_constitution
+            ON project_constitution_versions(constitution_id, version);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (58, utc_now()),
+    )
+
+
+@migration(59, skip_if_applied=True)
+def init_phase59_schema(connection: sqlite3.Connection) -> None:
+    """Fase 59: liderazgo durable y plano de control del worker con fencing monotónico."""
+    savepoint = "aido_phase59_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        worker_ddl = """
+            CREATE TABLE IF NOT EXISTS worker_leader_leases (
+                instance_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                fencing_token INTEGER NOT NULL CHECK (fencing_token > 0)
+            );
+            CREATE TABLE IF NOT EXISTS worker_control_state (
+                instance_id TEXT PRIMARY KEY,
+                desired_state TEXT NOT NULL DEFAULT 'paused'
+                    CHECK (desired_state IN ('paused', 'running', 'draining', 'stopped', 'emergency_stopped')),
+                run_once_requested_at TEXT,
+                reason TEXT NOT NULL DEFAULT '',
+                requested_by TEXT NOT NULL DEFAULT 'system',
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS worker_heartbeats (
+                owner_id TEXT PRIMARY KEY,
+                instance_id TEXT NOT NULL,
+                fencing_token INTEGER,
+                role TEXT NOT NULL CHECK (role IN ('leader', 'standby')),
+                status TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_instance_time
+                ON worker_heartbeats(instance_id, heartbeat_at);
+            """
+        for statement in worker_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        _add_column_if_missing(
+            connection,
+            "job_runs",
+            "worker_owner_id",
+            "worker_owner_id TEXT",
+        )
+        _add_column_if_missing(
+            connection,
+            "job_runs",
+            "leader_fencing_token",
+            "leader_fencing_token INTEGER",
+        )
+        now = utc_now()
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO worker_control_state
+                (instance_id, desired_state, run_once_requested_at, reason, requested_by, updated_at)
+            VALUES ('local', 'paused', NULL, 'Worker requires an explicit resume.', 'migration', ?)
+            """,
+            (now,),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (59, now),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(60, skip_if_applied=True)
+def init_phase60_schema(connection: sqlite3.Connection) -> None:
+    """Fase 60: admisión global, leases, muestras y violaciones de recursos del host."""
+    savepoint = "aido_phase60_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        resource_ddl = """
+            CREATE TABLE IF NOT EXISTS resource_leases (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                workload_class TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                cpu_limit_percent REAL NOT NULL,
+                memory_limit_bytes INTEGER NOT NULL,
+                process_limit INTEGER NOT NULL,
+                gpu_required INTEGER NOT NULL,
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                released_at TEXT,
+                release_reason TEXT NOT NULL DEFAULT ''
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_resource_leases_active_execution
+                ON resource_leases(execution_id) WHERE released_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_resource_leases_active_expiry
+                ON resource_leases(released_at, expires_at);
+            CREATE TABLE IF NOT EXISTS resource_usage_samples (
+                id TEXT PRIMARY KEY,
+                sampled_at TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_usage_samples_time
+                ON resource_usage_samples(sampled_at);
+            CREATE TABLE IF NOT EXISTS resource_violations (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                lease_id TEXT,
+                violation_type TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_violations_execution
+                ON resource_violations(execution_id, created_at);
+            CREATE TABLE IF NOT EXISTS resource_admission_decisions (
+                id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                job_id TEXT,
+                workload_class TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('admitted', 'resource_wait')),
+                reason_code TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                lease_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_admission_job_time
+                ON resource_admission_decisions(job_id, created_at);
+        """
+        for statement in resource_ddl.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (60, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(61, skip_if_applied=True)
+def init_phase61_schema(connection: sqlite3.Connection) -> None:
+    """Fase 61: ciclo de vida durable de árboles de procesos administrados."""
+    savepoint = "aido_phase61_schema"
+    connection.execute(f"SAVEPOINT {savepoint}")
+    try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS managed_processes (
+                managed_process_id TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                root_pid INTEGER NOT NULL,
+                workload_class TEXT NOT NULL,
+                command_fingerprint TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                exit_code INTEGER,
+                timed_out INTEGER NOT NULL DEFAULT 0,
+                cancelled INTEGER NOT NULL DEFAULT 0,
+                peak_memory_bytes INTEGER NOT NULL DEFAULT 0,
+                cpu_time_seconds REAL NOT NULL DEFAULT 0,
+                stdout_artifact_id TEXT,
+                stderr_artifact_id TEXT,
+                termination_reason TEXT NOT NULL DEFAULT '',
+                cancel_requested_at TEXT,
+                released_at TEXT,
+                resource_lease_id TEXT,
+                owner_pid INTEGER NOT NULL DEFAULT 0,
+                owner_create_time REAL NOT NULL DEFAULT 0,
+                root_create_time REAL NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_managed_processes_execution
+            ON managed_processes(execution_id, started_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_managed_processes_active
+            ON managed_processes(finished_at, started_at)
+            """
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS process_execution_controls (
+                execution_id TEXT PRIMARY KEY,
+                cancel_requested_at TEXT NOT NULL,
+                reason TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (61, utc_now()),
+        )
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
+
+
+@migration(62, skip_if_applied=True)
+def init_phase62_schema(connection: sqlite3.Connection) -> None:
+    """Agrega identidad verificable y control durable a instalaciones del supervisor inicial."""
+    connection.execute("SAVEPOINT aido_phase62_schema")
+    try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(managed_processes)")}
+        for name, declaration in (
+            ("resource_lease_id", "TEXT"),
+            ("owner_pid", "INTEGER NOT NULL DEFAULT 0"),
+            ("owner_create_time", "REAL NOT NULL DEFAULT 0"),
+            ("root_create_time", "REAL NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE managed_processes ADD COLUMN {name} {declaration}")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS process_execution_controls (
+                execution_id TEXT PRIMARY KEY,
+                cancel_requested_at TEXT NOT NULL,
+                reason TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (62, ?)", (utc_now(),)
+        )
+        connection.execute("RELEASE SAVEPOINT aido_phase62_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase62_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase62_schema")
+        raise
+
+
+@migration(63, skip_if_applied=True)
+def init_phase63_schema(connection: sqlite3.Connection) -> None:
+    """Registra contenedores externos para cleanup durable tras cancelar o reiniciar el worker."""
+    connection.execute("SAVEPOINT aido_phase63_schema")
+    try:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS managed_containers (
+                name TEXT PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                executable TEXT NOT NULL,
+                owner_pid INTEGER NOT NULL,
+                owner_create_time REAL NOT NULL,
+                resource_lease_id TEXT NOT NULL,
+                owns_lease INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                released_at TEXT
+            )
+        """)
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (63, ?)", (utc_now(),))
+        connection.execute("RELEASE SAVEPOINT aido_phase63_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase63_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase63_schema")
+        raise
+
+
+@migration(64, skip_if_applied=True)
+def init_phase64_schema(connection: sqlite3.Connection) -> None:
+    """Agrega ejecuciones operacionales sin reemplazar jobs ni ai_executions existentes."""
+    connection.execute("SAVEPOINT aido_phase64_schema")
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS operational_executions (
+            id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE, project_id TEXT,
+            operation TEXT NOT NULL, workload_class TEXT NOT NULL, arguments_json TEXT NOT NULL,
+            cwd TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT,
+            finished_at TEXT, cancel_requested_at TEXT, reason TEXT NOT NULL DEFAULT '',
+            result_json TEXT, result_status_code INTEGER, owner_id TEXT, fencing_token INTEGER
+        )""")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_operational_execution_status ON operational_executions(status, created_at)"
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (64, ?)", (utc_now(),))
+        connection.execute("RELEASE SAVEPOINT aido_phase64_schema")
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT aido_phase64_schema")
+        connection.execute("RELEASE SAVEPOINT aido_phase64_schema")
+        raise
+
+
+@migration(65, skip_if_applied=True)
+def init_phase65_schema(connection: sqlite3.Connection) -> None:
+    """Agrega evidencia de capacidades y smoke Codex sin aprobar instalaciones previas."""
+    with immediate_transaction(connection):
+        connection.execute("""CREATE TABLE IF NOT EXISTS codex_capability_probes (
+            executable TEXT PRIMARY KEY, binary_fingerprint TEXT NOT NULL,
+            file_size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, version TEXT NOT NULL,
+            flags TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS codex_smoke_receipts (
+            managed_process_id TEXT PRIMARY KEY REFERENCES managed_processes(managed_process_id),
+            binary_fingerprint TEXT NOT NULL, contract_fingerprint TEXT NOT NULL,
+            receipt_json TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (65, ?)", (utc_now(),))
+
+
+@migration(66, skip_if_applied=True)
+def init_phase66_schema(connection: sqlite3.Connection) -> None:
+    """Vincula reservas de ramas al proceso padre para no liberar capacidad durante un crash."""
+    with immediate_transaction(connection):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
+        if "parent_execution_id" not in columns:
+            connection.execute("ALTER TABLE resource_leases ADD COLUMN parent_execution_id TEXT")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (66, ?)", (utc_now(),))
+
+
+@migration(67, skip_if_applied=True)
+def init_phase67_schema(connection: sqlite3.Connection) -> None:
+    """Desactiva seeds CLI no verificados y migra aliases sin reemplazar modelos del operador."""
+    from local_control_center.agents.model_aliases import LEGACY_PROFILE_ALIASES
+
+    def normalize_profiles(value):
+        if isinstance(value, str):
+            return LEGACY_PROFILE_ALIASES.get(value, value)
+        if isinstance(value, dict):
+            return {key: normalize_profiles(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize_profiles(item) for item in value]
+        return value
+
+    with immediate_transaction(connection):
+        connection.execute("""UPDATE model_catalog SET enabled=0
+            WHERE provider_id IN ('codex_cli', 'claude_code_cli') AND source='manual_seed'""")
+        for row in connection.execute("SELECT id, default_profiles FROM runtime_preferences").fetchall():
+            original = json_loads(row["default_profiles"], {})
+            normalized = normalize_profiles(original)
+            if original != normalized:
+                connection.execute(
+                    "UPDATE runtime_preferences SET default_profiles=? WHERE id=?",
+                    (json_dumps(normalized), row["id"]),
+                )
+        foreign_keys = connection.execute("PRAGMA foreign_key_list(codex_smoke_receipts)").fetchall()
+        if any(row[4] != "managed_process_id" for row in foreign_keys):
+            connection.execute("ALTER TABLE codex_smoke_receipts RENAME TO codex_smoke_receipts_legacy")
+            connection.execute("""CREATE TABLE codex_smoke_receipts (
+                managed_process_id TEXT PRIMARY KEY REFERENCES managed_processes(managed_process_id),
+                binary_fingerprint TEXT NOT NULL, contract_fingerprint TEXT NOT NULL,
+                receipt_json TEXT NOT NULL, checked_at TEXT NOT NULL)""")
+            connection.execute("INSERT INTO codex_smoke_receipts SELECT * FROM codex_smoke_receipts_legacy")
+            connection.execute("DROP TABLE codex_smoke_receipts_legacy")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (67, ?)", (utc_now(),))
+
+
+@migration(68, skip_if_applied=True)
+def init_phase68_schema(connection: sqlite3.Connection) -> None:
+    """Fase 68: cierra la taxonomía de ``memory_items.kind`` sin perder ninguna fila.
+
+    Normaliza a ``note`` cualquier kind fuera del conjunto declarado por el contrato y conserva el
+    valor original en ``metadata.legacyKind``, para que una fila escrita por una versión anterior
+    siga siendo legible a través del modelo de salida tipado. No borra filas ni agrega un CHECK:
+    SQLite no admite CHECK nuevo por ALTER TABLE y el único escritor ya valida en el borde.
+    """
+    from typing import get_args
+
+    from local_control_center.memory_retrieval.models import DEFAULT_MEMORY_KIND, MemoryKind
+
+    allowed = set(get_args(MemoryKind))
+    with immediate_transaction(connection):
+        rows = connection.execute("SELECT id, kind, metadata FROM memory_items").fetchall()
+        for row in rows:
+            if row["kind"] in allowed:
+                continue
+            metadata = json_loads(row["metadata"], {})
+            if not isinstance(metadata, dict):
+                metadata = {"legacyMetadata": metadata}
+            metadata["legacyKind"] = row["kind"]
+            connection.execute(
+                "UPDATE memory_items SET kind = ?, metadata = ? WHERE id = ?",
+                (DEFAULT_MEMORY_KIND, json_dumps(metadata), row["id"]),
+            )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (68, ?)", (utc_now(),))
+
+
+@migration(69)
+def init_phase69_schema(connection: sqlite3.Connection) -> None:
+    """Fase 69: registro consultable de memorias contradictorias detectadas.
+
+    Sigue el patrón de ``thread_similarity_events``: la detección se persiste como hallazgo con su
+    puntaje y el umbral vigente, y la resolución queda para una decisión explícita posterior. La
+    clave única por par normalizado evita duplicar el mismo conflicto entre corridas.
+    """
+    connection.executescript(
+        """
+            CREATE TABLE IF NOT EXISTS memory_conflicts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                left_memory_item_id TEXT NOT NULL,
+                right_memory_item_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                score REAL NOT NULL,
+                threshold REAL NOT NULL,
+                detector TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'detected'
+                    CHECK (status IN ('detected', 'acknowledged', 'resolved')),
+                detected_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (project_id, left_memory_item_id, right_memory_item_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_conflicts_project
+                ON memory_conflicts(project_id, detected_at);
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (69, utc_now()),
+    )
+
+
+@migration(70)
+def init_phase70_schema(connection: sqlite3.Connection) -> None:
+    """Fase 70: perfil de sandbox para correr un proyecto en la imagen de su propia toolchain.
+
+    `default_docker` es un perfil de **analisis**: red `none` y 2 GiB, con el workspace montado de
+    solo lectura por `DockerSandbox`. Un build real necesita lo contrario — escribir sus
+    artefactos y resolver dependencias por red — asi que necesita su propio perfil en vez de
+    relajar el que usa todo lo demas.
+
+    Las imagenes son las mismas que declara `projects/toolchain.py`, para que el operador no
+    pueda apuntar el runtime a una imagen arbitraria desde la politica.
+    """
+    timestamp = utc_now()
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO sandbox_profiles
+            (id, name, allowed_images, allowed_networks, default_network, memory,
+             cpus, timeout_seconds, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "project_build",
+            "Project Build Container",
+            json_dumps(
+                [
+                    "maven:3.9-eclipse-temurin-21",
+                    "gradle:8.10-jdk21",
+                    "node:22-bookworm",
+                    "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
+                    "golang:1.23-bookworm",
+                    "rust:1.83-bookworm",
+                ]
+            ),
+            json_dumps(["bridge", "none"]),
+            "bridge",
+            "4g",
+            "2",
+            600,
+            "active",
+            timestamp,
+            timestamp,
+        ),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (70, utc_now()),
+    )
+
+
+@migration(71)
+def init_phase71_schema(connection: sqlite3.Connection) -> None:
+    """Fase 71: cuenta los reintentos de admision en vez de guardar una fila por cada uno.
+
+    Medido en la instalacion real: 130.781 filas para 2.986 ejecuciones (44 intentos promedio, y
+    un job con 9.023 en 58 minutos), de las cuales el 98% eran `resource_wait` repetido. Los dos
+    unicos lectores piden la fila mas reciente, asi que ninguna de esas repeticiones tenia
+    consumidor: eran 119,3 MB de escritura bajo el candado global, justo durante los episodios en
+    que el equipo ya estaba saturado.
+
+    `attempts` conserva cuantas veces se repitio el veredicto y `last_seen_at` cuando fue la
+    ultima, de modo que `created_at` pueda quedarse en el PRIMER intento. Eso ademas arregla el
+    orden de `waiting_requests`, que pide `created_at ASC` para atender primero al que mas
+    espera: con una fila por reintento ese campo era la hora del ultimo intento, asi que el que
+    mas esperaba se iba al final por seguir esperando.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(resource_admission_decisions)")}
+    if "attempts" not in columns:
+        connection.execute(
+            "ALTER TABLE resource_admission_decisions ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1"
+        )
+    if "last_seen_at" not in columns:
+        connection.execute("ALTER TABLE resource_admission_decisions ADD COLUMN last_seen_at TEXT")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_resource_admission_execution
+            ON resource_admission_decisions(execution_id)
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (71, utc_now()),
+    )
+
+
+@migration(72)
+def init_phase72_schema(connection: sqlite3.Connection) -> None:
+    """Fase 72: procedencia de cada preferencia, para poder auto-asignar sin pisar al operador.
+
+    Sin este dato, auto-configurar un proyecto es destructivo: al volver a detectar no hay forma
+    de saber si el valor guardado lo puso la maquina o la persona, y la unica opcion segura seria
+    no escribir nunca. El default es `operator` a proposito: **toda fila que ya existia cuenta
+    como del operador**, porque asumir lo contrario la haria pisable de golpe.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "origin" not in columns and "assigned_by" not in columns:
+        connection.execute("ALTER TABLE settings_value ADD COLUMN origin TEXT NOT NULL DEFAULT 'operator'")
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (72, utc_now()),
+    )
+
+
+@migration(73)
+def init_phase73_schema(connection: sqlite3.Connection) -> None:
+    """Fase 73: `settings_value.origin` pasa a `assigned_by`, porque `origin` ya significa otra cosa.
+
+    `ResolvedSetting.origin` es un `Literal["default","general","project"]` que dice de que
+    **ambito** salio el valor. La columna que agrego la fase 72 dice **quien** lo puso
+    (`operator` / `auto`). Son dos conceptos distintos con el mismo nombre, y estaban a punto de
+    convivir en el mismo payload cuando la procedencia se exponga en la UI. Se renombra ahora,
+    antes de que el nombre ambiguo entre al contrato.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "assigned_by" not in columns:
+        if "origin" in columns:
+            connection.execute("ALTER TABLE settings_value RENAME COLUMN origin TO assigned_by")
+        else:
+            connection.execute(
+                "ALTER TABLE settings_value ADD COLUMN assigned_by TEXT NOT NULL DEFAULT 'operator'"
+            )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (73, utc_now()),
+    )
+
+
+@migration(86, skip_if_applied=True)
+def init_phase86_schema(connection: sqlite3.Connection) -> None:
+    """Fase 86: elimina la columna `settings_value.origin` que la fase 72 re-agregaba tras el rename.
+
+    La fase 72 no tenía guard de versión: en cada re-inicialización volvía a crear `origin` después de
+    que la fase 73 ya la había renombrado a `assigned_by`, dejando una columna muerta (siempre
+    `operator`) que ningún código lee. Sólo se borra cuando conviven ambas columnas.
+    """
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(settings_value)")}
+    if "origin" in columns and "assigned_by" in columns:
+        connection.execute("ALTER TABLE settings_value DROP COLUMN origin")
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (86, utc_now()),
+    )
+
+
+def _legacy_thread_id(record_id: str) -> str:
+    return f"thread-legacy-{record_id}"
+
+
+def _legacy_message_id(record_id: str) -> str:
+    return f"thread-msg-legacy-{record_id}"
+
+
+def _legacy_summary(content: str) -> str:
+    return content.strip().replace("\n", " ")[:140]
+
+
+def _legacy_metadata(
+    raw_metadata: str,
+    *,
+    source: str,
+    migrated_to_thread_id: str,
+    legacy_payload: dict[str, object],
+    migrated_to_message_id: str | None = None,
+) -> dict[str, object]:
+    metadata = json_loads(raw_metadata, {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    legacy: dict[str, object] = {
+        "source": source,
+        "migratedToThreadId": migrated_to_thread_id,
+        **legacy_payload,
+    }
+    if migrated_to_message_id:
+        legacy["migratedToMessageId"] = migrated_to_message_id
+    return {**metadata, "legacyReadOnly": True, "legacy": legacy}
+
+
+def _mark_legacy_metadata(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    row_id: str,
+    metadata: dict[str, object],
+) -> None:
+    if table not in {"sessions", "chats", "pipelines"}:
+        raise ValueError(f"Unknown legacy table: {table}")
+    update_sql = {
+        "sessions": "UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?",
+        "chats": "UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?",
+        "pipelines": "UPDATE pipelines SET metadata = ?, updated_at = ? WHERE id = ?",
+    }[table]
+    connection.execute(
+        update_sql,
+        (json_dumps(metadata), utc_now(), row_id),
+    )
+
+
+def _insert_legacy_message(
+    connection: sqlite3.Connection,
+    *,
+    message_id: str,
+    thread_id: str,
+    project_id: str,
+    kind: str,
+    author: str,
+    content: str,
+    metadata: dict[str, object],
+    created_at: str,
+) -> None:
+    if connection.execute("SELECT 1 FROM thread_messages WHERE id = ?", (message_id,)).fetchone():
+        return
+    row = connection.execute(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM thread_messages WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    connection.execute(
+        """
+        INSERT INTO thread_messages
+            (id, thread_id, project_id, sequence, kind, author, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            message_id,
+            thread_id,
+            project_id,
+            int(row["next"]),
+            kind,
+            author,
+            content,
+            json_dumps(metadata),
+            created_at,
+        ),
+    )
+
+
 def seed_platform_catalogs(connection: sqlite3.Connection) -> None:
     """Siembra los catálogos de proveedores delegando en ``ProjectsRepository.seed_providers``."""
     from local_control_center.projects.repository import ProjectsRepository
 
     ProjectsRepository(connection).seed_providers()
+
+
+@migration(81, skip_if_applied=True)
+def init_phase81_schema(connection: sqlite3.Connection) -> None:
+    """Fase 81: la lease guarda la memoria reservada para admitir, separada de su tope duro.
+
+    NULL identifica leases anteriores a la separación: se cuentan por su tope, como antes.
+    """
+    with immediate_transaction(connection):
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(resource_leases)")}
+        if "memory_request_bytes" not in columns:
+            connection.execute("ALTER TABLE resource_leases ADD COLUMN memory_request_bytes INTEGER")
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (81, ?)", (utc_now(),))
+
+
+@migration(82, skip_if_applied=True)
+def init_phase82_schema(connection: sqlite3.Connection) -> None:
+    """Fase 82: atención por proyecto para la cola justa del worker.
+
+    ``peek_next_job`` necesita, por cada proyecto con jobs encolados, cuándo fue atendido por
+    última vez (el máximo ``job_runs.started_at`` de sus jobs) para dar prioridad al proyecto
+    menos atendido. Calcularlo por join contra ``job_runs`` en cada peek escala mal (medido:
+    ~40 ms con ~20k runs bajo cola llena, muy por sobre el presupuesto); esta tabla lo mantiene
+    al día en ``claim_next_job`` con un upsert O(1), dejando la lectura en una búsqueda indexada
+    por ``project_id``. El backfill cubre bases ya migradas antes de esta fase.
+    """
+    with immediate_transaction(connection):
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_job_attention (
+                project_id TEXT PRIMARY KEY,
+                last_started_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO project_job_attention (project_id, last_started_at)
+            SELECT j.project_id, MAX(jr.started_at)
+            FROM job_runs jr
+            JOIN jobs j ON j.id = jr.job_id
+            GROUP BY j.project_id
+            """
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (82, ?)", (utc_now(),))
+
+
+@migration(83, skip_if_applied=True)
+def init_phase83_schema(connection: sqlite3.Connection) -> None:
+    """Fase 83: uso de cuota por proveedor y umbral de suspensión automática.
+
+    ``provider_usage_windows`` guarda la última observación de cada ventana de uso (5 h, semanal,
+    diaria, mensual) con su porcentaje, reinicio y fuente. ``provider_usage_policies`` guarda el
+    umbral propio del proveedor (override del general ``runtime.quota.suspendThresholdPercent``), la
+    reanudación manual (``ignore_until``) y el estado del último refresco. Ver
+    ``agents/provider_usage.py``.
+    """
+    with immediate_transaction(connection):
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS provider_usage_windows (
+                provider_id TEXT NOT NULL,
+                window_kind TEXT NOT NULL,
+                used_percent REAL CHECK (used_percent IS NULL OR (used_percent >= 0 AND used_percent <= 100)),
+                resets_at TEXT,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ok',
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (provider_id, window_kind)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS provider_usage_policies (
+                provider_id TEXT PRIMARY KEY,
+                threshold_percent REAL
+                    CHECK (threshold_percent IS NULL OR (threshold_percent >= 1 AND threshold_percent <= 100)),
+                ignore_until TEXT,
+                last_poll_at TEXT,
+                last_poll_error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (83, ?)", (utc_now(),))
+
+
+PROVIDER_SEED_TABLES: tuple[tuple[str, str], ...] = (
+    ("model_catalog", "provider_id"),
+    ("provider_limits", "provider_id"),
+    ("runtime_capabilities", "runtime"),
+    ("runtime_accounts", "runtime_id"),
+    ("runtime_installations", "runtime_id"),
+    ("provider_accounts", "provider_id"),
+)
+"""Tablas que las fases sembradoras repueblan con ``INSERT OR IGNORE`` en cada pasada completa."""
+
+
+@migration(84, skip_if_applied=True)
+def init_phase84_schema(connection: sqlite3.Connection) -> None:
+    """Fase 84: el switch por proveedor (``provider_accounts.enabled``) pasa a ser autoritativo.
+
+    Hasta ahora el estado de un CLI ignoraba ``provider_accounts.enabled`` (sembrado en 0) y solo miraba
+    ``runtime_installations``/``runtime_accounts``: un CLI que corría hoy se veía "Inactivo" en su tarjeta.
+    Para que nada que funciona deje de funcionar, esta fase enciende una única vez el switch de cada CLI
+    cuya instalación y cuenta nativa están habilitadas (los que ejecutan hoy); desde aquí el switch manda.
+    Crea además ``provider_account_tombstones``: una cuenta que el operador borró (p. ej. Ollama) no vuelve
+    a aparecer cuando una pasada completa de migraciones re-ejecuta las semillas.
+    """
+    now = utc_now()
+    _execute_atomic_statements(
+        connection,
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS provider_account_tombstones (
+            provider_id TEXT PRIMARY KEY,
+            deleted_at TEXT NOT NULL
+        )""",
+                (),
+            ),
+            (
+                """UPDATE provider_accounts
+            SET enabled = 1, updated_at = ?
+            WHERE provider_type = 'cli'
+              AND provider_id != 'manual'
+              AND enabled = 0
+              AND EXISTS (
+                  SELECT 1 FROM runtime_installations
+                  WHERE runtime_installations.runtime_id = provider_accounts.provider_id
+                    AND runtime_installations.enabled = 1
+              )
+              AND EXISTS (
+                  SELECT 1 FROM runtime_accounts
+                  WHERE runtime_accounts.runtime_id = provider_accounts.provider_id
+                    AND runtime_accounts.enabled = 1
+              )""",
+                (now,),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (84, now)),
+        ],
+    )
+
+
+@migration(85, skip_if_applied=True)
+def init_phase85_schema(connection: sqlite3.Connection) -> None:
+    """Fase 85: validación modelo por modelo de un proveedor de API/gateway.
+
+    ``model_catalog`` gana ``disabled_reason``/``disabled_detail``: un modelo que falló la validación queda
+    deshabilitado con ``validation_failed`` (nunca se borra) y el operador lo ve como descartado, lo
+    re-habilita o lo vuelve a probar. ``model_validation_outcomes`` guarda el último resultado por
+    (proveedor, modelo) y ``model_validation_runs`` el avance de cada corrida (hechos/total, ok, fallidos)
+    para la barra de progreso. Ver ``runtime_team/catalog_validation.py``.
+    """
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(model_catalog)")}
+    statements: list[tuple[str, tuple[object, ...]]] = [
+        (f"ALTER TABLE model_catalog ADD COLUMN {column} TEXT", ())
+        for column in ("disabled_reason", "disabled_detail")
+        if column not in columns
+    ]
+    statements.extend(
+        [
+            (
+                """CREATE TABLE IF NOT EXISTS model_validation_outcomes (
+            provider_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('ok', 'failed', 'skipped')),
+            http_status INTEGER,
+            reason TEXT,
+            detail TEXT,
+            latency_ms INTEGER,
+            run_id TEXT,
+            tested_at TEXT NOT NULL,
+            PRIMARY KEY (provider_id, model)
+        )""",
+                (),
+            ),
+            (
+                """CREATE TABLE IF NOT EXISTS model_validation_runs (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            total INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            ok INTEGER NOT NULL DEFAULT 0,
+            failed INTEGER NOT NULL DEFAULT 0,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            discarded INTEGER NOT NULL DEFAULT 0,
+            concurrency INTEGER NOT NULL DEFAULT 1,
+            model_timeout_seconds REAL NOT NULL DEFAULT 0,
+            budget_seconds REAL NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            started_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            finished_at TEXT
+        )""",
+                (),
+            ),
+            (
+                """CREATE INDEX IF NOT EXISTS idx_model_validation_runs_provider
+            ON model_validation_runs(provider_id, started_at)""",
+                (),
+            ),
+            ("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (85, utc_now())),
+        ]
+    )
+    _execute_atomic_statements(connection, statements)
+
+
+def purge_tombstoned_provider_seeds(connection: sqlite3.Connection) -> None:
+    """Retira lo que las semillas re-insertaron para cuentas que el operador borró.
+
+    Las fases sembradoras (p. ej. la 12 con Ollama) corren con ``INSERT OR IGNORE`` en cada pasada
+    completa; sin esto un Ollama borrado reaparecía tras cualquier actualización de esquema. Solo toca
+    ids con tombstone: dar de alta la cuenta de nuevo retira su tombstone.
+    """
+    tombstones = [
+        str(row[0]) for row in connection.execute("SELECT provider_id FROM provider_account_tombstones")
+    ]
+    if not tombstones:
+        return
+    _execute_atomic_statements(
+        connection,
+        [
+            (f"DELETE FROM {table} WHERE {column} = ?", (provider_id,))
+            for provider_id in tombstones
+            for table, column in PROVIDER_SEED_TABLES
+        ],
+    )

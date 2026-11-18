@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+pytestmark = pytest.mark.usefixtures("controlled_domain_host")
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -17,15 +21,23 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -75,6 +87,7 @@ def _write_release_package(path: str | Path, *, scripts: dict[str, str]) -> None
 
 
 def test_devops_agent_runs_release_toolchain_and_default_quality_with_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -110,6 +123,7 @@ def test_devops_agent_runs_release_toolchain_and_default_quality_with_evidence(
 
 
 def test_devops_agent_accepts_configurable_quality_subset(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -136,6 +150,7 @@ def test_devops_agent_accepts_configurable_quality_subset(
 
 
 def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -163,13 +178,14 @@ def test_devops_agent_missing_release_tools_are_skipped_with_reason_not_failed(
 
 
 def test_devops_agent_without_docker_does_not_fail_startup(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     real_which = shutil.which
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.shutil.which",
-        lambda name: None if name == "docker" else real_which(name),
+        lambda name, *args, **kwargs: None if name == "docker" else real_which(name, *args, **kwargs),
     )
     store, client, headers = create_client(tmp_path, monkeypatch)
     project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-no-docker")
@@ -183,7 +199,7 @@ def test_devops_agent_without_docker_does_not_fail_startup(
 
     assert status_response.status_code == 200
     assert status_response.json()["devopsAgent"]["executable"] is True
-    assert run_response.status_code == 202
+    assert run_response.status_code == 202, run_response.text
     body = run_response.json()
     assert body["docker"]["available"] is False
     assert body["docker"]["healthcheck"]["status"] == "skipped_with_reason"
@@ -193,6 +209,7 @@ def test_devops_agent_without_docker_does_not_fail_startup(
 
 
 def test_devops_agent_missing_build_command_reports_reason(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -219,6 +236,7 @@ def test_devops_agent_missing_build_command_reports_reason(
 
 
 def test_devops_agent_detects_deprecated_legacy_powershell_scripts(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -243,6 +261,7 @@ def test_devops_agent_detects_deprecated_legacy_powershell_scripts(
 
 
 def test_devops_agent_existing_build_command_executes_through_broker_with_artifacts(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -275,3 +294,121 @@ def test_devops_agent_existing_build_command_executes_through_broker_with_artifa
     assert command["toolCallId"]
     assert command["artifactHashes"]["outputArtifactHash"]
     assert body["configArtifact"]["id"].startswith("artifact-")
+
+
+def test_devops_agent_validates_a_project_with_its_own_toolchain(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un proyecto sin `package.json` no corría NINGÚN comando y el reporte salía como saltado.
+
+    Saltado parece verificado y no lo está. Ahora el DevOpsAgent planea la validación desde los
+    manifiestos del propio proyecto, y si la toolchain no está instalada en el host lo dice con una
+    causa accionable en vez de dejar el hueco en silencio.
+    """
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-maven-toolchain")
+    Path(workspace["path"], "pom.xml").write_text(
+        '<?xml version="1.0"?><project><artifactId>demo</artifactId></project>', encoding="utf-8"
+    )
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=[]),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    toolchain_commands = [
+        command
+        for command in body["commands"]
+        if command.get("metadata", {}).get("validationType") == "project_toolchain"
+    ]
+    assert toolchain_commands, body["commands"]
+    assert {command["metadata"]["toolchain"] for command in toolchain_commands} == {"java-maven"}
+    assert any("mvn" in str(command["command"]) for command in toolchain_commands)
+
+    maven_installed = shutil.which("mvn") or shutil.which("mvn.cmd")
+    findings = {finding["checkId"] for finding in body["configFindings"]}
+    if maven_installed:
+        assert "toolchain_not_installed" not in findings
+    else:
+        # El host no tiene Maven: la salida tiene que nombrar la decisión, no un error del SO.
+        assert "toolchain_not_installed" in findings, body["configFindings"]
+        assert all(
+            command["status"] == "skipped_with_reason" and "not installed" in command["reason"]
+            for command in toolchain_commands
+        ), toolchain_commands
+
+
+def test_devops_agent_runs_the_toolchain_in_a_container_when_the_project_opted_in(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con la toolchain ausente y el runtime contenerizado activado, el build corre igual.
+
+    Se usa Go a proposito: es una toolchain que este equipo no tiene, asi que el camino del
+    contenedor se ejercita de verdad en vez de saltarse. La ejecucion pasa por el broker, no por
+    el sandbox directo: contenerizar no saca la ejecucion de la politica ni de la evidencia.
+    """
+    from local_control_center.projects.toolchain import CONTAINERIZED_SETTING_KEY, TOOLCHAIN_IMAGES
+    from local_control_center.settings.repository import SettingsRepository
+
+    if shutil.which("go"):
+        pytest.skip("este host tiene Go: la toolchain local gana, que es lo correcto")
+    docker = shutil.which("docker")
+    if not docker:
+        pytest.skip("la ruta contenerizada necesita el ejecutable docker en el host")
+    try:
+        daemon = subprocess.run(
+            [docker, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        pytest.skip(f"no se pudo consultar el daemon Docker ({type(error).__name__})")
+    if daemon.returncode != 0 or not daemon.stdout.strip():
+        pytest.skip("la ruta contenerizada requiere un daemon Docker accesible")
+
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="devops-container")
+    Path(workspace["path"], "go.mod").write_text("module example.com/demo\n\ngo 1.22\n", encoding="utf-8")
+    with store.connection:
+        SettingsRepository(store.connection).set_value(
+            CONTAINERIZED_SETTING_KEY, "project", project["id"], True
+        )
+
+    response = client.post(
+        "/api/v1/agents/devops/runs",
+        headers=headers,
+        json=devops_request(project, workspace, buildScripts=[], qualityScripts=[]),
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    toolchain_commands = [
+        command
+        for command in body["commands"]
+        if command.get("metadata", {}).get("validationType") == "project_toolchain"
+    ]
+    assert toolchain_commands, body["commands"]
+    assert all(command["metadata"].get("executionMode") == "container" for command in toolchain_commands), (
+        toolchain_commands
+    )
+    assert {command["metadata"].get("image") for command in toolchain_commands} == {TOOLCHAIN_IMAGES["go"]}
+    # La evidencia sale del broker: cada comando trae su decision de politica registrada.
+    assert all(command["metadata"].get("decision") for command in toolchain_commands), toolchain_commands
+    # Y el contenedor tiene que haber corrido de verdad. `denied` significaria que la politica aprobo
+    # la ruta y el sandbox la corto igual, que es justo el modo de falla que este trabajo elimina.
+    outcomes = {
+        (command["status"], command["metadata"].get("decision"), str(command.get("reason") or ""))
+        for command in toolchain_commands
+    }
+    assert all(status in {"passed", "failed"} for status, _decision, _reason in outcomes), outcomes
+    findings = {finding["checkId"] for finding in body["configFindings"]}
+    assert "toolchain_not_installed" not in findings, body["configFindings"]

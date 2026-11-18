@@ -1,10 +1,12 @@
 /**
  * Owns the control-plane session: handshake token, polled state, and mutations.
  *
- * Performs the authenticated handshake, polls overview/status every 5s, and exposes
- * a `mutate` runner that injects the write token and refreshes afterwards. Secondary
+ * Performs the authenticated handshake once (the token is static per backend process),
+ * polls overview/status every 5s, and exposes a `mutate` runner that injects the write
+ * token and refreshes afterwards. A write rejected for a stale token clears the cached
+ * token so the next tick re-negotiates the handshake (backend restart). Secondary
  * reads are wrapped in a timeout so a slow optional endpoint cannot stall the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -49,8 +51,14 @@ const initialState: ControlPlaneState = {
 	busy: false,
 };
 
+const OPTIONAL_ENDPOINT_TIMEOUT_MS = 4000;
+const RUNTIME_ENDPOINT_TIMEOUT_MS = 15000;
+
 /** Resolves to `null` instead of rejecting/hanging if the promise fails or exceeds the timeout. */
-function optionalWithTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T | null> {
+function optionalWithTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs = OPTIONAL_ENDPOINT_TIMEOUT_MS,
+): Promise<T | null> {
 	return new Promise((resolve) => {
 		const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);
 		promise
@@ -68,6 +76,8 @@ function optionalWithTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<
 export function useControlPlane() {
 	const [state, setState] = useState(initialState);
 	const mountedRef = useRef(false);
+	const tokenRef = useRef('');
+	const requestIdRef = useRef(0);
 	const controllersRef = useRef<Set<AbortController>>(new Set());
 	const { t } = useI18n();
 	const tRef = useRef(t);
@@ -75,35 +85,62 @@ export function useControlPlane() {
 
 	const refresh = useCallback(async (silent = false) => {
 		const controller = new AbortController();
+		requestIdRef.current += 1;
+		const requestId = requestIdRef.current;
+		let secondaryStarted = false;
 		controllersRef.current.add(controller);
 		if (!silent) setState((current) => ({ ...current, loading: true, error: '' }));
+		const refreshSecondaryState = async () => {
+			try {
+				const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
+					await Promise.all([
+						optionalWithTimeout(getRetrievalStatus(controller.signal)),
+						optionalWithTimeout(
+							getRuntimeProviders(controller.signal),
+							RUNTIME_ENDPOINT_TIMEOUT_MS,
+						),
+						optionalWithTimeout(
+							getRuntimeProviderConfiguration(controller.signal),
+							RUNTIME_ENDPOINT_TIMEOUT_MS,
+						),
+					]);
+				if (!mountedRef.current || controller.signal.aborted) return;
+				setState((current) => ({
+					...current,
+					retrievalStatus,
+					runtimeProviders,
+					runtimeProviderConfiguration:
+						runtimeProviderConfigurationResponse?.providers ?? current.runtimeProviderConfiguration,
+					lastUpdatedAt: new Date().toISOString(),
+				}));
+			} finally {
+				controllersRef.current.delete(controller);
+			}
+		};
 		try {
 			const [handshake, overview] = await Promise.all([
-				getHandshake(controller.signal),
+				tokenRef.current
+					? Promise.resolve({ token: tokenRef.current })
+					: getHandshake(controller.signal),
 				getOverview(controller.signal),
 			]);
-			const [retrievalStatus, runtimeProviders, runtimeProviderConfigurationResponse] =
-				await Promise.all([
-					optionalWithTimeout(getRetrievalStatus(controller.signal)),
-					optionalWithTimeout(getRuntimeProviders(controller.signal)),
-					optionalWithTimeout(getRuntimeProviderConfiguration(controller.signal)),
-				]);
 			if (!mountedRef.current) return;
+			tokenRef.current = handshake.token;
+			if (requestId !== requestIdRef.current) return;
 			setState((current) => ({
 				...current,
 				token: handshake.token,
 				overview,
-				retrievalStatus,
-				runtimeProviders,
-				runtimeProviderConfiguration: runtimeProviderConfigurationResponse?.providers ?? null,
 				loading: false,
 				error: '',
 				connected: true,
 				lastUpdatedAt: new Date().toISOString(),
 			}));
+			secondaryStarted = true;
+			void refreshSecondaryState();
 		} catch (error) {
 			if (controller.signal.aborted) return;
-			if (!mountedRef.current) return;
+			if (!mountedRef.current || requestId !== requestIdRef.current) return;
 			const message =
 				error instanceof Error
 					? error.message
@@ -118,17 +155,25 @@ export function useControlPlane() {
 				error: silent && current.overview ? '' : message,
 			}));
 		} finally {
-			controllersRef.current.delete(controller);
+			if (!secondaryStarted) controllersRef.current.delete(controller);
 		}
 	}, []);
 
 	useEffect(() => {
 		mountedRef.current = true;
 		void refresh();
-		const interval = window.setInterval(() => void refresh(true), 5000);
+		const interval = window.setInterval(() => {
+			if (document.visibilityState === 'hidden') return;
+			void refresh(true);
+		}, 5000);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') void refresh(true);
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			mountedRef.current = false;
 			window.clearInterval(interval);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			for (const controller of controllersRef.current) {
 				controller.abort();
 			}
@@ -167,13 +212,20 @@ export function useControlPlane() {
 					setState((current) => ({ ...current, busy: false }));
 					throw error;
 				}
+				if (error instanceof Error && error.message.includes('loopback write token')) {
+					tokenRef.current = '';
+					setState((current) => ({ ...current, token: '' }));
+				}
 				setState((current) => ({
 					...current,
 					busy: false,
 					error:
 						error instanceof Error
 							? error.message
-							: tRef.current('app.controlPlane.error.operationFailed', 'Operation failed.'),
+							: tRef.current(
+									'app.controlPlane.error.actionFailed',
+									"Couldn't complete the action. Retry.",
+								),
 				}));
 				throw error;
 			}

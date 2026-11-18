@@ -6,7 +6,7 @@ inline se conserva solo una vista previa truncada en la fila y el contenido comp
 artifact (reutilizando el almacén de evidencia), referenciado por id. Un cap por sesión elimina los
 eventos más antiguos, de modo que la tabla nunca crece sin límite por mucho stdout/stderr que llegue.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ CLI_SESSION_EVENT_TYPES = frozenset(
         "cancelled",
     }
 )
-TERMINAL_EVENT_TYPES = frozenset({"completed", "failed", "cancelled"})
 
 MAX_EVENTS_PER_SESSION = 500
 MAX_EVENT_PAYLOAD_BYTES = 4_000

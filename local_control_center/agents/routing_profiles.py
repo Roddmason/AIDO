@@ -5,7 +5,7 @@ provider limits, budget rules) plus the immutable record of each routing decisio
 CLI session it produced. This module only reads/writes those tables; it does not score
 candidates or choose a model (that is the router's job).
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,12 +14,9 @@ import sqlite3
 import uuid
 from typing import Any
 
+from local_control_center.shared.db import db_bool as _bool
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
-
-
-def _bool(value: Any) -> bool:
-    return bool(int(value)) if isinstance(value, int) else bool(value)
 
 
 def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:
@@ -36,16 +33,37 @@ def row_to_routing_profile(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _normalize_model_refs(raw: Any) -> list[dict[str, Any]]:
+    """Normaliza referencias de modelo tolerando el formato legacy (strings de provider).
+
+    Las filas viejas guardaban ``["claude_code_cli", ...]``; el contrato actual es
+    ``[{"model": ..., "provider": ...}]``. Sin esto, UNA fila legacy hacía fallar el response
+    model del listado completo (500) y la UI quedaba sin políticas ni providers.
+
+    El modelo normalizado es ``"*"`` (comodín provider-level, misma semántica de ranking que
+    vacío) y no ``""``: la validación del gateway rechaza modelos vacíos, y como PATCH revalida
+    el estado fusionado, una fila legacy normalizada a vacío quedaba inmodificable para siempre
+    vía API/UI (422 en cualquier PATCH, aun de campos ajenos).
+    """
+    normalized: list[dict[str, Any]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict):
+            normalized.append(item)
+        elif isinstance(item, str) and item.strip():
+            normalized.append({"model": "*", "provider": item.strip()})
+    return normalized
+
+
 def row_to_role_policy(row: sqlite3.Row) -> dict[str, Any]:
     """Map a `role_model_policies` row to its camelCase dict, defaulting newer columns."""
     return {
         "id": row["id"],
         "role": row["role"],
         "routingProfileId": row["routing_profile_id"],
-        "preferred": json_loads(row["preferred_json"], []),
-        "fallback": json_loads(row["fallback_json"], []),
-        "escalation": json_loads(row["escalation_json"], []),
-        "blocked": json_loads(row["blocked_json"], []),
+        "preferred": _normalize_model_refs(json_loads(row["preferred_json"], [])),
+        "fallback": _normalize_model_refs(json_loads(row["fallback_json"], [])),
+        "escalation": _normalize_model_refs(json_loads(row["escalation_json"], [])),
+        "blocked": _normalize_model_refs(json_loads(row["blocked_json"], [])),
         "maxCostPerTaskUsd": row["max_cost_per_task_usd"],
         "maxTokensPerRun": row["max_tokens_per_run"],
         "requiresApprovalOverUsd": row["requires_approval_over_usd"],
@@ -76,6 +94,11 @@ def row_to_provider_limit(row: sqlite3.Row) -> dict[str, Any]:
         "monthlyRequests": row["monthly_requests"],
         "monthlyTokens": row["monthly_tokens"],
         "monthlyBudgetUsd": row["monthly_budget_usd"],
+        "maxCostPerRequestUsd": row["max_cost_per_request_usd"],
+        "maxConcurrency": row["max_concurrency"],
+        "windowTimezone": row["window_timezone"],
+        "enabled": _bool(row["enabled"]),
+        "fallbackRetryAfterSeconds": row["fallback_retry_after_seconds"],
         "currentWindow": json_loads(row["current_window_json"], {}),
         "cooldownUntil": row["cooldown_until"],
         "last429At": row["last_429_at"],
@@ -299,6 +322,53 @@ class RoutingProfileStore:
         ).fetchall()
         return [row_to_provider_limit(row) for row in rows]
 
+    def create_provider_limit(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Create an endpoint/model policy without accepting client-owned counters."""
+        provider_id = str(body["providerId"])
+        model = str(body["model"])
+        duplicate = self.connection.execute(
+            "SELECT 1 FROM provider_limits WHERE provider_id = ? AND model = ?",
+            (provider_id, model),
+        ).fetchone()
+        if duplicate:
+            raise ValueError(f"Provider limit already exists: {provider_id}/{model}")
+        limit_id = f"provider-limit-{uuid.uuid4()}"
+        now = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO provider_limits
+                (id, provider_id, model, rpm, tpm, daily_requests, daily_tokens,
+                 monthly_requests, monthly_tokens, monthly_budget_usd,
+                 current_window_json, cooldown_until, last_429_at,
+                 last_limit_error_at, unknown_limit_strategy, max_concurrency,
+                 window_timezone, enabled, fallback_retry_after_seconds,
+                 max_cost_per_request_usd, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                limit_id,
+                provider_id,
+                model,
+                body.get("rpm"),
+                body.get("tpm"),
+                body.get("dailyRequests"),
+                body.get("dailyTokens"),
+                body.get("monthlyRequests"),
+                body.get("monthlyTokens"),
+                body.get("monthlyBudgetUsd"),
+                body.get("unknownLimitStrategy", "conservative"),
+                body.get("maxConcurrency"),
+                body.get("windowTimezone", "UTC"),
+                1 if body.get("enabled", True) else 0,
+                body.get("fallbackRetryAfterSeconds", 300),
+                body.get("maxCostPerRequestUsd"),
+                now,
+                now,
+            ),
+        )
+        row = self.connection.execute("SELECT * FROM provider_limits WHERE id = ?", (limit_id,)).fetchone()
+        return row_to_provider_limit(row)
+
     def patch_provider_limit(self, limit_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Apply a partial update to an existing provider limit row and return it.
 
@@ -317,8 +387,9 @@ class RoutingProfileStore:
             """
             UPDATE provider_limits
             SET rpm = ?, tpm = ?, daily_requests = ?, daily_tokens = ?, monthly_requests = ?,
-                monthly_tokens = ?, monthly_budget_usd = ?, current_window_json = ?, cooldown_until = ?,
-                last_429_at = ?, last_limit_error_at = ?, unknown_limit_strategy = ?, updated_at = ?
+                monthly_tokens = ?, monthly_budget_usd = ?, max_cost_per_request_usd = ?,
+                max_concurrency = ?, window_timezone = ?, enabled = ?,
+                fallback_retry_after_seconds = ?, unknown_limit_strategy = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -329,10 +400,11 @@ class RoutingProfileStore:
                 merged.get("monthlyRequests"),
                 merged.get("monthlyTokens"),
                 merged.get("monthlyBudgetUsd"),
-                json_dumps(merged.get("currentWindow") or {}),
-                merged.get("cooldownUntil"),
-                merged.get("last429At"),
-                merged.get("lastLimitErrorAt"),
+                merged.get("maxCostPerRequestUsd"),
+                merged.get("maxConcurrency"),
+                merged.get("windowTimezone", "UTC"),
+                1 if merged.get("enabled", True) else 0,
+                merged.get("fallbackRetryAfterSeconds", 300),
                 merged.get("unknownLimitStrategy", "conservative"),
                 now,
                 limit_id,
@@ -439,6 +511,24 @@ class RoutingProfileStore:
     def list_routing_decisions(self) -> list[dict[str, Any]]:
         """List the routing-decision audit trail, newest first."""
         rows = self.connection.execute("SELECT * FROM routing_decisions ORDER BY created_at DESC").fetchall()
+        return [row_to_routing_decision(row) for row in rows]
+
+    def list_routing_decisions_for_task_prefixes(self, task_prefixes: list[str]) -> list[dict[str, Any]]:
+        """List routing decisions whose ``task_id`` starts with any prefix, newest first.
+
+        Scopes a thread's routing decisions by its product-loop ``task_id`` prefixes (the table has
+        no ``thread_id`` column). Prefixes are internally derived loop ids without LIKE wildcards.
+        Returns an empty list when no prefixes are given.
+        """
+        prefixes = [prefix for prefix in task_prefixes if prefix]
+        if not prefixes:
+            return []
+        clause = " OR ".join("task_id LIKE ?" for _ in prefixes)
+        params = [f"{prefix}%" for prefix in prefixes]
+        rows = self.connection.execute(
+            f"SELECT * FROM routing_decisions WHERE {clause} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
         return [row_to_routing_decision(row) for row in rows]
 
     def list_cli_sessions(self) -> list[dict[str, Any]]:

@@ -2,21 +2,27 @@
 
 Habla el dialecto OpenAI (endpoints `/models` y `/chat/completions`, auth `Bearer`)
 con `urllib`, y sirve de base reutilizable para todos los proveedores compatibles
-(OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). Toda llamada de red real queda detras del
-interruptor `real_provider_calls_enabled()` y redacta secretos antes de exponer payloads.
+(OpenAI, OpenRouter, NVIDIA NIM, LiteLLM). La autoridad de ejecución vive en la
+política SQLite de runtime; este proveedor valida configuración/credenciales y redacta
+secretos antes de exponer payloads.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from local_control_center.agents.credentials import CredentialResolver
+from local_control_center.agents.model_output_text import strip_reasoning_blocks
 from local_control_center.agents.runtime_provider_config import runtime_provider_configuration
 from local_control_center.shared.redaction import redact_secrets
 
@@ -29,15 +35,145 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
+from .http_transport import (
+    DEFAULT_CHAT_TIMEOUT_SECONDS,
+    MAX_PROVIDER_RESPONSE_BYTES,
+    ResponseTooLargeError,
+    read_bounded,
+    urlopen_fail_closed,
+)
+from .repetition_guard import RepetitionGuard
+
+PROVIDER_USER_AGENT = "AIDO-ModelGateway/1.0"
+REPETITION_LOOP_FINISH_REASON = "repetition_loop"
+"""``finish_reason`` de una salida cortada por ``RepetitionGuard``; el servidor nunca lo emite."""
+MAX_STREAM_LINE_BYTES = 1024 * 1024
+"""Tope de una línea SSE: un evento de chat mide pocos KB y el servidor local no es de confianza."""
+_HTTP_BAD_REQUEST = 400
+USAGE_TOKEN_KEYS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cached_input_tokens",
+    "tool_tokens",
+)
 
 
-def real_provider_calls_enabled() -> bool:
-    """Indica si las llamadas de red reales estan habilitadas; por defecto desactivadas (fail-closed)."""
-    return os.environ.get("AIDO_ENABLE_REAL_PROVIDER_CALLS", "false").lower() == "true"
+def _provider_reported_usage(usage: Any) -> bool:
+    """Indica si el bloque `usage` trae al menos un contador de tokens reportado por el proveedor."""
+    return isinstance(usage, dict) and any(usage.get(key) is not None for key in USAGE_TOKEN_KEYS)
+
+
+def _message_text(message: dict[str, Any], choice: dict[str, Any]) -> str:
+    """Texto del mensaje en las formas que emiten los gateways compatibles.
+
+    Además del ``content`` string admite la lista de partes (``[{"type": "text", "text": ...}]``) que
+    reexponen algunos upstreams y el ``text`` del choice de completions legado. Un ``content`` null
+    queda vacío: la llamada decide si el razonamiento basta.
+    """
+    content = message.get("content")
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, dict) and part.get("type", "text") in {"text", "output_text"}
+        )
+    if content is None and isinstance(choice.get("text"), str):
+        return str(choice["text"])
+    return str(content or "")
+
+
+def _chat_choice(raw: Any) -> tuple[str, str | None, bool]:
+    """Extrae (contenido sin razonamiento, finish_reason, hubo razonamiento no vacío) del primer choice."""
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return "", None, False
+    choice = choices[0]
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    content, reasoning_chars = strip_reasoning_blocks(_message_text(message, choice))
+    reasoning_field = str(message.get("reasoning_content") or message.get("reasoning") or "").strip()
+    finish_reason = choice.get("finish_reason")
+    return (
+        content,
+        str(finish_reason) if finish_reason is not None else None,
+        bool(reasoning_field) or reasoning_chars > 0,
+    )
+
+
+def _without_reasoning(raw: Any, content: str) -> Any:
+    """Copia de la respuesta cuyo primer choice no conserva razonamiento ni bloques ``<think>``."""
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return raw
+    first = choices[0]
+    if not isinstance(first.get("message"), dict):
+        return raw
+    message = {
+        key: value for key, value in first["message"].items() if key not in {"reasoning_content", "reasoning"}
+    }
+    message["content"] = content
+    return {**raw, "choices": [{**first, "message": message}, *choices[1:]]}
+
+
+def _read_chat_stream(response: Any, *, limit: int, deadline: float) -> dict[str, Any]:
+    """Lee un stream SSE de `/chat/completions` y arma la forma de una respuesta sin stream.
+
+    Corta apenas ``RepetitionGuard`` detecta un bucle: la salida ya es inservible y cerrar la conexión
+    detiene la generación en el servidor. Acota bytes y tiempo total igual que la lectura sin stream.
+
+    Raises:
+        ResponseTooLargeError: si el stream supera ``limit`` bytes.
+        TimeoutError: si el stream sigue abierto pasado el deadline de la llamada.
+        json.JSONDecodeError: si un evento ``data:`` no es JSON.
+    """
+    guard = RepetitionGuard()
+    reasoning: list[str] = []
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
+    received = 0
+    while raw_line := response.readline(MAX_STREAM_LINE_BYTES + 1):
+        received += len(raw_line)
+        if len(raw_line) > MAX_STREAM_LINE_BYTES or received > limit:
+            raise ResponseTooLargeError(f"provider_response_too_large: stream over {limit} bytes")
+        if time.monotonic() > deadline:
+            raise TimeoutError("provider_stream_deadline_exceeded: the stream outlived the call deadline")
+        line = raw_line.strip()
+        if not line.startswith(b"data:"):
+            continue
+        data = line[len(b"data:") :].strip()
+        if data == b"[DONE]":
+            break
+        chunk = json.loads(data.decode("utf-8"))
+        if not isinstance(chunk, dict):
+            continue
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+        choices = chunk.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+        reasoning.append(str(delta.get("reasoning_content") or delta.get("reasoning") or ""))
+        if choice.get("finish_reason"):
+            finish_reason = str(choice["finish_reason"])
+        if guard.feed(str(delta.get("content") or "")):
+            finish_reason = REPETITION_LOOP_FINISH_REASON
+            break
+    message: dict[str, Any] = {"role": "assistant", "content": guard.text}
+    if "".join(reasoning):
+        message["reasoning_content"] = "".join(reasoning)
+    raw: dict[str, Any] = {"choices": [{"index": 0, "message": message, "finish_reason": finish_reason}]}
+    if usage is not None:
+        raw["usage"] = usage
+    return raw
 
 
 class OpenAICompatibleProvider(ModelProvider):
     """Proveedor base que habla la API estilo OpenAI; las variantes solo ajustan url/credencial."""
+
+    max_response_bytes = MAX_PROVIDER_RESPONSE_BYTES
+    send_output_limit = False
 
     def __init__(
         self,
@@ -45,28 +181,62 @@ class OpenAICompatibleProvider(ModelProvider):
         provider_id: str = "openai_compatible",
         base_url: str | None = None,
         credential_ref: str | None = None,
+        credential_required: bool = True,
+        use_legacy_fallbacks: bool = True,
     ):
-        runtime_configuration = runtime_provider_configuration(provider_id)
-        self.provider_id = provider_id
-        self.base_url = (
+        runtime_configuration = runtime_provider_configuration(provider_id) if use_legacy_fallbacks else None
+        resolved_base_url = (
             base_url
-            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-            or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
-            or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
-            or ""
-        ).rstrip("/")
-        self.credential_ref = (
-            credential_ref
-            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
-            or ""
+            if base_url is not None
+            else (
+                (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+                or os.environ.get("AIDO_OPENAI_COMPATIBLE_BASE_URL")
+                or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
+                or ""
+                if use_legacy_fallbacks
+                else ""
+            )
         )
+        resolved_credential_ref = (
+            credential_ref
+            if credential_ref is not None
+            else (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else "")
+        )
+        self.provider_id = provider_id
+        self.base_url = resolved_base_url.rstrip("/")
+        self.credential_ref = resolved_credential_ref
+        self.credential_required = credential_required
         self.credential_resolver = CredentialResolver()
+        self.invocation_slot: Callable[[float | None], AbstractContextManager[object]] = nullcontext
 
     def _credential(self) -> str:
         return self.credential_resolver.resolve(self.credential_ref).value or ""
 
+    def _auth_headers(self) -> dict[str, str]:
+        """Cabeceras de autenticación del dialecto OpenAI (`Authorization: Bearer`).
+
+        Punto de extensión: las variantes con otro esquema (p. ej. Azure OpenAI con `api-key`)
+        sobreescriben este método sin duplicar el resto del transporte.
+        """
+        credential = self._credential()
+        return {"Authorization": f"Bearer {credential}"} if credential else {}
+
+    def _request_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        """Cabeceras comunes de toda petición: auth, JSON y la identidad del cliente.
+
+        Sin ``User-Agent`` propio urllib se anuncia como ``Python-urllib/3.x``, y hay gateways que
+        responden 403 a ese agente genérico; identificar al cliente es además lo correcto para que
+        el operador reconozca el tráfico de AIDO en los logs del proveedor.
+        """
+        return {
+            **self._auth_headers(),
+            "Accept": "application/json",
+            "User-Agent": PROVIDER_USER_AGENT,
+            **(extra or {}),
+        }
+
     def health_check(self) -> ProviderHealth:
-        """Valida config y credencial sin gastar red; solo toca `/models` si las llamadas reales estan activas."""
+        """Valida config/credencial y prueba `/models`; la política runtime se aplica aguas arriba."""
         if not self.base_url:
             return ProviderHealth(
                 providerId=self.provider_id,
@@ -74,36 +244,37 @@ class OpenAICompatibleProvider(ModelProvider):
                 healthStatus="misconfigured",
                 message="Base URL is not configured",
             )
-        credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
-        if credential.status == "invalid":
+        if self.credential_ref:
+            credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
+            if credential.status == "invalid":
+                return ProviderHealth(
+                    providerId=self.provider_id,
+                    status="misconfigured",
+                    healthStatus="misconfigured",
+                    message=credential.message,
+                )
+            if credential.status in {"missing", "unsupported", "unknown"}:
+                return ProviderHealth(
+                    providerId=self.provider_id,
+                    status="misconfigured",
+                    healthStatus="misconfigured",
+                    message=f"Credential ref {self.credential_ref} is {credential.status}",
+                )
+        elif self.credential_required:
             return ProviderHealth(
                 providerId=self.provider_id,
                 status="misconfigured",
                 healthStatus="misconfigured",
-                message=credential.message,
-            )
-        if credential.status in {"missing", "unsupported", "unknown"}:
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="misconfigured",
-                healthStatus="misconfigured",
-                message=f"Credential ref {self.credential_ref} is {credential.status}",
-            )
-        if not real_provider_calls_enabled():
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="disabled",
-                healthStatus="unknown",
-                message="Real provider calls are disabled",
+                message="Credential ref is not configured",
             )
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
+            headers=self._request_headers(),
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
-                json.loads(response.read().decode("utf-8"))
+            with urlopen_fail_closed(request, timeout=10) as response:
+                json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
             return ProviderHealth(
                 providerId=self.provider_id,
@@ -119,19 +290,17 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
-        """Lee `/models`; devuelve [] si no hay URL o la peticion falla. Raises si las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Lee `/models`; devuelve [] si no hay URL o la peticion falla."""
         if not self.base_url:
             return []
         request = urllib.request.Request(
             f"{self.base_url}/models",
-            headers={"Authorization": f"Bearer {self._credential()}", "Accept": "application/json"},
+            headers=self._request_headers(),
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            with urlopen_fail_closed(request, timeout=10) as response:
+                payload = json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError):
             return []
         models = payload.get("data", []) if isinstance(payload, dict) else []
@@ -146,36 +315,110 @@ class OpenAICompatibleProvider(ModelProvider):
             if isinstance(item, dict) and (item.get("id") or item.get("model"))
         ]
 
-    def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        """Postea a `/chat/completions` y normaliza la respuesta. Raises si faltan credencial/URL o las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
-        if not self.base_url or not self._credential():
-            raise RuntimeError("Provider is missing base_url or credential_ref")
-        payload = json.dumps(request.model_dump(by_alias=True, exclude_none=True)).encode("utf-8")
+    def _chat_body(self, request: ModelRequest) -> dict[str, Any]:
+        """Arma el body OpenAI explícito: solo campos del protocolo, sin ``metadata`` ni alias camelCase.
+
+        ``max_tokens`` solo viaja con ``send_output_limit`` (cuentas de runtime local, fijado por la
+        factory): las APIs remotas exigen otro campo para modelos de razonamiento y un tope pequeño
+        les vaciaría la respuesta. ``extra_body`` agrega campos propios del servidor (p. ej.
+        ``chat_template_kwargs`` de llama.cpp) sin poder pisar los del protocolo.
+        """
+        body: dict[str, Any] = {"model": request.model, "messages": request.messages, "stream": False}
+        if request.temperature is not None:
+            body["temperature"] = request.temperature
+        if self.send_output_limit and request.max_tokens is not None:
+            body["max_tokens"] = request.max_tokens
+        if request.response_format is not None:
+            body["response_format"] = request.response_format
+        for key, value in request.extra_body.items():
+            body.setdefault(key, value)
+        return body
+
+    def _post_chat(self, body: dict[str, Any], *, timeout: float) -> Any:
+        """Postea ``body`` a `/chat/completions` y devuelve el JSON decodificado, acotado a `max_response_bytes`."""
         http_request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {self._credential()}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            data=json.dumps(body).encode("utf-8"),
+            headers=self._request_headers({"Content-Type": "application/json"}),
             method="POST",
         )
-        with urllib.request.urlopen(http_request, timeout=60) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-        content = ""
-        choices = raw.get("choices") if isinstance(raw, dict) else None
-        if isinstance(choices, list) and choices:
-            message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-            content = str((message or {}).get("content") or "")
+        deadline = time.monotonic() + timeout
+        with urlopen_fail_closed(http_request, timeout=timeout) as response:
+            headers = getattr(response, "headers", None)
+            content_type = str(headers.get("Content-Type") or "") if headers is not None else ""
+            payload = read_bounded(response, limit=self.max_response_bytes)
+        if "text/event-stream" in content_type or payload.lstrip().startswith(b"data:"):
+            return _read_chat_stream(io.BytesIO(payload), limit=self.max_response_bytes, deadline=deadline)
+        return json.loads(payload.decode("utf-8"))
+
+    def _post_chat_stream(self, body: dict[str, Any], *, timeout: float) -> Any:
+        """Como ``_post_chat`` pero con ``stream``: corta la generación si el modelo entra en bucle.
+
+        Solo cuentas locales que lo piden (``ModelRequest.stream``). Un servidor que ignora ``stream``
+        y responde el JSON completo se lee como la ruta normal.
+        """
+        http_request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps({**body, "stream": True, "stream_options": {"include_usage": True}}).encode(
+                "utf-8"
+            ),
+            headers=self._request_headers({"Content-Type": "application/json"}),
+            method="POST",
+        )
+        deadline = time.monotonic() + timeout
+        with urlopen_fail_closed(http_request, timeout=timeout) as response:
+            headers = getattr(response, "headers", None)
+            content_type = str(headers.get("Content-Type") or "") if headers is not None else ""
+            if "text/event-stream" not in content_type:
+                return json.loads(read_bounded(response, limit=self.max_response_bytes).decode("utf-8"))
+            return _read_chat_stream(response, limit=self.max_response_bytes, deadline=deadline)
+
+    def chat_completion(self, request: ModelRequest) -> ModelResponse:
+        """Postea a `/chat/completions` con timeout y lectura acotados y descarta el razonamiento.
+
+        La llamada HTTP corre dentro de ``invocation_slot`` (lease de concurrencia de cuentas locales) y su
+        timeout se calcula ya dentro del slot, con lo que queda del deadline de la llamada. Un ``response_format``
+        que el servidor rechaza con 400 (p. ej. una gramática json_schema no soportada) se reintenta una vez sin
+        ese campo en vez de fallar la llamada completa, con el mismo criterio que la sonda de validación de
+        ``runtime_team.probe``.
+
+        Raises:
+            RuntimeError: si falta la URL o una credencial declarada no resuelve.
+            LocalRuntimeError: ``local_endpoint_busy`` si la lease del endpoint local no se libera o su
+                espera agotó el deadline (``insufficient_time_for_model_load`` con arranque en frío).
+            ResponseTooLargeError: si el cuerpo supera ``max_response_bytes``.
+            urllib.error.HTTPError: un error HTTP que no es un 400 por ``response_format``, o el 400 persiste
+                incluso sin él.
+        """
+        credential = self._credential()
+        if (
+            not self.base_url
+            or (self.credential_required and not credential)
+            or (self.credential_ref and not credential)
+        ):
+            raise RuntimeError("Provider is missing base_url or credential_ref")
+        body = self._chat_body(request)
+        post = self._post_chat_stream if request.stream and self.send_output_limit else self._post_chat
+        with self.invocation_slot(request.deadline_monotonic):
+            timeout = request.http_timeout(DEFAULT_CHAT_TIMEOUT_SECONDS)
+            try:
+                raw = post(body, timeout=timeout)
+            except urllib.error.HTTPError as error:
+                if error.code != _HTTP_BAD_REQUEST or "response_format" not in body:
+                    raise
+                error.close()
+                raw = post(
+                    {key: value for key, value in body.items() if key != "response_format"}, timeout=timeout
+                )
+        content, finish_reason, reasoning_present = _chat_choice(raw)
         return ModelResponse(
             providerId=self.provider_id,
             model=request.model,
             content=content,
             usage=self.parse_usage(raw),
-            rawResponse=redact_secrets(raw),
+            rawResponse=redact_secrets(_without_reasoning(raw, content)),
+            finishReason=finish_reason,
+            reasoningPresent=reasoning_present,
         )
 
     def estimate_cost(self, request: ModelRequest, model: str) -> CostEstimate:
@@ -186,8 +429,16 @@ class OpenAICompatibleProvider(ModelProvider):
         )
 
     def parse_usage(self, raw_response: Any) -> UsageRecord:
-        """Mapea el bloque `usage` de OpenAI (prompt/completion + detalles cacheo/reasoning) a UsageRecord."""
+        """Mapea el bloque `usage` de OpenAI (prompt/completion + detalles cacheo/reasoning) a UsageRecord.
+
+        Si el proveedor no reporta uso, marca el origen como ``unknown`` en vez de inventar ceros,
+        para no fabricar tokens ni costo aguas abajo.
+        """
         usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
+        if not _provider_reported_usage(usage):
+            return UsageRecord(
+                rawUsage={"usage_source": "unknown", "reason": "provider_response_missing_usage"}
+            )
         input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
         reasoning_tokens = int(
@@ -211,5 +462,5 @@ class OpenAICompatibleProvider(ModelProvider):
             reasoningTokens=reasoning_tokens,
             toolTokens=tool_tokens,
             totalTokens=total,
-            rawUsage=redact_secrets(usage),
+            rawUsage=redact_secrets({**usage, "usage_source": "provider"}),
         )

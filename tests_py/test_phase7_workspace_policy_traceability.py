@@ -3,14 +3,15 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import subprocess
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -18,15 +19,29 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def make_app(tmp_path: Path, monkeypatch) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
-    return store, client, auth_headers(client)
+@pytest.fixture
+def make_app():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            client = _owned_fixture_resources.enter_context(
+                TestClient(create_app(runtime=store, static_dir=None))
+            )
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
-def test_policy_allows_low_risk_shell_only_inside_allocated_workspace(tmp_path: Path, monkeypatch) -> None:
+def test_policy_allows_low_risk_shell_only_inside_allocated_workspace(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Policy Workspace", path=tmp_path / "project", template_id="other")
     workspace_response = client.post(
@@ -73,7 +88,9 @@ def test_policy_allows_low_risk_shell_only_inside_allocated_workspace(tmp_path: 
     assert "path_outside_workspace" in decision["payload"]["categories"]
 
 
-def test_git_worktree_request_degrades_safely_when_project_is_not_repo(tmp_path: Path, monkeypatch) -> None:
+def test_git_worktree_request_degrades_safely_when_project_is_not_repo(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="No Git", path=tmp_path / "plain-project", template_id="other")
 
@@ -95,7 +112,9 @@ def test_git_worktree_request_degrades_safely_when_project_is_not_repo(tmp_path:
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git CLI is not available")
-def test_git_worktree_request_creates_branch_and_records_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_git_worktree_request_creates_branch_and_records_metadata(
+    make_app, tmp_path: Path, monkeypatch
+) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -128,7 +147,7 @@ def test_git_worktree_request_creates_branch_and_records_metadata(tmp_path: Path
     assert workspace["metadata"]["gitWorktree"]["status"] == "created"
     assert workspace["metadata"]["gitWorktree"]["branchName"].startswith("aido/story-git/")
 
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "platform.sqlite")) as connection, connection:
         connection.row_factory = sqlite3.Row
         branch = connection.execute(
             "SELECT * FROM git_branches WHERE workspace_id = ?",
@@ -140,7 +159,7 @@ def test_git_worktree_request_creates_branch_and_records_metadata(tmp_path: Path
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git CLI is not available")
 def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(
-    tmp_path: Path, monkeypatch
+    make_app, tmp_path: Path, monkeypatch
 ) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     repo = tmp_path / "cleanup-repo"
@@ -178,7 +197,7 @@ def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(
     assert archived.json()["workspace"]["status"] == "archived"
     assert not workspace_path.exists()
 
-    with sqlite3.connect(tmp_path / "platform.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "platform.sqlite")) as connection, connection:
         connection.row_factory = sqlite3.Row
         branch = connection.execute(
             "SELECT * FROM git_branches WHERE workspace_id = ?",
@@ -188,7 +207,7 @@ def test_archiving_git_worktree_removes_workspace_and_archives_branch_metadata(
     assert branch["status"] == "archived"
 
 
-def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_workspace_evidence_traceability_is_exposed(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Trace", path=tmp_path / "trace", template_id="other")
     workflow = client.post(
@@ -237,7 +256,7 @@ def test_workflow_workspace_evidence_traceability_is_exposed(tmp_path: Path, mon
     assert any(item["id"] == evidence["id"] for item in body["evidencePackages"])
 
 
-def test_workflow_detail_exposes_linked_jobs_and_agent_runs(tmp_path: Path, monkeypatch) -> None:
+def test_workflow_detail_exposes_linked_jobs_and_agent_runs(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Workflow Links", path=tmp_path / "links", template_id="other")
     workflow = client.post(
@@ -301,7 +320,7 @@ def test_workflow_detail_exposes_linked_jobs_and_agent_runs(tmp_path: Path, monk
     assert any(item["id"] == agent_run["id"] for item in body["agentRuns"])
 
 
-def test_evidence_detail_exposes_persisted_test_result_records(tmp_path: Path, monkeypatch) -> None:
+def test_evidence_detail_exposes_persisted_test_result_records(make_app, tmp_path: Path, monkeypatch) -> None:
     store, client, headers = make_app(tmp_path, monkeypatch)
     project = store.create_project(name="Evidence Detail", path=tmp_path / "evidence", template_id="other")
     evidence = client.post(

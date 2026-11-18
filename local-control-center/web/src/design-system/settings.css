@@ -1,0 +1,1312 @@
+/*
+ * Settings area styles: the settings navigation and its section bodies (runtime setup,
+ * providers, i18n, appearance). Section-specific card layouts belong here when they are
+ * unique to Settings; shared primitives stay in components.css/ui.css. Tone is carried
+ * by StatusChip and full borders only (no side-stripes).
+ */
+
+/* Provider cards are containers with buttons inside, not clickable/selectable cards:
+ * the shared .card hover lift (translateY + elevation) would be a false affordance and
+ * constant motion noise across a 9-card grid, so it is neutralized here. */
+.card--static:hover {
+	background: var(--color-surface-card);
+	box-shadow: var(--shadow-xs);
+	transform: none;
+}
+
+/* Runtime state tone on the full card border (never a side-stripe), mirroring the
+ * badge tone mixes so the executable/blocked state reads at grid-scan distance. */
+.card--static[data-tone="ok"] {
+	border-color: color-mix(in oklch, var(--color-status-success) 40%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="ok"]:hover {
+	border-color: color-mix(in oklch, var(--color-status-success) 40%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="warn"] {
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="warn"]:hover {
+	border-color: color-mix(in oklab, var(--color-status-warning) 42%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="danger"] {
+	border-color: color-mix(in oklch, var(--color-status-danger) 46%, var(--color-border-subtle));
+}
+
+.card--static[data-tone="danger"]:hover {
+	border-color: color-mix(in oklch, var(--color-status-danger) 46%, var(--color-border-subtle));
+}
+
+/* Compact key/value facts (base URL, discovered model count) inside a provider setup card. */
+.provider-facts {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+}
+
+.provider-facts div {
+	display: contents;
+}
+
+.provider-facts dt {
+	color: var(--color-text-muted);
+	font-size: var(--font-size-sm);
+}
+
+.provider-facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* The discovered-model checklist in the Add-provider wizard scrolls past a handful of rows. */
+.provider-model-list {
+	max-height: 14rem;
+	overflow-y: auto;
+}
+
+/* ---- AI team (global team per role) ---- */
+
+.ai-team-panel {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
+	gap: var(--space-3);
+	align-items: stretch;
+}
+
+/* Two role cards per row on a wide dialog halve the section's length; the intro spans the row. */
+.ai-team-panel > .field-help {
+	grid-column: 1 / -1;
+	margin: 0;
+	max-width: 65ch;
+}
+
+/* Each role is a fieldset card. The native legend is lifted out of the border (float + full width
+ * turns it into an ordinary grid item) so the role name and its chips sit inside the card like any
+ * card title instead of straddling the top border and wrapping over it on phones. */
+.ai-team-role {
+	--control-height: var(--control-height-sm);
+	min-inline-size: 0;
+	margin: 0;
+	font-size: var(--font-size-sm);
+}
+
+.ai-team-role > legend {
+	float: left;
+	width: 100%;
+	padding: 0;
+	color: var(--color-text-primary);
+	font-weight: var(--weight-bold);
+	line-height: var(--line-snug);
+}
+
+.ai-team-role > .field-help {
+	margin: 0;
+}
+
+/* Ordered providers: rank matters (first = assigned, rest = fallbacks), so each row carries its
+ * position as a quiet mono numeral; the assigned row earns the accent border, never a side stripe. */
+.ai-team-order {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: ai-team-rank;
+}
+
+.ai-team-order > li {
+	min-height: var(--control-height-sm);
+	padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	counter-increment: ai-team-rank;
+}
+
+.ai-team-order > li::before {
+	content: counter(ai-team-rank);
+	min-inline-size: 1ch;
+	color: var(--color-text-muted);
+	font-family: var(--font-data);
+	font-size: var(--font-size-xs);
+}
+
+.ai-team-order > li[data-assigned="true"] {
+	border-color: color-mix(in oklch, var(--color-accent) 48%, var(--color-border-subtle));
+	color: var(--color-text-primary);
+	font-weight: var(--weight-medium);
+}
+
+/* "No active provider can take this role": plain muted copy, not a dashed box inside the card. */
+.ai-team-order > li.muted {
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--color-text-muted);
+}
+
+.ai-team-order > li.muted::before {
+	content: none;
+}
+
+/* Reorder/remove controls: a compact square group pushed to the row's end. */
+.ai-team-order > li > .inline {
+	margin-inline-start: auto;
+	flex-wrap: nowrap;
+	gap: var(--space-1);
+}
+
+.ai-team-order > li > .inline > .button {
+	min-width: var(--control-height-sm);
+	min-height: var(--control-height-sm);
+	padding: 0;
+	font-weight: var(--weight-regular);
+}
+
+/* Add row: the provider picker takes its own full line in a half-width role card (squeezed beside
+ * Add and Automatic its placeholder was clipped mid-word); it mirrors .select (the panel renders a bare
+ * <select>) so it matches every other field in Settings. */
+.ai-team-role > .inline:last-child > select {
+	flex: 1 1 100%;
+	min-width: 0;
+	max-width: none;
+	min-height: var(--control-height);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	color: var(--color-text-primary);
+}
+
+.ai-team-role > .inline:last-child > select:focus {
+	border-color: var(--color-focus);
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+.ai-team-role > .inline:last-child > select:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+/* Provider card header, shared by every provider, Ollama endpoint and local endpoint card: glyph +
+ * title on the left, the "Use in threads" switch alone on the right, so the switch sits in the same
+ * spot on every card (the state badge leads the meta row instead). If a long title leaves no room,
+ * the header wraps as whole groups: the title keeps its line and the switch drops below it. */
+.card--static > .card-header {
+	flex-wrap: wrap;
+	align-items: center;
+	row-gap: var(--space-2);
+}
+
+.card--static > .card-header > .inline {
+	min-width: 0;
+}
+
+.card--static > .card-header > .inline:first-child {
+	flex: 1 1 auto;
+	flex-wrap: nowrap;
+}
+
+/* "Use for roles": up to six role ids per card. Inline with the label the first chip rode beside it
+ * and the rest wrapped under it, a ragged wall (~5 rows in a 23rem column) as heavy as the status
+ * badges. The label takes its own line and the ids become a denser, lighter list: tighter gap and
+ * xs text, still >= 24px tall. */
+.card--static > .inline:has(> .field-label) {
+	gap: var(--space-1);
+}
+
+.card--static > .inline:has(> .field-label) > .field-label {
+	flex-basis: 100%;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.card--static > .inline:has(> .field-label) > .badge {
+	min-height: 1.5rem;
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+}
+
+/* Reserve the longest state word ("Inactive"/"Inactivo") so every card's switch has the same width
+ * and toggling never shifts the header. */
+.provider-switch .setting-switch-state {
+	min-inline-size: 8ch;
+}
+
+/* "In use": a running thread holds the provider, so the switch is locked ON (native disabled). It
+ * must not read as the generic faded disabled state, which says "unavailable": the track keeps
+ * its full checked accent, the state text stays at full contrast, and the thumb squares off into
+ * a pin so the switch reads as held rather than toggleable. The dotted underline is the usual cue
+ * that the words carry a tooltip (`title`, mirrored in `aria-description`); the help cursor
+ * repeats it on hover. Specificity (0,3,0) beats the shared :has(> input:disabled) dimming. */
+.setting-switch.provider-switch[data-in-use="true"] {
+	cursor: help;
+	opacity: 1;
+}
+
+.setting-switch.provider-switch[data-in-use="true"] .setting-switch-thumb {
+	border-radius: var(--radius-xs);
+}
+
+.setting-switch.provider-switch[data-in-use="true"] .setting-switch-state {
+	color: var(--color-text-primary);
+	text-decoration: underline dotted;
+	text-decoration-color: var(--color-text-muted);
+	text-underline-offset: 0.2em;
+}
+
+/* Hovering a locked switch must not brighten it into a "click me" state. */
+.setting-switch.provider-switch[data-in-use="true"]:hover > input:checked + .setting-switch-track {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+/* Phones stack every setting row (label -> control -> actions, layout.css). A general-scope boolean
+ * is a single switch, so stacking only doubled each row's height and parked the switch far from
+ * its label; it keeps the label/value columns instead. Project-scope editing (`data-editing`)
+ * still stacks, since it adds Save/Cancel beside the control. */
+@media (max-width: 640px) {
+	.setting-row:has(> .setting-control[data-type="boolean"]:not([data-editing])) {
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas:
+			"meta control"
+			"help control"
+			"actions actions";
+	}
+
+	.setting-row > .setting-control[data-type="boolean"]:not([data-editing]) {
+		justify-content: flex-end;
+	}
+
+	/* The provider picker fills its own row (base rule); on phones Add/Automatic then split the next
+	 * row evenly instead of leaving two small buttons and a ragged gap under a full-width select. */
+	.ai-team-role > .inline:last-child > .button {
+		flex: 1 1 0;
+	}
+
+	/* Horizontal section strip (see .settings-nav in layout.css): each group is one unwrapped row of
+	 * chips that never breaks a label ("Providers & CLI" stays on one line). */
+	.settings-nav-list {
+		display: flex;
+		flex: 0 0 auto;
+		flex-wrap: nowrap;
+		gap: var(--space-1);
+	}
+
+	.settings-nav-item {
+		width: auto;
+		min-height: var(--control-height-sm);
+		padding-inline: var(--space-3);
+		border-radius: var(--radius-pill);
+		white-space: nowrap;
+	}
+}
+
+/* Usage quota inside a provider card (ProviderUsageSection): an inset block so the meters read as
+ * one unit apart from the status badges. Each window is a thin bar whose fill takes the status tone
+ * as it nears (warn, from 85% of the threshold) or crosses (danger) the suspension threshold, which
+ * is drawn as a tick on the track so "how far until AIDO stops using it" is visible, not computed.
+ * A suspended provider tints the block border so it is findable while scanning the grid. */
+.provider-usage {
+	display: grid;
+	min-inline-size: 0;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.provider-usage[data-suspended="true"] {
+	border-color: color-mix(in srgb, var(--color-status-danger) 55%, var(--color-border-subtle));
+}
+
+.provider-usage-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.provider-usage-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+/* The suspension chip carries a date; it may wrap rather than widen the card. */
+.provider-usage-chip {
+	white-space: normal;
+}
+
+.provider-usage-note {
+	margin: 0;
+}
+
+/* Warning text: 78% warning toward the primary text (>= 5.2:1 in both themes), because raw
+ * --color-status-warning is only ~3.9:1 on the light inset surface, under the 4.5:1 text minimum.
+ * Mixed in oklab, not oklch: the oklch hue path from amber to the blue-grey text runs through green
+ * and turned the warning olive. Every status mix below uses the same space for the same reason. */
+.provider-usage-note[data-tone="warn"] {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+.provider-usage-windows {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.provider-usage-window {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.provider-usage-row {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
+}
+
+.provider-usage-row > .tnum {
+	color: var(--color-text-primary);
+	font-weight: var(--weight-medium);
+}
+
+.provider-usage-meter {
+	position: relative;
+	block-size: 0.5rem;
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+	overflow: visible;
+}
+
+.provider-usage-fill {
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	border-radius: inherit;
+	background: var(--color-status-success);
+	transition: inline-size 240ms ease;
+}
+
+/* Same mix as the warning text: the raw light-theme warning fill is 2.9:1 against the track, the
+ * mix clears the 3:1 non-text minimum in both themes. */
+.provider-usage-meter[data-tone="warn"] .provider-usage-fill {
+	background: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+.provider-usage-meter[data-tone="danger"] .provider-usage-fill {
+	background: var(--color-status-danger);
+}
+
+/* The tick overhangs the track so its ends always sit on the inset surface (>= 10:1); over a danger
+ * fill the primary colour alone is ~2.9:1, so a 1px ring in the surface colour separates it there. */
+.provider-usage-threshold {
+	position: absolute;
+	inset-block: -0.1875rem;
+	inline-size: 2px;
+	margin-inline-start: -1px;
+	border-radius: 1px;
+	background: var(--color-text-primary);
+	box-shadow: 0 0 0 1px var(--color-surface-inset);
+}
+
+/* Threshold row: the field and its own Save share one line; the secondary actions live in the
+ * footer below, so the three buttons no longer wrap one per line in a 23rem card. */
+.provider-usage-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-2);
+}
+
+.provider-usage-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding-block-start: var(--space-2);
+	border-block-start: 1px solid var(--color-border-subtle);
+}
+
+/* Secondary usage actions: one step smaller than a primary control (still >= 32px, over the 24px
+ * target minimum) so "Resume until reset" and "Read usage" fit one row. */
+.button.provider-usage-action {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-sm);
+}
+
+/* The read time trails the actions; when they wrap it keeps to the end of its own line. */
+.provider-usage-last-read {
+	margin-inline-start: auto;
+}
+
+.provider-usage-threshold-field {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.provider-usage-label {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+}
+
+.provider-usage-input {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+}
+
+.provider-usage-input > .input {
+	inline-size: 5.5rem;
+}
+
+/* Same accessible warning mix as the usage notes: raw warning text is ~4.1:1 on the light panel. */
+.provider-usage-summary {
+	margin: 0 0 var(--space-3);
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* ---- Provider card density ---- */
+
+/* `.stack` sets display:grid, which beat the UA `[hidden]` rule: "Configuration details" was always
+ * expanded, doubling every card. The dedicated class restores the collapsed state. */
+.provider-card-details[hidden] {
+	display: none;
+}
+
+/* The raw backend reason (with its machine code) behind the plain card copy. */
+.provider-card-raw-reason {
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+/* Capability ids and synced model names: a lighter, denser chip list like "Use for roles". */
+.provider-chip-list {
+	gap: var(--space-1);
+}
+
+.badge.provider-chip {
+	min-height: 1.5rem;
+	font-size: var(--font-size-xs);
+	font-weight: var(--weight-medium);
+}
+
+/* Readiness checklist (installed, authenticated…): icon + word in the tone of the answer, without
+ * pill borders, so four facts take one or two short lines instead of two rows of badges. */
+.provider-readiness {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--font-size-sm);
+}
+
+.provider-readiness > li {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-muted);
+}
+
+.provider-readiness > li[data-tone="ok"] {
+	color: color-mix(in oklab, var(--color-status-success) 82%, var(--color-text-primary));
+}
+
+.provider-readiness > li[data-tone="warn"] {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* Endpoint-card secondary actions (set preferred / edit, delete): compact icon buttons pushed to
+ * the row end, so Validate/Probe + Sync keep their labels and the row never wraps in a 23rem card.
+ * Names live on aria-label and the tooltip. */
+.provider-card-icon-actions {
+	display: inline-flex;
+	align-items: center;
+	margin-inline-start: auto;
+}
+
+/* Quiet square icon buttons, like the provider-card disclosure: no resting border, so the pair
+ * reads as one trailing tool group next to the two labelled actions. */
+.provider-card-icon-actions > .ui-tooltip-anchor > .icon-button {
+	width: var(--control-height-sm);
+	height: var(--control-height-sm);
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.provider-card-icon-actions > .ui-tooltip-anchor > .icon-button:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+}
+
+/* Delete: the destructive tone only appears on hover or focus, so the primary action stays the
+ * most prominent; the confirm dialog is the real guard. */
+.provider-card-icon-actions > .ui-tooltip-anchor
+	> .icon-button.provider-card-delete-icon:hover:not(:disabled),
+.provider-card-icon-actions
+	> .ui-tooltip-anchor
+	> .icon-button.provider-card-delete-icon:focus-visible {
+	border-color: color-mix(in oklch, var(--color-status-danger) 60%, var(--color-border-default));
+	background: transparent;
+	color: var(--color-status-danger);
+}
+
+/* Phone-width cards cannot hold four actions: the two labelled ones share the first line evenly and
+ * the icon group drops to a trailing second line. (A container query was tried here, but inline-size
+ * containment on the row made the Settings scroller jump when a focused field blurred.) */
+@media (max-width: 600px) {
+	.endpoint-card-action {
+		flex: 1 1 0;
+	}
+}
+
+/* ---- Runtime setup layout: proportionate cards and compact action rows ---- */
+
+/* Section body: one vertical rhythm for summary, toolbar, discovery, empty state and grid. A
+ * dedicated class (not `.stack`) so the author `display: grid` never beats the `hidden` attribute
+ * that hides the body while a wizard is open. */
+.runtime-setup-body {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.runtime-setup-body[hidden] {
+	display: none;
+}
+
+.runtime-setup-body > p {
+	margin: 0;
+}
+
+/* Provider, Ollama, local-endpoint and discovery grids: cards in a row share its height (the grid
+ * default `start` left a short Azure card floating beside a tall Gemini one), a step less gap. */
+.provider-grid {
+	gap: var(--space-3);
+	align-items: stretch;
+}
+
+/* A flex column so the action row can take the free space above it and every card of a row ends
+ * on the same line, whatever badges or facts it carries. */
+.card.provider-card {
+	--badge-height: 1.5rem;
+	--badge-font-size: var(--font-size-xs);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+/* Actions: one compact row on a hairline, pinned to the card bottom. Buttons drop to the small
+ * control height (still >= 32px, over the 24px target minimum) so "Detect & check", "Configure"
+ * and the details toggle share one line in a 23rem card instead of stacking as full-size slabs. */
+.provider-card-actions {
+	--control-height: var(--control-height-sm);
+	margin-top: auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding-top: var(--space-3);
+	border-top: 1px solid var(--color-border-subtle);
+	font-size: var(--font-size-sm);
+}
+
+/* "Configuration details" is a disclosure, not a peer action: a quiet square chevron at the row
+ * end (its name lives on aria-label and the tooltip), so it never wraps onto a line of its own. */
+.button.provider-card-disclosure {
+	width: var(--control-height);
+	margin-inline-start: auto;
+	padding: 0;
+	border-color: transparent;
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.button.provider-card-disclosure:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--color-surface-card-hover);
+	color: var(--color-text-primary);
+}
+
+.button.provider-card-disclosure:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus);
+}
+
+/* Chevron flips with the expanded state; the flip is instant under reduced motion (see below). */
+.provider-card-disclosure-icon {
+	transition: transform var(--duration-normal) var(--ease-standard);
+}
+
+.provider-card-disclosure[aria-expanded="true"] > .provider-card-disclosure-icon {
+	transform: rotate(180deg);
+}
+
+/* The discovery button keeps its label on one line beside the hint instead of being squeezed. */
+.button.local-runtime-discovery-button {
+	flex: none;
+	white-space: nowrap;
+}
+
+/* Status badges in the card meta row are one step smaller (the --badge-* hooks set on the card),
+ * like the capability chips, so four status facts take one tidy line, not two rows of pills. */
+.provider-card > .card-meta {
+	gap: var(--space-1);
+}
+
+/* Card titles inside Settings: one step under the page-level card title. A long name ("Ollama
+ * Local/Remote") used to push the switch onto its own line, so the switch sat in a different spot on
+ * that card; the title now ends in an ellipsis (full name in its tooltip) and the switch stays put. */
+.provider-card > .card-header {
+	flex-wrap: nowrap;
+}
+
+.provider-card > .card-header > .inline:first-child {
+	flex: 1 1 0;
+}
+
+.provider-card > .card-header .card-title {
+	min-width: 0;
+	overflow: hidden;
+	font-size: var(--font-size-md);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Discovery: the button and its one-line hint side by side; the hint wraps within its own column. */
+.local-runtime-discovery-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.local-runtime-discovery-row > .field-help {
+	min-width: 0;
+}
+
+/* "No executable runtimes": a compact guided block, not a tall dashed well of full-size buttons. */
+.runtime-setup-empty {
+	--control-height: var(--control-height-sm);
+	gap: var(--space-2);
+	font-size: var(--font-size-sm);
+	padding: var(--space-4);
+}
+
+/* "Runtimes ready 0 / 24 executable" is one phrase: never broken across lines. */
+.runtime-setup-ready {
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+	.local-runtime-discovery-row {
+		flex-wrap: wrap;
+	}
+
+	/* Phones: the shared toolbar stacks every button full width at full height; here Add provider
+	 * and Refresh health drop to the small control height and share a row when they fit. */
+	.runtime-setup-actions {
+		--control-height: var(--control-height-sm);
+		font-size: var(--font-size-sm);
+	}
+
+	/* Side by side when both labels fit, else each takes its own (short) row; labels never break. */
+	.button.runtime-setup-action {
+		flex: 1 1 auto;
+		width: auto;
+		white-space: nowrap;
+	}
+}
+
+/* ---- AI health modal (RuntimeHealthModal) ----
+ * It borrows the thread remediation card; these hooks size it for a dialog. The tone follows the
+ * blocker: an expired validation is a warning (revalidate, no new sign-in), everything else danger.
+ * Borders mix in oklab: the oklch hue path from red (28) to the blue-grey border picked up a violet cast. */
+.runtime-health-card {
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+
+.runtime-health-card[data-tone="danger"] {
+	border-color: color-mix(in oklab, var(--color-status-danger) 45%, var(--color-border-subtle));
+}
+
+.runtime-health-card[data-tone="warn"] {
+	border-color: color-mix(in oklab, var(--color-status-warning) 45%, var(--color-border-subtle));
+}
+
+.runtime-health-title {
+	margin: 0;
+	font-size: var(--font-size-md);
+	line-height: var(--line-snug);
+}
+
+.runtime-health-card[data-tone="warn"] > .runtime-health-title {
+	color: color-mix(in oklab, var(--color-status-warning) 78%, var(--color-text-primary));
+}
+
+/* Cause / Impact / Sign-in share one label column (subgrid): per-row columns let the longer
+ * "Sign in from your terminal" label push its value out of line with the others. */
+.runtime-health-facts {
+	grid-template-columns: minmax(5rem, 10rem) minmax(0, 1fr);
+	column-gap: var(--space-3);
+}
+
+.runtime-health-facts > div {
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+}
+
+/* Narrow card (phone): one column, each label above its value, as the shared card does. */
+@container (max-width: 26rem) {
+	.runtime-health-facts {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* The repair action keeps its intrinsic width at the row end instead of the shared full-width
+ * `.thread-remediation-primary` slab (the class stays: tests and the thread card share it). */
+.runtime-health-actions {
+	justify-content: flex-end;
+}
+
+.button.runtime-health-action {
+	display: inline-flex;
+	width: auto;
+}
+
+/* ---- Add-provider wizard: real-request validation result ---- */
+
+/* One row per model tried: icon | model id | status word, with the reason clamped under the id. */
+.wizard-attempts {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.wizard-attempt {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+	font-size: var(--font-size-sm);
+}
+
+.wizard-attempt-model {
+	min-inline-size: 0;
+	overflow: hidden;
+	color: var(--color-text-primary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wizard-attempt-status {
+	font-weight: var(--weight-semibold);
+}
+
+.wizard-attempt-detail {
+	grid-column: 2 / -1;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
+.wizard-attempt[data-tone="ok"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="ok"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="ok"] > .wizard-validation-icon {
+	color: color-mix(in oklab, var(--color-status-success) 82%, var(--color-text-primary));
+}
+
+.wizard-attempt[data-tone="danger"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="danger"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="danger"] > .wizard-validation-icon {
+	color: var(--color-status-danger);
+}
+
+/* Deferred: the check did not run yet (no authorization, quota or model to try). Neutral pending
+ * tone, the same mix the pending badge uses (>= 6.3:1 light, >= 6.2:1 dark), never warning amber. */
+.wizard-attempt[data-tone="pending"] > .wizard-attempt-icon,
+.wizard-attempt[data-tone="pending"] > .wizard-attempt-status,
+.wizard-validation-headline[data-tone="pending"] > .wizard-validation-icon {
+	color: color-mix(in oklch, var(--color-status-pending) 80%, var(--color-text-primary));
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.provider-usage-fill,
+	.provider-card-disclosure-icon {
+		transition: none;
+	}
+}
+
+/* ---- Providers & CLI: section rhythm ----
+ * The section stacks independent blocks (runtime access settings, runtime providers, the setup
+ * wizards, Ollama endpoints, local endpoints, platform readouts). The shared settings gap (space-4)
+ * made them read as one run-on list, so this wrapper spaces blocks a full step apart and each
+ * endpoint section opens on a hairline rule. Hidden blocks (`[hidden]`) take no grid track. */
+.settings-providers-cli {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-7);
+	align-content: start;
+}
+
+.providers-cli-section {
+	padding-top: var(--space-6);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+/* The Add-provider / local-runtime wizards are a bounded panel with their own padding instead of
+ * floating content between two sections; the action row sits on a rule with breathing room. */
+.provider-setup-wizard {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-4);
+	padding: var(--space-5);
+	border: 1px solid var(--color-border-default);
+	border-radius: var(--radius-lg);
+	background: var(--color-surface-card);
+	box-shadow: var(--shadow-xs);
+}
+
+.provider-setup-wizard > .surface-toolbar > h3 {
+	margin: 0;
+}
+
+.provider-setup-wizard > .field-help {
+	margin: 0;
+}
+
+.provider-setup-wizard .wizard-actions {
+	margin-top: var(--space-2);
+	padding-top: var(--space-4);
+	border-top: 1px solid var(--color-border-subtle);
+}
+
+.wizard-save-progress {
+	margin: 0;
+}
+
+@media (max-width: 600px) {
+	.provider-setup-wizard {
+		padding: var(--space-3);
+	}
+}
+
+/* ---- Model picker (Add provider · Select models) ----
+ * Built for 1000+ model gateway catalogs: a filter + count toolbar, a bulk-action row with a
+ * tri-state header checkbox, a bounded scroll list rendered in pages, then "Show more". */
+.model-picker {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.model-picker-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+}
+
+/* Search icon drawn inside the input's leading padding. */
+.model-picker-search {
+	position: relative;
+	flex: 1 1 16rem;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	color: var(--color-text-muted);
+}
+
+.model-picker-search > svg {
+	position: absolute;
+	inset-inline-start: var(--space-3);
+	pointer-events: none;
+}
+
+.model-picker-search > .input {
+	width: 100%;
+	padding-inline-start: calc(var(--space-3) + 15px + var(--space-2));
+}
+
+.model-picker-count {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	white-space: nowrap;
+}
+
+.model-picker-bulk {
+	--control-height: var(--control-height-sm);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	padding-bottom: var(--space-2);
+	border-bottom: 1px solid var(--color-border-subtle);
+	font-size: var(--font-size-sm);
+}
+
+.model-picker-header {
+	margin-inline-end: auto;
+}
+
+.model-picker-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* Bounded scroll: the wizard's action row stays reachable however many rows are mounted. A bare
+ * fieldset (grouping semantics only): the native border, padding and min-width are reset. */
+.model-picker-list {
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	max-height: min(22rem, 50vh);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	display: grid;
+	align-content: start;
+}
+
+/* Denser rows than a form checkbox; long gateway ids (vendor/model-name) wrap instead of
+ * overflowing. Paging (not content-visibility) bounds the mounted rows. */
+.checkbox-row.model-picker-row {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-1);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-data);
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-regular);
+	overflow-wrap: anywhere;
+}
+
+.checkbox-row.model-picker-row:hover {
+	background: var(--color-surface-card-hover);
+}
+
+.model-picker-empty {
+	margin: 0;
+	padding: var(--space-2) var(--space-1);
+}
+
+.model-picker-more {
+	--control-height: var(--control-height-sm);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+/* ---- Model validation (provider card · Validate all models) ----
+ * Same inset block as the usage quota: head (title + action), a progress bar that reuses the usage
+ * meter track, a one-line summary and a results list that reuses the model picker frame. Discarded
+ * rows carry a danger rail so they are findable while scanning 1000+ results. */
+.model-validation {
+	--control-height: var(--control-height-sm);
+	display: grid;
+	min-inline-size: 0;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-surface-inset);
+}
+
+.model-validation-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.model-validation-title {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.model-validation-progress {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.model-validation-line,
+.model-validation-note {
+	margin: 0;
+	font-size: var(--font-size-sm);
+}
+
+.model-validation-toggle,
+.model-validation-action {
+	justify-self: start;
+	font-size: var(--font-size-sm);
+}
+
+.model-validation-results[hidden] {
+	display: none;
+}
+
+.model-validation-filters {
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.model-validation-filter {
+	font-size: var(--font-size-xs);
+}
+
+.model-validation-filter[aria-pressed="true"] {
+	border-color: var(--color-accent);
+	color: var(--color-text-primary);
+}
+
+.model-validation-list {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	max-height: min(22rem, 50vh);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.model-validation-row {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border-inline-start: 2px solid transparent;
+	border-radius: var(--radius-sm);
+}
+
+.model-validation-row[data-status="discarded"] {
+	border-inline-start-color: var(--color-status-danger);
+}
+
+.model-validation-row-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-2);
+}
+
+.model-validation-model {
+	min-inline-size: 0;
+	font-size: var(--font-size-sm);
+	overflow-wrap: anywhere;
+}
+
+.model-validation-reason {
+	margin: 0;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow-wrap: anywhere;
+}
+
+.model-validation-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* Phones: the picker sits in a ~240px column, where the bulk buttons wrapped one per line. A
+ * two-column grid keeps them in pairs; an odd last action (Select recommended) spans the row. */
+@media (max-width: 600px) {
+	.model-picker {
+		padding: var(--space-2);
+	}
+
+	.model-picker-actions {
+		width: 100%;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.model-picker-action {
+		min-width: 0;
+		padding-inline: var(--space-2);
+		font-size: var(--font-size-xs);
+	}
+
+	/* The leading glyphs are decorative; at this width they pushed labels onto two lines. */
+	.model-picker-action > svg {
+		display: none;
+	}
+
+	.model-picker-action:last-child:nth-child(odd) {
+		grid-column: 1 / -1;
+	}
+}
+
+/* ---- Settings modal forms: labels, compact actions, branded selects ---- */
+
+/* Field labels read as captions over their control, not as bold headings competing with the
+ * section title. */
+.modal-panel .field label {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-secondary);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: modal-wide default; earlier, more specific label rules (static cards) keep winning by design */
+.modal-panel .field-label {
+	font-size: var(--font-size-sm);
+	font-weight: var(--weight-semibold);
+	color: var(--color-text-secondary);
+}
+
+/* Inside the settings content every action uses the small control height: rows of Save, Validate
+ * and Configure stay one calm line instead of 44px slabs. Still >= 32px (WCAG 2.5.8). */
+/* biome-ignore lint/style/noDescendingSpecificity: content-wide default; earlier, more specific button rules (AI team order, provider cards) keep winning by design */
+.settings-content .button {
+	min-height: var(--control-height-sm);
+	padding-inline: var(--space-3);
+	font-size: var(--font-size-sm);
+}
+
+.settings-content .input,
+.settings-content .select {
+	min-height: var(--control-height-sm);
+	font-size: var(--font-size-sm);
+}
+
+/* Customizable select (appearance: base-select) in dialogs: the trigger and its picker share the
+ * input tokens. Browsers without support keep the native picker, which already follows
+ * color-scheme, so nothing else is needed as a fallback. */
+@supports (appearance: base-select) {
+	.modal-panel .select,
+	.modal-panel .select::picker(select) {
+		appearance: base-select;
+	}
+
+	.modal-panel .select {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		cursor: pointer;
+	}
+
+	.modal-panel .select::picker-icon {
+		color: var(--color-text-muted);
+		transition: rotate var(--duration-fast) var(--ease-standard);
+	}
+
+	.modal-panel .select:open::picker-icon {
+		rotate: 180deg;
+	}
+
+	.modal-panel .select::picker(select) {
+		margin-block: var(--space-1);
+		padding: var(--space-1);
+		border: 1px solid var(--color-border-default);
+		border-radius: var(--radius-md);
+		background: var(--color-surface-overlay);
+		color: var(--color-text-primary);
+		box-shadow: var(--shadow-md);
+	}
+
+	.modal-panel .select option {
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-sm);
+	}
+
+	.modal-panel .select option:hover,
+	.modal-panel .select option:focus-visible {
+		background: var(--color-surface-card-hover);
+		outline: none;
+	}
+
+	.modal-panel .select option:checked {
+		font-weight: var(--weight-semibold);
+	}
+
+	.modal-panel .select option::checkmark {
+		color: var(--color-accent-strong);
+	}
+
+	.modal-panel .select option:disabled {
+		color: var(--color-text-disabled);
+	}
+}
+
+/* ---- Provider grid sections: CLI, local and remote runtimes, each sorted by readiness ---- */
+.provider-section {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.provider-section + .provider-section {
+	margin-top: var(--space-2);
+}
+
+.provider-section-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--font-size-2xs);
+	font-weight: var(--weight-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.provider-section-count {
+	padding: 0 var(--space-2);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-pill);
+	color: var(--color-text-secondary);
+	letter-spacing: 0;
+}

@@ -1,32 +1,40 @@
 """Adaptador del runtime Codex CLI: traduce una request al argv de `codex exec`.
 
 Resuelve el binario por env vars (AIDO_CODEX_COMMAND / CODEX_CLI_PATH), mapea perfiles a modelo
-y esfuerzo de razonamiento, y arma el comando con sandbox workspace-write y aprobación on-request.
+y esfuerzo de razonamiento, y arma el comando con sandbox acorde al perfil y aprobación no interactiva.
 La ejecución bajo el sandbox de subprocesos y el registro del resultado los hereda de CliRuntime.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
+
+from local_control_center.agents.model_aliases import (
+    LEGACY_PROFILE_ALIASES,
+    MODEL_ALIASES,
+    resolve_model_alias,
+)
 
 from .base import CliRuntime, RuntimeRequest
 
-CODEX_PROFILES = {
-    "codex_gpt55_developer": {"model": "gpt-5.5", "effort": "high"},
-    "codex_gpt55_reviewer": {"model": "gpt-5.5", "effort": "high"},
-    "codex_gpt55_xhigh_architect": {"model": "gpt-5.5", "effort": "xhigh"},
-    "codex_mini_analyst": {"model": "mini", "effort": "medium"},
-}
+CODEX_PROFILES = {alias: {"alias": alias} for alias in MODEL_ALIASES}
+CODEX_PROFILES.update(
+    {key: {"alias": value} for key, value in LEGACY_PROFILE_ALIASES.items() if key.startswith("codex_")}
+)
 
 
 class CodexCliRuntime(CliRuntime):
-    """Runtime CLI para Codex, con perfiles que fijan modelo y esfuerzo de razonamiento por rol."""
+    """Runtime CLI para Codex con intención semántica resuelta desde el catálogo real."""
 
     runtime_id = "codex_cli"
     display_name = "Codex CLI"
+    auth_status_argv = ("login", "status")
+    login_hint = "Codex CLI is not logged in; run `codex login` and retry."
+    login_command = "codex login"
 
     def __init__(
         self,
@@ -49,23 +57,33 @@ class CodexCliRuntime(CliRuntime):
         """
         workspace = self._validate_workspace(request)
         self._validate_safe_args(request)
-        profile = CODEX_PROFILES.get(request.profile or "", {})
-        model = request.model or profile.get("model")
-        effort = request.effort or profile.get("effort")
+        profile_name = request.profile or "fast_coding"
+        if profile_name not in CODEX_PROFILES:
+            raise ValueError("Unknown Codex profile.")
+        model = request.model or resolve_model_alias(
+            self.connection, provider_id=self.runtime_id, alias=CODEX_PROFILES[profile_name]["alias"]
+        )
+        if not model or model.startswith("-") or any(character.isspace() for character in model):
+            raise ValueError("Invalid catalog model identifier.")
+        effort = request.effort
+        if effort and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", effort) is None:
+            raise ValueError("Invalid reasoning effort identifier.")
+        plan_only = request.role == "product_owner" or request.env_policy.get("permissionProfile") == "plan"
+        sandbox_mode = "read-only" if plan_only else "workspace-write"
         command = [
             self.executable,
+            "--ask-for-approval",
+            "never",
             "exec",
             "--sandbox",
-            "workspace-write",
-            "--ask-for-approval",
-            "on-request",
+            sandbox_mode,
             "--cd",
             str(workspace),
         ]
         if model:
             command.extend(["--model", str(model)])
         if effort:
-            command.extend(["--model-reasoning-effort", str(effort)])
+            command.extend(["--config", f'model_reasoning_effort="{effort}"'])
         command.extend(request.extra_args)
-        command.append(request.prompt)
+        command.extend(["--", request.prompt])
         return command

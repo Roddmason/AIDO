@@ -4,7 +4,7 @@ Definen el cuerpo aceptado al crear un pipeline y la representación serializada
 la API. Usan alias camelCase para hablar JSON con el frontend mientras el backend usa snake_case;
 no contienen lógica de persistencia, solo validación y forma del payload.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -12,16 +12,6 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-class PipelineCreateRequest(BaseModel):
-    """Cuerpo del POST de creación: proyecto destino y vínculos/etapas opcionales."""
-
-    project_id: str = Field(alias="projectId")
-    title: str | None = None
-    session_id: str | None = Field(default=None, alias="sessionId")
-    chat_id: str | None = Field(default=None, alias="chatId")
-    stages: list[dict[str, Any]] | None = None
 
 
 class PipelineRecord(BaseModel):
@@ -37,12 +27,6 @@ class PipelineRecord(BaseModel):
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
-
-
-class PipelineResponse(BaseModel):
-    """Envoltura de un único pipeline para las respuestas de creación y detalle."""
-
-    pipeline: PipelineRecord
 
 
 class PipelinesListResponse(BaseModel):

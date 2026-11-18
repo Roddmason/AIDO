@@ -4,13 +4,15 @@
  * Resolves the active page from the URL hash, owns selection/dialog/drawer/palette
  * flags, wires the control-plane data hook and global shortcuts, and dispatches each
  * route to its feature page. Every chrome piece lives in its own component here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { AnimatePresence } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EmptyState, ErrorState, useToast } from '../components/ui';
+import { healthCheckModelGatewayCliRuntime } from '../api/client';
+import { ErrorState, useToast } from '../components/ui';
 import type { Language } from '../features/projects/ProjectsPage';
-import { SettingsModal } from '../features/settings/SettingsModal';
+import { RuntimeHealthModal } from '../features/runtime-setup/RuntimeHealthModal';
+import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { NewWorkspaceDialog } from '../features/workspace/NewWorkspaceDialog';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useControlPlane } from '../hooks/useControlPlane';
@@ -19,6 +21,7 @@ import { MotionPage } from '../motion/MotionPage';
 import { useMotionPreference } from '../motion/useControlMotion';
 import { ApprovalsDrawer } from './ApprovalsDrawer';
 import { AppShell } from './AppShell';
+import { BootScreen } from './BootScreen';
 import { CommandPalette } from './CommandPalette';
 import type { CommandAction } from './commandActions';
 import { useCommandActions } from './commandActions';
@@ -30,6 +33,7 @@ import type { RouteContext } from './routes';
 import { renderRoute } from './routes';
 import type { AppRoute } from './routing';
 import { encodeHash, resolveHashState, settingsHashToSection, splitHash } from './routing';
+import { deriveRuntimeAlerts } from './runtimeHealth';
 import { useShellShortcuts } from './useShellShortcuts';
 
 const SELECTED_PROJECT_STORAGE_KEY = 'aido:selectedProjectId';
@@ -75,6 +79,10 @@ export function App() {
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 	const [settingsSection, setSettingsSection] = useState('general');
+	const [settingsProviderId, setSettingsProviderId] = useState<string | null>(null);
+	const [runtimeHealthOpen, setRuntimeHealthOpen] = useState(false);
+	/** Provider ids already flagged as blocked, so a re-poll only toasts a genuine new degradation. */
+	const knownBlockedRuntimesRef = useRef<Set<string> | null>(null);
 	const state = useControlPlane();
 	const commandActionsRef = useRef<CommandAction[]>([]);
 
@@ -92,8 +100,9 @@ export function App() {
 	}, []);
 
 	/** Opens the Settings modal at a given section (defaults to 'general'). */
-	const openSettings = useCallback((section?: string) => {
+	const openSettings = useCallback((section?: string, providerId?: string) => {
 		setSettingsSection(section ?? 'general');
+		setSettingsProviderId(providerId?.trim() || null);
 		setSettingsModalOpen(true);
 	}, []);
 
@@ -106,7 +115,33 @@ export function App() {
 		setEventDrawerOpen(false);
 		setCommandPaletteOpen(false);
 		setSettingsModalOpen(false);
+		setRuntimeHealthOpen(false);
 	}, []);
+
+	const runtimeAlerts = useMemo(
+		() => deriveRuntimeAlerts(state.runtimeProviders),
+		[state.runtimeProviders],
+	);
+
+	useEffect(() => {
+		if (!state.runtimeProviders) return;
+		const current = new Set(runtimeAlerts.map((alert) => alert.providerId));
+		const seen = knownBlockedRuntimesRef.current;
+		knownBlockedRuntimesRef.current = current;
+		if (seen === null) return;
+		for (const alert of runtimeAlerts) {
+			if (seen.has(alert.providerId)) continue;
+			notify({
+				title: t('app.runtime.health.attentionToastTitle', 'AI needs attention'),
+				body: `${alert.displayName} — ${t('app.runtime.health.toastBody', 'open AI health to see how to fix it.')}`,
+				tone: 'warn',
+				action: {
+					label: t('app.runtime.health.review', 'Review'),
+					onPress: () => setRuntimeHealthOpen(true),
+				},
+			});
+		}
+	}, [state.runtimeProviders, runtimeAlerts, notify, t]);
 
 	const changeLanguage = useCallback(
 		(nextLanguage: string) => {
@@ -204,25 +239,11 @@ export function App() {
 	commandActionsRef.current = commandActions;
 
 	if (state.loading || !overview) {
-		const failed = Boolean(state.error);
 		return (
 			<div className="app-shell-ide">
 				<main className="workbench main-area">
 					<section className="content-frame">
-						{failed ? (
-							<ErrorState
-								title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
-								body={state.error ?? ''}
-							/>
-						) : (
-							<EmptyState
-								title={t('app.boot.loading', 'Loading control plane')}
-								body={t(
-									'app.boot.loadingBody',
-									'Waiting for FastAPI v1, SQLite and runtime providers.',
-								)}
-							/>
-						)}
+						<BootScreen error={state.error ?? ''} />
 					</section>
 				</main>
 			</div>
@@ -275,6 +296,7 @@ export function App() {
 				onOpenEvents={() => setEventDrawerOpen(true)}
 				onRefresh={() => void state.refresh()}
 				onOpenSettings={openSettings}
+				onOpenRuntimeHealth={() => setRuntimeHealthOpen(true)}
 			>
 				<AnimatePresence mode="wait">
 					<MotionPage key={page}>
@@ -289,12 +311,14 @@ export function App() {
 							<Suspense fallback={<RouteSkeleton />}>
 								{state.error ? (
 									<ErrorState
-										title={t('app.boot.controlPlaneUnavailable', 'Control plane unavailable')}
+										title={t(
+											'app.controlPlane.error.actionFailed',
+											"Couldn't complete the action. Retry.",
+										)}
 										body={state.error}
 									/>
-								) : (
-									renderRoute(page, routeContext)
-								)}
+								) : null}
+								{renderRoute(page, routeContext)}
 							</Suspense>
 						</RouteErrorBoundary>
 					</MotionPage>
@@ -310,6 +334,7 @@ export function App() {
 				onCreated={(projectId) => {
 					setOperationalProject(projectId);
 					setWorkspaceDialogOpen(false);
+					setSettingsModalOpen(false);
 					navigateTo('workbench');
 					notify({
 						title: t('app.toast.workspaceReady', 'Workspace ready'),
@@ -335,12 +360,12 @@ export function App() {
 				actions={commandActions}
 			/>
 
-			{/* Settings modal: global overlay, portaled via Dialog. */}
-			<SettingsModal
-				open={settingsModalOpen}
+			<SettingsDialog
+				open={settingsModalOpen && !workspaceDialogOpen}
 				onClose={() => setSettingsModalOpen(false)}
 				projectId={selectedProject?.id}
 				initialSection={settingsSection}
+				initialProviderId={settingsProviderId}
 				overview={overview}
 				selectedProject={selectedProject}
 				runtimeProviders={state.runtimeProviders}
@@ -351,6 +376,21 @@ export function App() {
 				onSelectProject={setOperationalProject}
 				mutate={state.mutate}
 				language={bilingualLanguage}
+			/>
+
+			<RuntimeHealthModal
+				open={runtimeHealthOpen}
+				onClose={() => setRuntimeHealthOpen(false)}
+				alerts={runtimeAlerts}
+				onOpenSettings={(section, providerId) => {
+					setRuntimeHealthOpen(false);
+					openSettings(section, providerId);
+				}}
+				onRevalidate={(providerId) => {
+					void state
+						.mutate((token) => healthCheckModelGatewayCliRuntime(token, providerId))
+						.catch(() => undefined);
+				}}
 			/>
 		</>
 	);

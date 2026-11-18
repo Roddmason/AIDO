@@ -1,0 +1,241 @@
+"""Instrumentación de aceptación Windows: sólo fixtures, sin inferencia ni cambios operativos.
+
+@author AIDO contributors
+"""
+
+from __future__ import annotations
+
+import ctypes
+import os
+import time
+import uuid
+from contextlib import closing, contextmanager
+from pathlib import Path
+
+import psutil
+import pytest
+
+from local_control_center.shared.serialization import publish_json_exclusive
+from local_control_center.shared.time import utc_now
+
+_EVIDENCE_RUN_ID = uuid.uuid4().hex
+
+
+@contextmanager
+def low_impact_fixture_policy(db_path: Path, *, fixture_root: Path):
+    """Apply the authorized validation margin only inside an explicit disposable fixture."""
+    from local_control_center.settings.repository import UNSET, SettingsRepository
+    from local_control_center.shared.db import open_sqlite_connection
+    from local_control_center.shared.migrations import initialize_platform_schema
+
+    db = db_path.resolve()
+    if not db.is_relative_to(fixture_root.resolve()) or db == fixture_root.resolve():
+        raise ValueError("Database must be inside the disposable fixture root")
+    key = "resources.minFreeMemoryGiB"
+    with closing(open_sqlite_connection(db)) as connection:
+        initialize_platform_schema(connection)
+        repository = SettingsRepository(connection)
+        previous = repository.get_value(key, "general", None)
+        repository.set_value(key, "general", None, 12)
+    try:
+        yield {"database": str(db), "origin": "explicit_test_fixture", "minFreeMemoryGiB": 12}
+    finally:
+        with closing(open_sqlite_connection(db)) as connection:
+            repository = SettingsRepository(connection)
+            if previous is UNSET:
+                repository.clear_value(key, "general", None)
+            else:
+                repository.set_value(key, "general", None, previous)
+
+
+def require_host_capacity(db_path: Path, workload_classes: list[str]) -> None:
+    """Salta la prueba si el host real no admite, a la vez, las cargas que va a lanzar.
+
+    Estas pruebas corren a proposito sobre la capacidad real del equipo con el margen autorizado; si
+    el gobernador las rechaza, su precondicion no se cumple y un rojo solo diria cuanta RAM libre
+    habia ese dia. Le pide al gobernador la misma decision con el snapshot real y libera lo
+    reservado antes de seguir. El host puede cambiar entre esta consulta y el lanzamiento real: la
+    verificacion reduce el rojo ambiental, no lo elimina.
+    """
+    from local_control_center.host_resources.governor import HostResourceGovernor
+    from local_control_center.host_resources.models import ResourceAdmissionRequest
+    from local_control_center.host_resources.probes import HostResourceProbe
+    from local_control_center.shared.db import open_sqlite_connection
+
+    snapshot = HostResourceProbe(relevant_paths=[db_path.parent]).sample(cpu_interval_seconds=0)
+    refusal = None
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        governor = HostResourceGovernor(connection)
+        leases = []
+        for index, workload_class in enumerate(workload_classes):
+            decision = governor.admit(
+                ResourceAdmissionRequest(
+                    execution_id=f"capacity-check-{index}",
+                    workload_class=workload_class,
+                    owner_id="capacity-check",
+                ),
+                snapshot=snapshot,
+            )
+            if decision.lease is None:
+                refusal = f"{decision.reason_code}: {decision.reason}"
+                break
+            leases.append(decision.lease)
+        for lease in leases:
+            governor.release(lease.id, reason="capacity_check")
+    if refusal:
+        pytest.skip(f"el host no tiene capacidad para esta prueba de aceptacion ({refusal})")
+
+
+def save(path: Path, value: dict) -> None:
+    publish_json_exclusive(path, value)
+
+
+def evidence(name: str, value: dict) -> Path | None:
+    destination = os.environ.get("AIDO_ACCEPTANCE_EVIDENCE")
+    if destination:
+        if not name or any(
+            char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in name
+        ):
+            raise ValueError("Evidence name must be a plain receipt identifier")
+        attempt = uuid.uuid4().hex
+        run_id = os.environ.get("AIDO_QUALITY_INVOCATION_ID", _EVIDENCE_RUN_ID)
+        path = Path(destination).resolve() / f"{name}-{attempt}.json"
+        save(
+            path, {**value, "publication": {"runId": run_id, "attemptId": attempt, "timestampUtc": utc_now()}}
+        )
+        return path
+    return None
+
+
+def wait_until(predicate, timeout: float = 15):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.025)
+    raise AssertionError("Acceptance condition exceeded its bounded deadline")
+
+
+def native_readback(managed) -> dict:
+    import win32api
+    import win32con
+    import win32job
+
+    job = managed.native_handle
+    pids = win32job.QueryInformationJobObject(job, win32job.JobObjectBasicProcessIdList)
+    membership = []
+    for pid in pids:
+        handle = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION, False, pid)
+        try:
+            membership.append(
+                {
+                    "pid": pid,
+                    "created": psutil.Process(pid).create_time(),
+                    "inJob": bool(win32job.IsProcessInJob(handle, job)),
+                    "priority": psutil.Process(pid).nice(),
+                }
+            )
+        finally:
+            handle.Close()
+    limits = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
+
+    class CpuRate(ctypes.Structure):
+        _fields_ = [("flags", ctypes.c_uint32), ("rate", ctypes.c_uint32)]
+
+    cpu = CpuRate()
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    query = kernel.QueryInformationJobObject
+    query.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+    query.restype = ctypes.c_int
+    if not query(int(job), 15, ctypes.byref(cpu), ctypes.sizeof(cpu), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return {
+        "members": membership,
+        "cpuFlags": cpu.flags,
+        "cpuRate": cpu.rate,
+        "memoryBytes": limits["JobMemoryLimit"],
+        "processLimit": limits["BasicLimitInformation"]["ActiveProcessLimit"],
+        "limitFlags": limits["BasicLimitInformation"]["LimitFlags"],
+    }
+
+
+def quality_envelope() -> dict:
+    """Read the concrete owning test-runner Job; isolated test DBs are not host reservations."""
+    from contextlib import closing
+    from types import SimpleNamespace
+
+    import win32api
+    import win32job
+
+    from local_control_center.process_supervision.windows_job import job_name
+    from local_control_center.shared.db import open_sqlite_connection
+
+    path = os.environ.get("AIDO_TEST_QUALITY_DB")
+    if not path:
+        return {"status": "NOT_RUN", "reason": "Explicit quality DB identity not supplied"}
+    ancestors = {p.pid: p.create_time() for p in [psutil.Process(), *psutil.Process().parents()]}
+    with closing(open_sqlite_connection(path)) as connection:
+        rows = connection.execute(
+            "SELECT * FROM managed_processes WHERE finished_at IS NULL AND released_at IS NULL"
+        ).fetchall()
+    envelopes = []
+    for row in rows:
+        if (
+            row["root_pid"] not in ancestors
+            or abs(ancestors[row["root_pid"]] - row["root_create_time"]) >= 0.01
+        ):
+            continue
+        handle = win32job.OpenJobObject(win32job.JOB_OBJECT_QUERY, False, job_name(row["managed_process_id"]))
+        try:
+            assert win32job.IsProcessInJob(win32api.GetCurrentProcess(), handle)
+            envelopes.append(
+                {
+                    "managedProcessId": row["managed_process_id"],
+                    "resourceLeaseId": row["resource_lease_id"],
+                    **native_readback(SimpleNamespace(native_handle=handle)),
+                }
+            )
+        finally:
+            handle.Close()
+    assert envelopes, "The explicit quality DB must prove an owning native Job"
+    return {
+        "status": "PASS",
+        "jobs": envelopes,
+        "furtherExternalAncestors": "UNKNOWN",
+        "testReservationsAreSubordinate": True,
+    }
+
+
+def process_sample(db_path: Path) -> dict:
+    process = psutil.Process()
+    memory = process.memory_info()
+    io = process.io_counters()
+    return {
+        "timestamp": time.time(),
+        "hostCpuPercent": psutil.cpu_percent(),
+        "hostAvailableBytes": psutil.virtual_memory().available,
+        "rssBytes": memory.rss,
+        "privateBytes": getattr(memory, "private", None),
+        "handles": process.num_handles(),
+        "threads": process.num_threads(),
+        "connections": len(process.net_connections()),
+        "descendants": len(process.children(recursive=True)),
+        "hostProcessCount": len(psutil.pids()),
+        "readBytes": io.read_bytes,
+        "writeBytes": io.write_bytes,
+        "walBytes": Path(str(db_path) + "-wal").stat().st_size if Path(str(db_path) + "-wal").exists() else 0,
+        "dbBytes": db_path.stat().st_size,
+        "evidenceBytes": sum(p.stat().st_size for p in db_path.parent.rglob("*") if p.is_file()),
+        "diskFreeBytes": psutil.disk_usage(str(db_path.parent)).free,
+    }
+
+
+def identities_gone(members: list[dict]) -> bool:
+    for member in members:
+        try:
+            if abs(psutil.Process(member["pid"]).create_time() - member["created"]) < 0.01:
+                return False
+        except psutil.NoSuchProcess:
+            pass
+    return True

@@ -4,16 +4,17 @@
  * Maps verbose generated names (e.g. `ProjectRecord`) to the short vocabulary the
  * UI uses (`Project`), and narrows a few enum-like unions from request shapes so
  * components depend on intent-named types instead of the raw generated surface.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type {
 	ActionRequestRecord,
 	AgentProfileRecord,
 	AgentProfileUpsertRequest,
+	AIExecutionPlan,
+	AIExecutionResult,
 	ArchitectureDecisionCreateRequest,
 	ArtifactRecord,
 	BudgetRuleRecord,
-	ChatRecord,
 	CliRuntimeRecord,
 	CliSessionRecord,
 	CredentialAuditRecord,
@@ -22,6 +23,7 @@ import type {
 	EventRecord as GeneratedEventRecord,
 	RiskRecord as GeneratedRiskRecord,
 	TeamActivityEntry as GeneratedTeamActivityEntry,
+	GlobalTeamRoleRecord,
 	JobRecord,
 	McpServerRegisterRequest,
 	ModelBenchmarkOutcomeRecord,
@@ -30,8 +32,9 @@ import type {
 	ModelGatewayOverviewRecord,
 	ModelProviderRecord,
 	NextStepCreateRequest,
+	NvidiaNimPreflightResponse,
+	OllamaEndpointRecord,
 	OverviewResponse,
-	PipelineRecord,
 	PolicyRevisionRecord,
 	ProjectCreateRequest,
 	ProjectRecord,
@@ -39,6 +42,8 @@ import type {
 	ProjectTemplateRecord,
 	ProviderAccountRecord,
 	ProviderLimitRecord,
+	ProviderLimitStatusRecord,
+	ProviderLimitUpsertRequest,
 	ProviderRecord,
 	RetrievalStatusResponse,
 	RiskCreateRequest,
@@ -48,9 +53,19 @@ import type {
 	RuntimeProviderConfigurationRecord,
 	RuntimeProviderStatus,
 	RuntimeProvidersResponse,
-	SessionRecord,
+	RuntimeTeamResponse,
 	TeamActivityResponse,
 	TeamRecord,
+	ThreadAgentEventRecord,
+	ThreadArtifactRecord,
+	ThreadDecisionRecord,
+	ThreadDetailResponse,
+	ThreadEta,
+	ThreadEventsResponse,
+	ThreadMessageRecord,
+	ThreadMessageResultResponse,
+	ThreadRecord,
+	ThreadSimilarityCandidateRecord,
 	UsageLedgerRecord,
 	UsageSummaryRecord,
 	WorkflowCreateRequest,
@@ -73,15 +88,24 @@ export type Workflow = WorkflowRecord;
 export type WorkflowStep = WorkflowStepRecord;
 export type AgentProfile = AgentProfileRecord;
 export type ModelProvider = ModelProviderRecord;
-export type Session = SessionRecord;
-export type Chat = ChatRecord;
+export type Thread = ThreadRecord;
+export type ThreadMessage = ThreadMessageRecord;
+export type ThreadArtifact = ThreadArtifactRecord;
+export type ThreadAgentEvent = ThreadAgentEventRecord;
+export type ThreadDecision = ThreadDecisionRecord;
+export type ThreadDetail = ThreadDetailResponse;
+export type ThreadEvents = ThreadEventsResponse;
+export type { ThreadEta };
+export type ThreadMessageResult = ThreadMessageResultResponse;
+export type ThreadSimilarityCandidate = ThreadSimilarityCandidateRecord;
 export type TeamActivity = TeamActivityResponse;
 export type TeamActivityEntry = GeneratedTeamActivityEntry;
-export type Pipeline = PipelineRecord;
 export type Artifact = ArtifactRecord;
 export type PolicyRevision = PolicyRevisionRecord;
 export type Overview = OverviewResponse;
 export type RuntimeProviders = RuntimeProvidersResponse;
+export type RuntimeTeam = RuntimeTeamResponse;
+export type RuntimeTeamRole = GlobalTeamRoleRecord;
 export type RuntimeProvider = RuntimeProviderStatus;
 export type RuntimeProviderConfiguration = RuntimeProviderConfigurationRecord;
 export type RetrievalStatus = RetrievalStatusResponse;
@@ -90,10 +114,16 @@ export type ModelGatewayProviderAccount = ProviderAccountRecord;
 export type ModelGatewayModel = ModelCatalogRecord;
 export type ModelGatewayRoutingProfile = RoutingProfileRecord;
 export type ModelGatewayRolePolicy = RolePolicyRecord;
+export type OllamaEndpoint = OllamaEndpointRecord;
 export type ModelGatewayUsage = UsageLedgerRecord;
 export type ModelGatewayUsageSummary = UsageSummaryRecord;
 export type ModelGatewayRoutingDecision = RoutingDecisionRecord;
 export type ModelGatewayProviderLimit = ProviderLimitRecord;
+export type ModelGatewayProviderLimitStatus = ProviderLimitStatusRecord;
+export type ModelGatewayProviderLimitUpsert = ProviderLimitUpsertRequest;
+export type ModelGatewayAIExecutionPlan = AIExecutionPlan;
+export type ModelGatewayAIExecutionResult = AIExecutionResult;
+export type NvidiaNimPreflight = NvidiaNimPreflightResponse;
 export type ModelGatewayBudgetRule = BudgetRuleRecord;
 export type ModelGatewayCliRuntime = CliRuntimeRecord;
 export type ModelGatewayCliSession = CliSessionRecord;

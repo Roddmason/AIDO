@@ -17,7 +17,7 @@ y luego inserta) y ``upsert_product_brief`` (actualiza el brief y anexa su snaps
 ``immediate_transaction``. Sin esa envoltura, una caída entre sentencias puede dejar el brief y
 su historial desincronizados o colisionar en ``UNIQUE(session_id, sequence)``.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -202,6 +202,32 @@ def row_to_product_decision(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def row_to_product_owner_output(row: sqlite3.Row) -> dict[str, Any]:
+    """Mapea una salida validada del ProductOwnerAgent al dict camelCase del contrato."""
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "initiativeId": row["initiative_id"],
+        "briefId": row["brief_id"],
+        "status": row["status"],
+        "summary": row["summary"],
+        "confidence": row["confidence"],
+        "questions": json_loads(row["questions"], []),
+        "assumptions": json_loads(row["assumptions"], []),
+        "decisions": json_loads(row["decisions"], []),
+        "productBriefPatch": json_loads(row["product_brief_patch"], {}),
+        "epics": json_loads(row["epics"], []),
+        "userStories": json_loads(row["user_stories"], []),
+        "risks": json_loads(row["risks"], []),
+        "recommendedNextAction": row["recommended_next_action"],
+        "runtimeId": row["runtime_id"],
+        "outputArtifactId": row["output_artifact_id"],
+        "metadata": json_loads(row["metadata"], {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
 class ProductDiscoveryRepository:
     """Acceso a datos del slice de product discovery sobre la conexión SQLite del caller.
 
@@ -249,6 +275,25 @@ class ProductDiscoveryRepository:
         if not row:
             raise KeyError(f"Initiative not found: {initiative_id}")
         return row_to_initiative(row)
+
+    def find_initiative_by_thread(self, project_id: str, thread_id: str) -> dict[str, Any] | None:
+        """Recupera la iniciativa que ya cubre un hilo, o ``None`` si el hilo aún no tiene una.
+
+        Es lo que hace pegajosa la iniciativa entre turnos: sin ella cada corrida del ProductOwner
+        crearía una iniciativa nueva y perdería las preguntas ya formuladas, repreguntando lo mismo.
+        El desempate por ``rowid`` no es opcional: ``created_at`` tiene resolución de milisegundos y
+        el id es un uuid aleatorio, así que dos filas del mismo milisegundo ordenarían al azar.
+        """
+        row = self.connection.execute(
+            """
+            SELECT * FROM initiatives
+            WHERE project_id = ? AND json_extract(metadata, '$.threadId') = ?
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT 1
+            """,
+            (project_id, thread_id),
+        ).fetchone()
+        return row_to_initiative(row) if row else None
 
     def list_initiatives(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """Lista iniciativas (todas o por proyecto), más recientes primero."""
@@ -350,33 +395,6 @@ class ProductDiscoveryRepository:
             f"SELECT * FROM discovery_sessions {where} ORDER BY updated_at DESC", params
         ).fetchall()
         return [row_to_discovery_session(row) for row in rows]
-
-    def update_discovery_session(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre una sesión (title, objective, status, facilitator, metadata).
-
-        Raises:
-            KeyError: si la sesión no existe.
-        """
-        current = self.get_discovery_session(session_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE discovery_sessions
-            SET title = ?, objective = ?, status = ?, facilitator = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["title"],
-                next_value["objective"],
-                next_value["status"],
-                next_value["facilitator"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                session_id,
-            ),
-        )
-        return self.get_discovery_session(session_id)
 
     def append_conversation_message(self, body: dict[str, Any]) -> dict[str, Any]:
         """Anexa un mensaje a una sesión asignándole el siguiente ``sequence`` y lo devuelve.
@@ -588,31 +606,6 @@ class ProductDiscoveryRepository:
         ).fetchall()
         return [row_to_clarification_answer(row) for row in rows]
 
-    def update_clarification_answer(self, answer_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Aplica un patch sobre una respuesta (answer, status, metadata).
-
-        Raises:
-            KeyError: si la respuesta no existe.
-        """
-        current = self.get_clarification_answer(answer_id)
-        next_value = {**current, **body}
-        timestamp = utc_now()
-        self.connection.execute(
-            """
-            UPDATE clarification_answers
-            SET answer = ?, status = ?, metadata = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_value["answer"],
-                next_value["status"],
-                json_dumps(next_value.get("metadata") or {}),
-                timestamp,
-                answer_id,
-            ),
-        )
-        return self.get_clarification_answer(answer_id)
-
     def upsert_product_brief(self, body: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza un brief de producto y anexa su snapshot a ``product_brief_versions``.
 
@@ -752,19 +745,6 @@ class ProductDiscoveryRepository:
             f"SELECT * FROM product_briefs {where} ORDER BY updated_at DESC", params
         ).fetchall()
         return [row_to_product_brief(row) for row in rows]
-
-    def get_product_brief_version(self, version_id: str) -> dict[str, Any]:
-        """Recupera un snapshot de versión de brief por id.
-
-        Raises:
-            KeyError: si no existe ningún snapshot con ese id.
-        """
-        row = self.connection.execute(
-            "SELECT * FROM product_brief_versions WHERE id = ?", (version_id,)
-        ).fetchone()
-        if not row:
-            raise KeyError(f"Product brief version not found: {version_id}")
-        return row_to_product_brief_version(row)
 
     def list_product_brief_versions(self, brief_id: str) -> list[dict[str, Any]]:
         """Lista el historial de versiones de un brief, de la más reciente a la más antigua."""
@@ -966,3 +946,74 @@ class ProductDiscoveryRepository:
             ),
         )
         return self.get_product_decision(decision_id)
+
+    def create_product_owner_output(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Persist validated ProductOwnerAgent JSON for later approvals."""
+        output_id = f"product-owner-output-{uuid.uuid4()}"
+        timestamp = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO product_owner_outputs
+                (id, project_id, initiative_id, brief_id, status, summary, confidence, questions,
+                 assumptions, decisions, product_brief_patch, epics, user_stories, risks,
+                 recommended_next_action, runtime_id, output_artifact_id, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                output_id,
+                body["projectId"],
+                body["initiativeId"],
+                body["briefId"],
+                body["status"],
+                body["summary"],
+                body["confidence"],
+                json_dumps(body.get("questions") or []),
+                json_dumps(body.get("assumptions") or []),
+                json_dumps(body.get("decisions") or []),
+                json_dumps(body.get("productBriefPatch") or {}),
+                json_dumps(body.get("epics") or []),
+                json_dumps(body.get("userStories") or []),
+                json_dumps(body.get("risks") or []),
+                body.get("recommendedNextAction", ""),
+                body.get("runtimeId", ""),
+                body.get("outputArtifactId", ""),
+                json_dumps(body.get("metadata") or {}),
+                timestamp,
+                timestamp,
+            ),
+        )
+        return self.get_product_owner_output(output_id)
+
+    def get_product_owner_output(self, output_id: str) -> dict[str, Any]:
+        """Recupera una salida validada del ProductOwnerAgent por id."""
+        row = self.connection.execute(
+            "SELECT * FROM product_owner_outputs WHERE id = ?", (output_id,)
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Product owner output not found: {output_id}")
+        return row_to_product_owner_output(row)
+
+    def list_product_owner_outputs(
+        self,
+        *,
+        project_id: str | None = None,
+        initiative_id: str | None = None,
+        brief_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lista outputs PO filtrados por proyecto, iniciativa o brief, más recientes primero."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if initiative_id:
+            conditions.append("initiative_id = ?")
+            params.append(initiative_id)
+        if brief_id:
+            conditions.append("brief_id = ?")
+            params.append(brief_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.connection.execute(
+            f"SELECT * FROM product_owner_outputs {where} ORDER BY created_at DESC", params
+        ).fetchall()
+        return [row_to_product_owner_output(row) for row in rows]

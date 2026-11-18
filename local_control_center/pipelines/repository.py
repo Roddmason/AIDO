@@ -5,7 +5,7 @@ opera en autocommit (`isolation_level=None`): cada `execute` confirma de forma i
 repositorio no abre transacciones. `create_pipeline` hace un `INSERT` y luego un `SELECT` (vía
 `get_pipeline`) en dos statements separados, por lo que no es una operación atómica.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -56,6 +56,8 @@ class PipelinesRepository:
         session_id: str | None = None,
         chat_id: str | None = None,
         stages: list[dict[str, Any]] | None = None,
+        status: str = "queued",
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Inserta un pipeline `queued` (etapas por defecto si no se pasan) y lo relee ya persistido.
 
@@ -68,7 +70,7 @@ class PipelinesRepository:
             """
             INSERT INTO pipelines
                 (id, project_id, session_id, chat_id, title, status, stages, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pipeline_id,
@@ -76,8 +78,9 @@ class PipelinesRepository:
                 session_id,
                 chat_id,
                 title,
+                status,
                 json_dumps(stages or DEFAULT_STAGES),
-                json_dumps({}),
+                json_dumps(metadata or {}),
                 timestamp,
                 timestamp,
             ),

@@ -3,12 +3,18 @@
  * concrete run in the shell Inspector (deep-linkable as `#workflows?run=<id>`); the run's full
  * detail — timeline, agents, evidence, artifacts, policy — lives there (see RunDetail), not in a
  * page-local drawer or an artificial step graph.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useMemo } from 'react';
 
 import type { Overview } from '../../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	PageHeader,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 

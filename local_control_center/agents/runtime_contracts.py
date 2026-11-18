@@ -5,7 +5,7 @@ required executable tokens, forbidden args, workspace requirement) and the valid
 the adapters call before execution. Centralizing the rules keeps every adapter's
 guardrails identical and audit-consistent.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

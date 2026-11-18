@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,7 @@ def _manager(connection) -> tuple[CredentialManager, CredentialRepository, _Dict
 
 
 def test_credential_schema_has_no_secret_column_and_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         tables = {
@@ -65,8 +66,36 @@ def test_credential_schema_has_no_secret_column_and_is_idempotent(tmp_path: Path
     assert not any(token in column.lower() for column in ref_columns for token in SECRET_COLUMN_TOKENS)
 
 
+def test_credentials_sqlite_contract_view_exposes_safe_metadata_names(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        manager, _repository, _backend = _manager(connection)
+
+        created = manager.create_credential(name="codex/personal", value=SECRET, locator="AIDO/codex")
+        row = connection.execute(
+            """
+            SELECT id, label, credentialRef, source, fingerprint, status,
+                   createdAt, updatedAt, lastValidatedAt, lastRotatedAt
+            FROM credentials
+            WHERE id = ?
+            """,
+            (created["id"],),
+        ).fetchone()
+
+    assert row["label"] == "codex/personal"
+    assert row["credentialRef"] == "memory:AIDO/codex"
+    assert row["source"] == "memory"
+    assert row["fingerprint"]
+    assert row["status"] == "active"
+    assert row["createdAt"]
+    assert row["updatedAt"]
+    assert row["lastValidatedAt"] is None
+    assert row["lastRotatedAt"] is None
+    assert SECRET not in str(tuple(row))
+
+
 def test_create_persists_ref_and_fingerprint_without_returning_or_storing_value(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, repository, backend = _manager(connection)
 
@@ -75,7 +104,7 @@ def test_create_persists_ref_and_fingerprint_without_returning_or_storing_value(
             value=SECRET,
             locator="AIDO/codex",
             auth_mode="subscription",
-            actor="rodd",
+            actor="fixture-operator",
         )
         assert created["backendKind"] == "memory"
         assert created["status"] == "active"
@@ -101,12 +130,12 @@ def test_create_persists_ref_and_fingerprint_without_returning_or_storing_value(
 
 
 def test_validate_detects_match_mismatch_and_missing(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, repository, backend = _manager(connection)
         manager.create_credential(name="c", value=SECRET, locator="loc")
 
-        ok = manager.validate("c", actor="rodd")
+        ok = manager.validate("c", actor="fixture-operator")
         assert ok == {"name": "c", "present": True, "valid": True, "fingerprintMatches": True}
         assert SECRET not in str(ok)
 
@@ -124,13 +153,13 @@ def test_validate_detects_match_mismatch_and_missing(tmp_path: Path) -> None:
 
 
 def test_rotate_updates_fingerprint_and_revalidates(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, repository, backend = _manager(connection)
         manager.create_credential(name="c", value=SECRET, locator="loc")
         first = connection.execute("SELECT fingerprint FROM credential_refs WHERE name = 'c'").fetchone()[0]
 
-        rotated = manager.rotate("c", "rotated-secret-987", actor="rodd")
+        rotated = manager.rotate("c", "rotated-secret-987", actor="fixture-operator")
         assert rotated["rotatedAt"]
         assert SECRET not in str(rotated) and "rotated-secret-987" not in str(rotated)
         second = connection.execute("SELECT fingerprint FROM credential_refs WHERE name = 'c'").fetchone()[0]
@@ -141,12 +170,12 @@ def test_rotate_updates_fingerprint_and_revalidates(tmp_path: Path) -> None:
 
 
 def test_delete_removes_backend_secret_and_ref_but_keeps_audit(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, repository, backend = _manager(connection)
         manager.create_credential(name="c", value=SECRET, locator="loc")
 
-        result = manager.delete("c", actor="rodd")
+        result = manager.delete("c", actor="fixture-operator")
         assert result == {"name": "c", "deleted": True}
         assert backend.read("loc") is None
         assert repository.find_credential_by_name("c") is None
@@ -155,7 +184,7 @@ def test_delete_removes_backend_secret_and_ref_but_keeps_audit(tmp_path: Path) -
 
 
 def test_list_metadata_never_exposes_secrets(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, _repository, _backend = _manager(connection)
         manager.create_credential(name="a", value=SECRET, locator="la")
@@ -192,7 +221,7 @@ class _FailingCreateRepository(CredentialRepository):
 
 
 def test_delete_with_readonly_backend_removes_ref_and_audits_success(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager, repository, _backend = _manager(connection)
         # A bootstrap ref pointing at an env var (created out-of-band; env backend is read-only).
@@ -207,7 +236,7 @@ def test_delete_with_readonly_backend_removes_ref_and_audits_success(tmp_path: P
 
 
 def test_delete_keeps_ref_and_raises_when_writable_backend_removal_fails(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = CredentialRepository(connection)
         backend = _FailingRemoveBackend()
@@ -226,7 +255,7 @@ def test_delete_keeps_ref_and_raises_when_writable_backend_removal_fails(tmp_pat
 def test_list_audit_is_stable_by_insertion_order_on_timestamp_ties(tmp_path: Path) -> None:
     # Two audit rows in the SAME millisecond must order by insertion, never by their random uuid id;
     # otherwise list_audit()[-1] (the latest action) is non-deterministic. Regression for a flake.
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = CredentialRepository(connection)
         same_ts = "2026-01-01T00:00:00.000Z"
@@ -250,7 +279,7 @@ def test_list_audit_is_stable_by_insertion_order_on_timestamp_ties(tmp_path: Pat
 
 
 def test_create_rolls_back_backend_secret_when_ref_persistence_fails(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         repository = _FailingCreateRepository(connection)
         backend = _DictBackend()

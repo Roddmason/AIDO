@@ -11,7 +11,7 @@ Exposes three routes:
 Write routes call ``require_write(request)`` first and return 204 No Content on success so
 the client re-resolves rather than trying to interpret a partial response.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
+from local_control_center.shared.event_bus import EventBus
+
 from .models import SetSettingRequest, SettingsResponse
 from .registry import descriptor_for, validate_value
-from .repository import SettingsRepository
+from .repository import UNSET, SettingsRepository
 from .resolver import resolve_settings
 
 
@@ -32,8 +34,36 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     """Build the Settings router bound to ``platform``'s SQLite connection."""
     router = APIRouter()
 
+    def _audit_change(
+        action: str,
+        *,
+        key: str,
+        scope: str,
+        scope_id: str | None,
+        value: Any = None,
+    ) -> None:
+        """Deja traza de quien cambio una preferencia y a que la dejo.
+
+        Las preferencias gobiernan cosas sensibles — umbrales del gobernador, si los runtimes CLI
+        estan habilitados, si un proyecto corre en un contenedor con el workspace escribible — y
+        hasta ahora la unica pista de un cambio era la columna `updated_at`.
+
+        Se registra el valor **nuevo** y no el anterior: una preferencia puede contener una ruta
+        u otro dato del operador, y la auditoria no es lugar para duplicarlo.
+        """
+        payload: dict[str, Any] = {"key": key, "scope": scope, "scopeId": scope_id}
+        if value is not None:
+            payload["value"] = value
+        EventBus(platform.connection).record_audit(
+            action=action,
+            target=key,
+            payload=payload,
+            project_id=scope_id if scope == "project" else None,
+            actor="operator",
+        )
+
     @router.get("/api/v1/settings", response_model=SettingsResponse)
-    async def get_settings(projectId: str | None = None) -> dict[str, Any]:
+    def get_settings(projectId: str | None = None) -> dict[str, Any]:
         """Return all resolved settings for both general and project scopes."""
         return resolve_settings(connection=platform.connection, project_id=projectId)
 
@@ -51,6 +81,11 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=404, detail=f"Unknown setting key: {key!r}")
 
         if body.scope == "project":
+            if descriptor.project_section is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Setting {key!r} is only editable at general scope.",
+                )
             if not body.scope_id:
                 raise HTTPException(
                     status_code=422,
@@ -71,7 +106,32 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         repo = SettingsRepository(platform.connection)
+        if key in {"resources.minFreeMemoryGiB", "resources.hardFreeMemoryGiB"}:
+            min_descriptor = descriptor_for("resources.minFreeMemoryGiB")
+            hard_descriptor = descriptor_for("resources.hardFreeMemoryGiB")
+            if min_descriptor is None or hard_descriptor is None:  # pragma: no cover - registry invariant
+                raise RuntimeError("Resource memory settings are not registered.")
+            stored_minimum = repo.get_value("resources.minFreeMemoryGiB", "general", None)
+            stored_hard = repo.get_value("resources.hardFreeMemoryGiB", "general", None)
+            effective_minimum = min_descriptor.default if stored_minimum is UNSET else float(stored_minimum)
+            effective_hard = hard_descriptor.default if stored_hard is UNSET else float(stored_hard)
+            if key == "resources.minFreeMemoryGiB":
+                effective_minimum = float(coerced)
+            else:
+                effective_hard = float(coerced)
+            if effective_hard > effective_minimum:
+                raise HTTPException(
+                    status_code=422,
+                    detail="resources.hardFreeMemoryGiB cannot exceed resources.minFreeMemoryGiB.",
+                )
         repo.set_value(key, body.scope, effective_scope_id, coerced)
+        _audit_change(
+            "settings.value_set",
+            key=key,
+            scope=body.scope,
+            scope_id=effective_scope_id,
+            value=coerced,
+        )
         return Response(status_code=204)
 
     @router.delete("/api/v1/settings/{key}", status_code=204)
@@ -114,6 +174,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
 
         repo = SettingsRepository(platform.connection)
         repo.clear_value(key, scope, effective_scope_id)
+        _audit_change("settings.value_cleared", key=key, scope=scope, scope_id=effective_scope_id)
         return Response(status_code=204)
 
     return router

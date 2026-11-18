@@ -19,6 +19,7 @@ html {
 body {
 	min-width: 320px;
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: progressive-enhancement fallback — 100vh for browsers without dynamic-viewport support, 100dvh overrides on modern browsers */
 	min-height: 100dvh;
 	margin: 0;
 	background: var(--color-surface-canvas);
@@ -73,6 +74,18 @@ samp {
 	box-shadow: var(--shadow-focus);
 }
 
+@media (forced-colors: active) {
+	/* Forced-colors mode drops box-shadow, and per-component rules replace the outline
+	   above with `outline: none; box-shadow: var(--shadow-focus)` at higher specificity —
+	   !important is required so every control keeps a visible focus indicator. */
+	:focus-visible {
+		/* biome-ignore lint/complexity/noImportantStyles: forced-colors mode needs !important so every control keeps a visible focus outline (per-component rules override it otherwise). */
+		outline: 2px solid !important;
+		/* biome-ignore lint/complexity/noImportantStyles: forced-colors mode needs !important so every control keeps a visible focus outline (per-component rules override it otherwise). */
+		outline-offset: 2px !important;
+	}
+}
+
 .sr-only {
 	position: absolute;
 	width: 1px;
@@ -87,6 +100,7 @@ samp {
 
 #root {
 	min-height: 100vh;
+	/* biome-ignore lint/suspicious/noDuplicateProperties: progressive-enhancement fallback — 100vh for browsers without dynamic-viewport support, 100dvh overrides on modern browsers */
 	min-height: 100dvh;
 }
 

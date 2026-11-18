@@ -5,5 +5,5 @@ conexion SQLite y el proyecto runtime, el agregador read-only que compone el sna
 global del estado, y el contrato Pydantic de esa respuesta. No contiene logica de dominio
 propia; orquesta a los repositorios de cada slice.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """

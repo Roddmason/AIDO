@@ -9,7 +9,7 @@ confianza, o marcada para revisión manual si las de máxima confianza discrepan
 lógica pura y determinista; ``source_log`` persiste cada fuente como artefacto de evidencia (sin tabla
 nueva). No exporta símbolos: los consumidores importan de los submódulos.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__: list[str] = []

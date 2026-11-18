@@ -6,17 +6,21 @@ calcula la completitud de forma determinista y NO genera épicas/HU/criterios si
 bloqueantes sin resolver. Solo persiste discovery y backlog tras validar; falla cerrado si falta runtime
 o la salida es inválida.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
+from local_control_center.agents.runtime_failure_classifier import classify_runtime_failure
 from local_control_center.backlog.repository import BacklogRepository
 from local_control_center.evidence.artifacts import (
     artifact_hashes,
@@ -30,7 +34,8 @@ from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.projects.repository import ProjectsRepository
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
+from local_control_center.shared.time import utc_now
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 from .assessment_runner import ProjectAssessmentRunner
@@ -41,33 +46,85 @@ from .impact_question_engine import (
     detected_facts_from_assessment,
     validate_impact_question,
 )
+from .local_model_call_input import local_model_call_input
+from .model_output_text import json_candidate_text
 from .product_owner_agent_contract import (
     PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
     PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
     PRODUCT_OWNER_AGENT_ID,
     PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+    PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES,
+    PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
+    TECHNICAL_STORY_KEYS,
     product_owner_agent_contract,
     product_owner_agent_readiness,
 )
 from .repository import AgentsRepository
-from .runtime_registry import RuntimeCommandUnavailableError, build_product_owner_agent_argv
+from .runtime_adapters.transient_output import prefer_transient_output
+from .runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_product_owner_agent_argv,
+    isolated_product_owner_codex_environment,
+)
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    is_ollama_runtime,
+    runtime_provider_family,
+    runtime_requires_network,
+    runtime_unavailable_result,
+)
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
+logger = logging.getLogger(__name__)
+
 FAILED_VALIDATION_STATUS = "failed_validation"
 COMPLETED_STATUS = "completed"
 BLOCKED_STATUS = "blocked"
+BRIEF_READY_STATUS = "brief_ready"
+NEEDS_INPUT_STATUS = "needs_input"
+SCOPE_IS_CLEAR_STATUS = "scope_is_clear"
 CONFIDENCES = {"low", "medium", "high"}
 BUSINESS_VALUES = {"low", "medium", "high"}
-BLOCKING_DECISION_STATUSES = {"open", "resolved"}
+RUNTIME_OUTPUT_STATUSES = {
+    NEEDS_INPUT_STATUS,
+    "questions_required",
+    BRIEF_READY_STATUS,
+    "backlog_ready",
+    COMPLETED_STATUS,
+    BLOCKED_STATUS,
+    SCOPE_IS_CLEAR_STATUS,
+}
+BLOCKING_DECISION_STATUSES = {"open", "proposed", "resolved", "accepted"}
+_RUNTIME_FAILURE_REASONS = {
+    "auth_expired": "The AI runtime session expired: re-authenticate the CLI and retry.",
+    "auth_missing": "The AI runtime is not logged in: sign in to the CLI and retry.",
+    "quota_exhausted": "The AI runtime ran out of quota.",
+    "rate_limited": "The AI runtime is rate limited: wait a moment and retry.",
+    "provider_unreachable": "The AI provider could not be reached.",
+    "model_not_found": "The configured model is not available on the AI provider.",
+}
+"""Motivo accionable por causa clasificada. Reemplaza al returncode opaco en el blocker que ve el cliente; la
+traducción vive en el catálogo i18n, indexada por la misma causa.
+"""
 QUESTION_CONFIDENCE_PRIORITY = {"low": "high", "medium": "medium", "high": "low"}
 DEFAULT_COMPLETENESS_THRESHOLD = 70
 BLOCKED_COMPLETENESS_CAP = 60
 PROMPT_TEXT_LIMIT_CHARS = 8_000
 PROMPT_COLLECTION_LIMIT = 20
+PROMPT_CONTEXT_BUDGET_CHARS = 40_000
+"""Presupuesto agregado de las 4 colecciones del contexto (preguntas, decisiones, facts, settled): solo actua
+en hilos patologicos. Se descarta lo MAS ANTIGUO primero (lo reciente es lo relevante) y el conteo de
+omitidos queda en el contexto para que el modelo sepa que hubo historia truncada.
+"""
 RUNTIME_OUTPUT_LIMIT_CHARS = 200_000
 ASSESSMENT_SIGNAL_LIMIT = 5
+PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS = 2
+REPAIR_ERROR_LIMIT_CHARS = 2_000
+REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS = 1_500
+"""El error de validación (arriba) ya señala el campo exacto a corregir; 1.5k de salida previa bastan como
+referencia y ahorran ~2.5k chars en cada intento de repair.
+"""
 
 REQUIRED_BRIEF_TEXT_FIELDS = ["title", "summary", "problemStatement", "scope", "outOfScope"]
 REQUIRED_BRIEF_LIST_FIELDS = ["goals", "targetUsers", "successMetrics"]
@@ -77,29 +134,65 @@ class ProductOwnerOutputValidationError(ValueError):
     """Se lanza cuando la salida del runtime no cumple el esquema estricto del ProductOwnerAgent."""
 
 
-def _runtime_mode(runtime_id: str) -> str:
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
     if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
         return "cli"
-    return "ollama" if runtime_id == "ollama" else "api"
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
+    if is_ollama_runtime(runtime):
+        return "ollama"
+    return "local" if runtime.get("localModelRuntime") is True else "api"
 
 
 def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     payload = tool_call.get("payload") or {}
     execution_result = payload.get("executionResult") or {}
+    completed = tool_call.get("status") == "completed"
+    denied = tool_call.get("status") == "denied" or payload.get("decision") == "deny"
+    return_code = execution_result.get("returnCode")
+    timed_out = bool(execution_result.get("timedOut", False))
+    blocked = denied or bool(execution_result.get("blocked", False))
+    failure = classify_runtime_failure(
+        runtime_id=str(execution_result.get("runtimeId") or ""),
+        return_code=return_code if isinstance(return_code, int) else None,
+        stdout=str(execution_result.get("stdout") or ""),
+        stderr=str(execution_result.get("stderr") or ""),
+    )
+    reason = str(execution_result.get("reason") or "").strip()
+    if not reason and denied:
+        reason = str(redact_secrets(payload.get("decisionReason") or "")).strip()
+    if not reason and timed_out:
+        reason = "ProductOwnerAgent runtime execution timed out."
+    elif not reason and blocked:
+        reason = "ProductOwnerAgent runtime execution was blocked."
+    elif not reason and failure is not None and failure.cause != "unknown":
+        reason = _RUNTIME_FAILURE_REASONS[failure.cause]
+        if failure.retry_after:
+            reason = f"{reason} Available again at {failure.retry_after}."
+    elif not reason and not completed and return_code not in {None, 0, "0"}:
+        reason = f"ProductOwnerAgent runtime process exited with return code {return_code}."
+    elif not reason and not completed:
+        reason = "ProductOwnerAgent runtime execution failed."
+    elif not reason:
+        reason = str(payload.get("decisionReason") or "").strip()
+    classified = failure.cause if failure is not None and failure.cause != "unknown" else None
     return {
-        "status": "completed" if tool_call.get("status") == "completed" else "failed",
+        "status": "failed" if (classified is not None or denied or not completed) else "completed",
         "toolCallId": tool_call.get("id"),
+        "decision": "deny" if denied else payload.get("decision"),
+        "permissionDecisionId": payload.get("permissionDecisionId"),
         "execution": payload.get("execution"),
-        "returnCode": execution_result.get("returnCode"),
-        "timedOut": bool(execution_result.get("timedOut", False)),
-        "blocked": bool(execution_result.get("blocked", False)),
-        "reason": execution_result.get("reason") or payload.get("decisionReason"),
+        "returnCode": return_code,
+        "httpStatus": execution_result.get("httpStatus"),
+        "timedOut": timed_out,
+        "blocked": blocked,
+        "reason": reason,
+        "failureCause": classified,
+        "failureEvidence": failure.evidence if failure is not None else "",
+        "failureRetryAfter": failure.retry_after if failure is not None else None,
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "stdoutArtifactId": execution_result.get("stdoutArtifactId"),
+        "stderrArtifactId": execution_result.get("stderrArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
     }
 
@@ -112,11 +205,21 @@ def _bounded_text(value: Any, limit: int = PROMPT_TEXT_LIMIT_CHARS) -> str:
 
 
 def _string_list(value: Any, *, field: str) -> list[str]:
+    """Normaliza una lista de strings tolerando ``None`` y descartando entradas vacías/no-string.
+
+    ``None`` (campo omitido por el modelo) se trata como lista vacía; una entrada null o en blanco se
+    descarta con auditoría en log en vez de rechazar la salida entera (mismo criterio que
+    ``_graded_enum_value``: no bloquear por ruido recuperable). Un tipo que no es lista ni ``None``
+    —un dict o un número donde se espera una lista— sí es un error de contrato y falla. La obligación
+    de que un campo NO quede vacío (p. ej. ``acceptanceCriteria``) se hace cumplir aparte por el caller.
+    """
+    if value is None:
+        return []
     if not isinstance(value, list):
         raise ProductOwnerOutputValidationError(f"{field} must be a string list.")
-    items = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+    items = [item.strip() for item in value if isinstance(item, str) and item.strip()]
     if len(items) != len(value):
-        raise ProductOwnerOutputValidationError(f"{field} must contain only non-empty strings.")
+        logger.warning("%s dropped %d empty or non-string entries.", field, len(value) - len(items))
     return items
 
 
@@ -134,10 +237,43 @@ def _enum_value(item: dict[str, Any], key: str, allowed: set[str], default: str,
     return value
 
 
+def _graded_enum_value(item: dict[str, Any], key: str, allowed: set[str], default: str, *, field: str) -> str:
+    """Coerce un enum *advisory* (confianza, severidad, valor, reversibilidad) a ``default`` si no valida.
+
+    Estos campos gradúan una prioridad, no deciden un flujo: rechazar un brief entero porque el modelo
+    escribió "very high" en vez de "high" es la misma clase de bloqueo que ya trababa el loop. El
+    default de cada campo es el lado conservador (``irreversible`` escala en vez de auto-decidir), así
+    que degradar nunca abre una puerta que el valor original mantenía cerrada.
+    """
+    raw = item.get(key)
+    value = str(raw or default).strip().lower()
+    if value in allowed:
+        return value
+    logger.warning("%s.%s %r is not one of %s; graded down to %r.", field, key, raw, sorted(allowed), default)
+    return default
+
+
 def _question_priority(question: dict[str, Any]) -> str:
     if question.get("blocking"):
         return "high"
     return QUESTION_CONFIDENCE_PRIORITY.get(str(question.get("confidence")), "medium")
+
+
+def _stale_needs_input(output: dict[str, Any], *, unresolved_count: int) -> bool:
+    """``needs_input`` del modelo que ya no pide nada: AIDO suprimió todas sus preguntas.
+
+    ``ImpactQuestionEngine`` descarta las preguntas ya formuladas o deducibles. Si no queda ninguna
+    para este turno, no hay decisión escalada y el modelo igual entregó backlog, su estado es un
+    resto de antes de la supresión: conservarlo dejaba el loop bloqueado para siempre justo después
+    de que el operador respondiera (visto en vivo con gemma: 2 candidatas, 2 suprimidas, 0 por
+    preguntar). Sin backlog no se normaliza: no habría nada con qué seguir.
+    """
+    return (
+        output.get("status") in {NEEDS_INPUT_STATUS, "questions_required"}
+        and not output.get("questions")
+        and not unresolved_count
+        and bool(output.get("userStories"))
+    )
 
 
 def _autonomy_candidate(decision: dict[str, Any]) -> dict[str, Any] | None:
@@ -192,6 +328,185 @@ def _codebase_signals(assessment: dict[str, Any], findings: list[dict[str, Any]]
     }
 
 
+_CONTEXT_BUDGET_COLLECTIONS: dict[str, str] = {
+    "existingOpenQuestions": "head",
+    "existingUnresolvedDecisions": "tail",
+    "resolvedFacts": "head",
+    "settledDecisions": "tail",
+}
+"""Colecciones del contexto y el extremo por el que se recorta cada una al aplicar el presupuesto. El
+descarte SIEMPRE elimina el elemento MÁS ANTIGUO y preserva el más reciente (garantía anti-repregunta: la
+respuesta/decisión recién zanjada jamás se descarta). El extremo depende del orden en que la colección
+llega desde el repositorio: openQuestions (sequence ASC) y resolvedFacts (closed[-N:], recorte final de
+sequence ASC) son oldest-first, así que se recorta la cabeza; unresolvedDecisions y settledDecisions
+vienen de list_product_decisions (ORDER BY updated_at DESC), newest-first, así que se recorta la cola.
+"""
+
+
+def _apply_context_budget(context: dict[str, Any]) -> dict[str, Any]:
+    """Acota el total de las colecciones del contexto al presupuesto, descartando lo más antiguo.
+
+    Recorta la colección más pesada un elemento a la vez hasta caber, quitando siempre el más
+    antiguo según el orden de esa colección (``_CONTEXT_BUDGET_COLLECTIONS``) y dejando
+    ``omitted<Coleccion>`` con el conteo descartado. Nunca vacía una colección por completo: el
+    elemento más reciente siempre sobrevive, que es la garantía anti-repregunta.
+    """
+    collections = tuple(_CONTEXT_BUDGET_COLLECTIONS)
+
+    def weight(name: str) -> int:
+        return len(json.dumps(context.get(name) or [], ensure_ascii=False))
+
+    total = sum(weight(name) for name in collections)
+    if total <= PROMPT_CONTEXT_BUDGET_CHARS:
+        return context
+    omitted = dict.fromkeys(collections, 0)
+    while total > PROMPT_CONTEXT_BUDGET_CHARS:
+        heaviest = max(collections, key=weight)
+        items = context.get(heaviest) or []
+        if len(items) <= 1:
+            break
+        context[heaviest] = items[1:] if _CONTEXT_BUDGET_COLLECTIONS[heaviest] == "head" else items[:-1]
+        omitted[heaviest] += 1
+        total = sum(weight(name) for name in collections)
+    for name, count in omitted.items():
+        if count:
+            context[f"omitted{name[0].upper()}{name[1:]}"] = count
+    return context
+
+
+def _supplied_assessment_signals(supplied: dict[str, Any]) -> dict[str, Any]:
+    """Reduce un assessment_result con forma de runner a las señales acotadas del prompt.
+
+    El coordinator entrega el resultado completo del ``ProjectAssessmentRunner``
+    (``{assessment, findings, artifact, decision, job, agentRun}``); serializarlo verbatim infla el
+    prompt con registros internos y un finding por módulo/endpoint del repo (~24k chars medidos en
+    un proyecto mediano). Al modelo solo llegan las señales de ``_codebase_signals``; un dict ya
+    plano (stack/risks/gaps) pasa sin cambios porque es la forma acotada histórica.
+    """
+    assessment = supplied.get("assessment")
+    findings = supplied.get("findings")
+    if isinstance(assessment, dict) and isinstance(findings, list):
+        return _codebase_signals(assessment, [f for f in findings if isinstance(f, dict)])
+    return supplied
+
+
+def _initiative_prompt_view(initiative: Any) -> dict[str, Any] | None:
+    """Proyecta la iniciativa a sus campos de contenido: el modelo no usa uuids ni timestamps."""
+    if not isinstance(initiative, dict):
+        return None
+    return {
+        "title": initiative.get("title"),
+        "summary": initiative.get("summary"),
+        "status": initiative.get("status"),
+    }
+
+
+_BRIEF_PROMPT_FIELDS = (*REQUIRED_BRIEF_TEXT_FIELDS, *REQUIRED_BRIEF_LIST_FIELDS, "status", "version")
+
+
+def _brief_prompt_view(brief: Any) -> dict[str, Any] | None:
+    """Proyecta el brief a contenido + status/version, sin ids de BD ni timestamps."""
+    if not isinstance(brief, dict):
+        return None
+    return {field: brief.get(field) for field in _BRIEF_PROMPT_FIELDS}
+
+
+def persist_product_owner_backlog(
+    backlog: BacklogRepository,
+    *,
+    project_id: str,
+    output: dict[str, Any],
+    product_owner_output_id: str | None = None,
+    existing_epic: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Materializa épicas, historias y criterios desde un output PO validado.
+
+    Cuando ``existing_epic`` viene (modo expansión de épica), las historias cuyo
+    ``epicTitle`` coincide con esa épica se enlazan a su registro existente en vez de
+    crear una épica nueva.
+    """
+    existing: list[dict[str, Any]] = []
+    if product_owner_output_id:
+        existing = [
+            epic
+            for epic in backlog.list_epics(project_id)
+            if (epic.get("metadata") or {}).get("productOwnerOutputId") == product_owner_output_id
+        ]
+    if existing:
+        return [{"epic": epic, "stories": []} for epic in existing]
+
+    epics_by_title: dict[str, dict[str, Any]] = {}
+    persisted: list[dict[str, Any]] = []
+    if existing_epic:
+        epics_by_title[existing_epic["title"]] = existing_epic
+        persisted.append({"epic": existing_epic, "stories": []})
+    for epic in output["epics"]:
+        if epic["title"] in epics_by_title:
+            continue
+        epic_record = backlog.create_epic(
+            {
+                "projectId": project_id,
+                "title": epic["title"],
+                "description": epic.get("description", ""),
+                "status": "active",
+                "owner": PRODUCT_OWNER_AGENT_ID,
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+            }
+        )
+        epics_by_title[epic["title"]] = epic_record
+        persisted.append({"epic": epic_record, "stories": []})
+
+    persisted_by_epic_id = {item["epic"]["id"]: item for item in persisted}
+    for story in output["userStories"]:
+        epic_record = epics_by_title.get(story["epicTitle"])
+        if not epic_record:
+            epic_record = backlog.create_epic(
+                {
+                    "projectId": project_id,
+                    "title": story["epicTitle"],
+                    "description": "",
+                    "status": "active",
+                    "owner": PRODUCT_OWNER_AGENT_ID,
+                    "metadata": {
+                        "source": PRODUCT_OWNER_AGENT_ID,
+                        "productOwnerOutputId": product_owner_output_id,
+                    },
+                }
+            )
+            epics_by_title[story["epicTitle"]] = epic_record
+            persisted_by_epic_id[epic_record["id"]] = {"epic": epic_record, "stories": []}
+            persisted.append(persisted_by_epic_id[epic_record["id"]])
+        story_record = backlog.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic_record["id"],
+                "title": story["title"],
+                "asA": story["asA"],
+                "iWant": story["iWant"],
+                "soThat": story["soThat"],
+                "businessValue": story["businessValue"],
+                "owner": PRODUCT_OWNER_AGENT_ID,
+                "acceptanceCriteria": story["acceptanceCriteria"],
+                "acceptanceCriteriaMetadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "productOwnerOutputId": product_owner_output_id,
+                },
+            }
+        )
+        criteria = backlog.list_acceptance_criteria(story_record["id"])
+        persisted_by_epic_id[epic_record["id"]]["stories"].append(
+            {"story": story_record, "acceptanceCriteria": criteria}
+        )
+    return persisted
+
+
 class ProductOwnerAgent:
     """Lógica pura del ProductOwnerAgent: arma el prompt, valida la salida y calcula la completitud.
 
@@ -203,12 +518,20 @@ class ProductOwnerAgent:
         """Devuelve el contrato (esquemas I/O, tools y runtimes) del ProductOwnerAgent."""
         return product_owner_agent_contract()
 
-    def _assessment_context(self, *, idea: str, assessment: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _assessment_context(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
+        constitution: str | None = None,
+    ) -> dict[str, Any]:
+        context = {
             "idea": _bounded_text(idea),
             "codebaseSignals": assessment.get("projectAssessment"),
-            "existingInitiative": assessment.get("initiative"),
-            "existingBrief": assessment.get("brief"),
+            "existingInitiative": _initiative_prompt_view(assessment.get("initiative")),
+            "existingBrief": _brief_prompt_view(assessment.get("brief")),
             "existingOpenQuestions": [
                 _bounded_text(question.get("question"))
                 for question in (assessment.get("openQuestions") or [])[:PROMPT_COLLECTION_LIMIT]
@@ -217,38 +540,159 @@ class ProductOwnerAgent:
                 _bounded_text(decision.get("title"))
                 for decision in (assessment.get("unresolvedDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
             ],
+            "resolvedFacts": [
+                {
+                    "question": _bounded_text(fact.get("question")),
+                    "answer": _bounded_text(fact.get("answer")),
+                    "answeredBy": str(fact.get("answeredBy") or ""),
+                }
+                for fact in (assessment.get("resolvedFacts") or [])[:PROMPT_COLLECTION_LIMIT]
+            ],
+            "settledDecisions": [
+                {
+                    "title": _bounded_text(decision.get("title")),
+                    "decision": _bounded_text(decision.get("decision")),
+                    "rationale": _bounded_text(decision.get("rationale")),
+                }
+                for decision in (assessment.get("settledDecisions") or [])[:PROMPT_COLLECTION_LIMIT]
+            ],
         }
+        if goal_statement:
+            context["projectGoal"] = _bounded_text(goal_statement)
+        if constitution:
+            context["projectConstitution"] = constitution
+        if epic_expansion:
+            context["epicExpansion"] = epic_expansion
+        return _apply_context_budget(context)
 
-    def model_messages(self, *, idea: str, assessment: dict[str, Any]) -> list[dict[str, str]]:
+    def model_messages(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+        repair: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
+        constitution: str | None = None,
+    ) -> list[dict[str, str]]:
         """Arma los mensajes system/user para el runtime de modelo, exigiendo solo JSON del esquema."""
-        return [
-            {"role": "system", "content": self._system_instruction()},
+        messages = [
+            {"role": "system", "content": self._system_instruction(epic_expansion=bool(epic_expansion))},
             {
                 "role": "user",
-                "content": json_dumps(
-                    redact_secrets(self._assessment_context(idea=idea, assessment=assessment))
+                "content": prompt_json_dumps(
+                    redact_secrets(
+                        self._assessment_context(
+                            idea=idea,
+                            assessment=assessment,
+                            epic_expansion=epic_expansion,
+                            goal_statement=goal_statement,
+                            constitution=constitution,
+                        )
+                    )
                 ),
             },
         ]
+        if repair:
+            messages.append({"role": "user", "content": self._repair_instruction(repair)})
+        return messages
 
-    def cli_prompt(self, *, idea: str, assessment: dict[str, Any]) -> str:
+    def cli_prompt(
+        self,
+        *,
+        idea: str,
+        assessment: dict[str, Any],
+        epic_expansion: dict[str, Any] | None = None,
+        repair: dict[str, Any] | None = None,
+        goal_statement: str | None = None,
+        constitution: str | None = None,
+    ) -> str:
         """Arma el prompt de una sola pieza para un runtime CLI real, exigiendo solo JSON del esquema."""
-        context = json_dumps(redact_secrets(self._assessment_context(idea=idea, assessment=assessment)))
-        return f"{self._system_instruction()}\n\nInput context (JSON):\n{context}\n"
+        context = prompt_json_dumps(
+            redact_secrets(
+                self._assessment_context(
+                    idea=idea,
+                    assessment=assessment,
+                    epic_expansion=epic_expansion,
+                    goal_statement=goal_statement,
+                )
+            )
+        )
+        instruction = self._system_instruction(epic_expansion=bool(epic_expansion))
+        prompt = f"{instruction}\n\nInput context (JSON):\n{context}\n"
+        if repair:
+            prompt += self._repair_instruction(repair)
+        return prompt
 
-    def _system_instruction(self) -> str:
+    def _repair_instruction(self, repair: dict[str, Any]) -> str:
+        """Instrucción de reparación: adjunta el error de validación previo y la salida inválida acotada."""
+        error = _bounded_text(repair.get("error"), limit=REPAIR_ERROR_LIMIT_CHARS)
+        previous = _bounded_text(repair.get("previousOutput"), limit=REPAIR_PREVIOUS_OUTPUT_LIMIT_CHARS)
+        return (
+            "\n\nYour previous response FAILED strict validation with this error: "
+            + error
+            + "\nPrevious output was:\n"
+            + previous
+            + "\nReturn corrected JSON ONLY (no markdown fences), fixing exactly that error "
+            "and keeping every other field valid."
+        )
+
+    def _system_instruction(self, *, epic_expansion: bool = False) -> str:
+        if epic_expansion:
+            return (
+                "You are ProductOwnerAgent expanding ONE existing epic into additional user stories. "
+                "Return ONLY valid JSON, without markdown fences, matching this schema: "
+                + prompt_json_dumps(self.contract()["outputSchema"])
+                + " Rules: the input context includes epicExpansion with epicTitle, epicDescription and "
+                "existingStoryTitles. Every userStories[i].epicTitle MUST equal epicExpansion.epicTitle "
+                "exactly; do not invent other epics (epics must be an empty list). Do not duplicate any "
+                "title from existingStoryTitles. A user story represents user value (asA/iWant/soThat) "
+                "and is never a technical task; each story must include at least one acceptance "
+                "criterion. Use status backlog_ready when the stories are ready for approval and "
+                "needs_input only when the epic lacks the product facts required to derive stories."
+            )
         return (
             "You are ProductOwnerAgent. Analyze the supplied idea or existing assessment and return ONLY "
             "valid JSON, without markdown fences, matching this schema: "
-            + json_dumps(self.contract()["outputSchema"])
-            + " Rules: a user story represents user value (asA/iWant/soThat) and is never duplicated per "
-            "technical role; record any decision that must be made before building as a blockingDecision with "
-            "status open; do not invent acceptance criteria without a story; each generated story must include "
-            "at least one acceptance criterion. Every question is an impact-ranked object with category (one of "
+            + prompt_json_dumps(self.contract()["outputSchema"])
+            + " Rules: status is needs_input when the idea lacks product facts needed for a backlog, "
+            "scope_is_clear when a direct technical order in an existing project only needs a mini brief/task "
+            "scope, brief_ready when the brief can be reviewed, or backlog_ready when stories are ready for "
+            "approval. questions_required is accepted only as a legacy alias for needs_input. "
+            "A user story represents user value (asA/iWant/soThat) and is never a technical task or duplicated "
+            "per technical role; technical implementation work belongs outside userStories. A userStories item "
+            "must therefore not carry any of these keys: " + ", ".join(sorted(TECHNICAL_STORY_KEYS)) + ". "
+            "Record product "
+            "decisions in decisions with status open when a human/AIDO choice is still needed. Do not invent "
+            "acceptance criteria without a story; each generated story must include at least one acceptance "
+            "criterion. Every question is an impact-ranked object with category (one of "
             "scope/users/data/integration/compliance/nonfunctional/ux/risk/delivery), question, whyItMatters, "
             "blocking (boolean), options (>=2 strings), recommendation (one of options), defaultDecision (one of "
-            "options) and confidence (low/medium/high); do not ask about facts already present in the assessment."
+            "options) and confidence (low/medium/high); do not ask about facts already present in the assessment. "
+            "resolvedFacts and settledDecisions are already settled: treat them as binding, never re-ask them "
+            "in any rewording, and never emit a question or a decision that contradicts them. "
+            "recommendation and defaultDecision must repeat one option verbatim, never an index, a paraphrase or a "
+            'new value: for options ["Keep Java 17", "Upgrade to Java 21"] a valid defaultDecision is "Keep Java 17".'
         )
+
+    def validate_epic_expansion_output(self, output: dict[str, Any], *, epic_title: str) -> None:
+        """Valida que un output de expansión derive historias solo para la épica objetivo.
+
+        Raises:
+            ProductOwnerOutputValidationError: si no hay historias o alguna referencia otra épica.
+        """
+        stories = output.get("userStories") or []
+        if not stories:
+            raise ProductOwnerOutputValidationError(
+                "Epic expansion output must include at least one user story for the target epic."
+            )
+        for index, story in enumerate(stories):
+            story_epic = str(story.get("epicTitle") or "")
+            if story_epic != epic_title:
+                raise ProductOwnerOutputValidationError(
+                    f"userStories[{index}].epicTitle must equal the target epic title "
+                    f"({epic_title!r}), got {story_epic!r}."
+                )
 
     def validate_output(self, payload: Any) -> dict[str, Any]:
         """Valida la salida del runtime contra el esquema estricto y la normaliza.
@@ -264,13 +708,50 @@ class ProductOwnerAgent:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent output is missing required fields: " + ", ".join(missing)
             )
+        status = str(payload["status"]).strip()
+        if status not in RUNTIME_OUTPUT_STATUSES:
+            raise ProductOwnerOutputValidationError(
+                f"status must be one of {sorted(RUNTIME_OUTPUT_STATUSES)}."
+            )
+        brief = self._validate_brief(payload["productBriefPatch"], field="productBriefPatch")
+        epics = self._validate_epic_summaries(payload["epics"])
+        user_stories = self._validate_user_stories(payload["userStories"], epics=epics)
+        if not isinstance(payload["decisions"], list):
+            raise ProductOwnerOutputValidationError("decisions must be a list.")
+        decisions_payload = [*payload["decisions"]]
+        legacy_decisions = payload.get("blockingDecisions")
+        if isinstance(legacy_decisions, list):
+            decisions_payload.extend(legacy_decisions)
+        unique_decisions: list[dict[str, Any]] = []
+        seen_decisions: set[tuple[str, str, str]] = set()
+        for item in decisions_payload:
+            if not isinstance(item, dict):
+                unique_decisions.append(item)
+                continue
+            key = (
+                str(item.get("title") or "").strip(),
+                str(item.get("question") or "").strip(),
+                str(item.get("status") or "").strip(),
+            )
+            if key in seen_decisions:
+                continue
+            seen_decisions.add(key)
+            unique_decisions.append(item)
+        decisions = self._validate_blocking_decisions(unique_decisions)
         return {
+            "status": status,
+            "summary": _required_text(payload, "summary", field="output"),
+            "confidence": _graded_enum_value(payload, "confidence", CONFIDENCES, "medium", field="output"),
             "questions": self._validate_questions(payload["questions"]),
             "assumptions": self._validate_assumptions(payload["assumptions"]),
-            "blockingDecisions": self._validate_blocking_decisions(payload["blockingDecisions"]),
-            "brief": self._validate_brief(payload["brief"]),
-            "epics": self._validate_epics(payload["epics"]),
-            "modelCompleteness": payload["completeness"] if isinstance(payload["completeness"], dict) else {},
+            "blockingDecisions": decisions,
+            "decisions": decisions,
+            "brief": brief,
+            "productBriefPatch": brief,
+            "epics": epics,
+            "userStories": user_stories,
+            "risks": self._validate_risks(payload["risks"]),
+            "recommendedNextAction": _required_text(payload, "recommendedNextAction", field="output"),
         }
 
     def _validate_questions(self, value: Any) -> list[dict[str, Any]]:
@@ -291,7 +772,7 @@ class ProductOwnerAgent:
             assumptions.append(
                 {
                     "statement": _required_text(item, "statement", field=f"assumptions[{index}]"),
-                    "confidence": _enum_value(
+                    "confidence": _graded_enum_value(
                         item, "confidence", CONFIDENCES, "medium", field=f"assumptions[{index}]"
                     ),
                     "validation": str(item.get("validation") or "").strip(),
@@ -301,20 +782,20 @@ class ProductOwnerAgent:
 
     def _validate_blocking_decisions(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
-            raise ProductOwnerOutputValidationError("blockingDecisions must be a list.")
+            raise ProductOwnerOutputValidationError("decisions must be a list.")
         decisions: list[dict[str, Any]] = []
         for index, item in enumerate(value):
             if not isinstance(item, dict):
-                raise ProductOwnerOutputValidationError(f"blockingDecisions[{index}] must be an object.")
+                raise ProductOwnerOutputValidationError(f"decisions[{index}] must be an object.")
             options_value = item.get("options")
             options = (
-                _string_list(options_value, field=f"blockingDecisions[{index}].options")
+                _string_list(options_value, field=f"decisions[{index}].options")
                 if options_value is not None
                 else []
             )
             decisions.append(
                 {
-                    "title": _required_text(item, "title", field=f"blockingDecisions[{index}]"),
+                    "title": _required_text(item, "title", field=f"decisions[{index}]"),
                     "question": str(item.get("question") or "").strip(),
                     "rationale": str(item.get("rationale") or "").strip(),
                     "status": _enum_value(
@@ -322,61 +803,83 @@ class ProductOwnerAgent:
                         "status",
                         BLOCKING_DECISION_STATUSES,
                         "open",
-                        field=f"blockingDecisions[{index}]",
+                        field=f"decisions[{index}]",
                     ),
                     "options": options,
                     "recommendation": str(item.get("recommendation") or "").strip(),
-                    "reversibility": _enum_value(
+                    "category": str(item.get("category") or item.get("type") or "").strip(),
+                    "impact": str(
+                        item.get("impact") or item.get("risk") or item.get("severity") or ""
+                    ).strip(),
+                    "requiresResearch": bool(item.get("requiresResearch", False)),
+                    "reversibility": _graded_enum_value(
                         item,
                         "reversibility",
                         REVERSIBILITIES,
                         "irreversible",
-                        field=f"blockingDecisions[{index}]",
+                        field=f"decisions[{index}]",
                     ),
-                    "confidence": _enum_value(
-                        item, "confidence", CONFIDENCES, "low", field=f"blockingDecisions[{index}]"
+                    "confidence": _graded_enum_value(
+                        item, "confidence", CONFIDENCES, "low", field=f"decisions[{index}]"
                     ),
                 }
             )
         return decisions
 
-    def _validate_brief(self, value: Any) -> dict[str, Any]:
+    def _validate_brief(self, value: Any, *, field: str = "brief") -> dict[str, Any]:
         if not isinstance(value, dict):
-            raise ProductOwnerOutputValidationError("brief must be an object.")
+            raise ProductOwnerOutputValidationError(f"{field} must be an object.")
         brief = {
-            "title": _required_text(value, "title", field="brief"),
+            "title": _required_text(value, "title", field=field),
             "summary": str(value.get("summary") or "").strip(),
             "problemStatement": str(value.get("problemStatement") or "").strip(),
             "scope": str(value.get("scope") or "").strip(),
             "outOfScope": str(value.get("outOfScope") or "").strip(),
         }
-        for field in REQUIRED_BRIEF_LIST_FIELDS:
-            brief[field] = _string_list(value.get(field, []), field=f"brief.{field}")
+        for list_field in REQUIRED_BRIEF_LIST_FIELDS:
+            brief[list_field] = _string_list(value.get(list_field, []), field=f"{field}.{list_field}")
         return brief
 
-    def _validate_epics(self, value: Any) -> list[dict[str, Any]]:
+    def _validate_epic_summaries(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             raise ProductOwnerOutputValidationError("epics must be a list.")
-        return [self._validate_epic(item, index=index) for index, item in enumerate(value)]
+        epics: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ProductOwnerOutputValidationError(f"epics[{index}] must be an object.")
+            epics.append(
+                {
+                    "title": _required_text(item, "title", field=f"epics[{index}]"),
+                    "description": str(item.get("description") or "").strip(),
+                }
+            )
+        return epics
 
-    def _validate_epic(self, item: Any, *, index: int) -> dict[str, Any]:
-        if not isinstance(item, dict):
-            raise ProductOwnerOutputValidationError(f"epics[{index}] must be an object.")
-        stories_value = item.get("stories")
-        if not isinstance(stories_value, list):
-            raise ProductOwnerOutputValidationError(f"epics[{index}].stories must be a list.")
-        return {
-            "title": _required_text(item, "title", field=f"epics[{index}]"),
-            "description": str(item.get("description") or "").strip(),
-            "stories": [
-                self._validate_story(story, field=f"epics[{index}].stories[{story_index}]")
-                for story_index, story in enumerate(stories_value)
-            ],
-        }
+    def _validate_user_stories(self, value: Any, *, epics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise ProductOwnerOutputValidationError("userStories must be a list.")
+        epic_titles = {epic["title"] for epic in epics}
+        stories: list[dict[str, Any]] = []
+        for index, story in enumerate(value):
+            normalized = self._validate_story(story, field=f"userStories[{index}]")
+            epic_title = str(story.get("epicTitle") or "").strip() if isinstance(story, dict) else ""
+            if not epic_title:
+                raise ProductOwnerOutputValidationError(f"userStories[{index}].epicTitle is required.")
+            if epic_titles and epic_title not in epic_titles:
+                raise ProductOwnerOutputValidationError(
+                    f"userStories[{index}].epicTitle must match one of the generated epics."
+                )
+            stories.append({**normalized, "epicTitle": epic_title})
+        return stories
 
     def _validate_story(self, item: Any, *, field: str) -> dict[str, Any]:
         if not isinstance(item, dict):
             raise ProductOwnerOutputValidationError(f"{field} must be an object.")
+        forbidden = sorted(key for key in TECHNICAL_STORY_KEYS if key in item)
+        if forbidden:
+            raise ProductOwnerOutputValidationError(
+                f"{field} must be user value, not a technical task; remove {', '.join(forbidden)}."
+            )
         criteria = _string_list(item.get("acceptanceCriteria", []), field=f"{field}.acceptanceCriteria")
         if not criteria:
             raise ProductOwnerOutputValidationError(
@@ -387,9 +890,33 @@ class ProductOwnerAgent:
             "asA": _required_text(item, "asA", field=field),
             "iWant": _required_text(item, "iWant", field=field),
             "soThat": _required_text(item, "soThat", field=field),
-            "businessValue": _enum_value(item, "businessValue", BUSINESS_VALUES, "medium", field=field),
+            "businessValue": _graded_enum_value(
+                item, "businessValue", BUSINESS_VALUES, "medium", field=field
+            ),
             "acceptanceCriteria": criteria,
         }
+
+    def _validate_risks(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise ProductOwnerOutputValidationError("risks must be a list.")
+        risks: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ProductOwnerOutputValidationError(f"risks[{index}] must be an object.")
+            risks.append(
+                {
+                    "severity": _graded_enum_value(
+                        item,
+                        "severity",
+                        {"low", "medium", "high", "critical"},
+                        "medium",
+                        field=f"risks[{index}]",
+                    ),
+                    "description": _required_text(item, "description", field=f"risks[{index}]"),
+                    "mitigation": str(item.get("mitigation") or "").strip(),
+                }
+            )
+        return risks
 
     def calculate_completeness(
         self, *, brief: dict[str, Any], unresolved_blocking: int, open_questions: int
@@ -428,31 +955,39 @@ class ProductOwnerAgentRunner:
         self.workspaces = WorkspacesRepository(connection, root=root)
         self.projects = ProjectsRepository(connection)
 
-    def status(self, *, preferred_runtime: str | None = None) -> dict[str, Any]:
+    def status(
+        self, *, preferred_runtime: str | None = None, project_id: str | None = None
+    ) -> dict[str, Any]:
         """Devuelve el readiness del ProductOwnerAgent según los runtimes CLI/modelo disponibles."""
-        statuses = RuntimeStatusService(self.connection).list_provider_statuses()
+        statuses = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
         return product_owner_agent_readiness(statuses, preferred_runtime=preferred_runtime)
 
-    def _runtime_by_id(self, runtime_id: str | None) -> dict[str, Any] | None:
+    def _runtime_by_id(
+        self, runtime_id: str | None, *, project_id: str | None = None
+    ) -> dict[str, Any] | None:
         if not runtime_id:
             return None
-        statuses = RuntimeStatusService(self.connection).list_provider_statuses()
+        statuses = RuntimeStatusService(self.connection).list_provider_statuses(project_id=project_id)
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _ensure_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
+        remote_runtime = runtime_requires_network(runtime, PRODUCT_OWNER_AGENT_REMOTE_API_RUNTIMES)
         return self.agents.upsert_agent_profile(
             {
                 "id": PRODUCT_OWNER_AGENT_ID,
                 "name": "ProductOwnerAgent",
                 "role": "product_owner",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "plan",
                 "allowedTools": PRODUCT_OWNER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id == "openai_compatible",
+                "allowRemote": remote_runtime,
                 "allowCli": runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES,
+                "allowApi": provider_family in PRODUCT_OWNER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": product_owner_agent_contract()["outputSchema"],
             }
         )
@@ -474,14 +1009,12 @@ class ProductOwnerAgentRunner:
         if initiative["projectId"] != project_id:
             raise ValueError("ProductOwnerAgent initiative does not belong to the project.")
         briefs = self.discovery.list_product_briefs(initiative_id=initiative_id)
-        open_questions = [
-            question
-            for question in self.discovery.list_clarification_questions(initiative_id=initiative_id)
-            if question["status"] == "open"
-        ]
+        asked_questions = self.discovery.list_clarification_questions(initiative_id=initiative_id)
+        open_questions = [question for question in asked_questions if question["status"] == "open"]
+        decisions = self.discovery.list_product_decisions(initiative_id=initiative_id)
         unresolved_decisions = [
             decision
-            for decision in self.discovery.list_product_decisions(initiative_id=initiative_id)
+            for decision in decisions
             if decision["status"] == "proposed" and bool((decision.get("metadata") or {}).get("blocking"))
         ]
         return {
@@ -489,8 +1022,43 @@ class ProductOwnerAgentRunner:
             "initiative": initiative,
             "brief": briefs[0] if briefs else None,
             "openQuestions": open_questions,
+            "askedQuestions": asked_questions,
             "unresolvedDecisions": unresolved_decisions,
+            "resolvedFacts": self._resolved_facts(asked_questions),
+            "settledDecisions": [
+                decision for decision in decisions if decision["status"] in {"accepted", "resolved"}
+            ],
         }
+
+    def _resolved_facts(self, asked_questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Empareja cada pregunta ya cerrada con su respuesta aceptada más reciente.
+
+        El dedup por texto solo suprime una repregunta idéntica; lo que impide reformularla es que el
+        modelo vea la respuesta. Una pregunta cerrada sin respuesta aceptada (p. ej. descartada) no
+        aporta un hecho y se omite.
+
+        Se acotan las ``PROMPT_COLLECTION_LIMIT`` cerradas más recientes: son justamente los hilos con
+        muchas preguntas acumuladas los que sufren este bug, y una consulta de respuestas por pregunta
+        serializaría el control plane sin aportar nada (el prompt tampoco lleva más que ese tope).
+        """
+        facts: list[dict[str, Any]] = []
+        closed = [question for question in asked_questions if question["status"] != "open"]
+        for question in closed[-PROMPT_COLLECTION_LIMIT:]:
+            accepted = [
+                answer
+                for answer in self.discovery.list_clarification_answers(question["id"])
+                if answer["status"] == "accepted"
+            ]
+            if not accepted:
+                continue
+            facts.append(
+                {
+                    "question": question["question"],
+                    "answer": accepted[-1]["answer"],
+                    "answeredBy": accepted[-1].get("answeredBy") or "",
+                }
+            )
+        return facts
 
     def _project_assessment_signals(self, project_id: str) -> dict[str, Any] | None:
         """Carga (o produce, si falta) el último project assessment del proyecto como señales acotadas.
@@ -515,12 +1083,16 @@ class ProductOwnerAgentRunner:
 
     def _runtime_output_text(self, result: dict[str, Any]) -> dict[str, Any]:
         artifact_id = result.get("outputArtifactId") or result.get("stdoutArtifactId")
-        if not artifact_id:
-            raise ProductOwnerOutputValidationError(
-                "ProductOwnerAgent runtime execution did not produce an output artifact."
-            )
-        artifact = self.evidence.get_artifact_by_id(artifact_id)
-        content = Path(artifact["path"]).read_text(encoding="utf-8")
+
+        def read_artifact() -> str:
+            if not artifact_id:
+                raise ProductOwnerOutputValidationError(
+                    "ProductOwnerAgent runtime execution did not produce an output artifact."
+                )
+            artifact = self.evidence.get_artifact_by_id(artifact_id)
+            return Path(artifact["path"]).read_text(encoding="utf-8")
+
+        content = prefer_transient_output(result.get("toolCallId"), read_artifact)
         if len(content) > RUNTIME_OUTPUT_LIMIT_CHARS:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent runtime output exceeds the size limit."
@@ -529,16 +1101,8 @@ class ProductOwnerAgentRunner:
 
     @staticmethod
     def _json_object_from_text(content: str) -> Any:
-        candidate = content.strip()
-        if candidate.startswith("```"):
-            lines = candidate.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            candidate = "\n".join(lines).strip()
         try:
-            return json.loads(candidate)
+            return redact_secrets(json.loads(json_candidate_text(content)))
         except json.JSONDecodeError as error:
             raise ProductOwnerOutputValidationError(
                 "ProductOwnerAgent runtime output is not valid JSON."
@@ -558,28 +1122,54 @@ class ProductOwnerAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        if runtime_id == "ollama":
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
+        if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        resource_decision = (
+            metadata.get("resourceSelection") if isinstance(metadata.get("resourceSelection"), dict) else None
+        )
         model_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
             agent_run_id=agent_run["id"],
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
                 "operation": "product_owner_model_call",
                 "runtimeId": runtime_id,
                 "capability": "chat",
-                "input": {"model": model, "messages": messages, "temperature": 0.1},
-                "networkRequired": runtime_id == "openai_compatible",
+                "input": {
+                    "providerId": runtime_id,
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "streamOutput": True,
+                    **local_model_call_input(
+                        self.connection,
+                        provider_id=runtime_id,
+                        model=model,
+                        response_schema={
+                            "name": PRODUCT_OWNER_AGENT_ID,
+                            "schema": product_owner_agent_contract()["outputSchema"],
+                        },
+                    ),
+                },
+                "networkRequired": False,
                 "secretsRequired": False,
+                "providerTransportRequired": True,
+                "workspaceReadRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
+                "resourceDecisionId": (resource_decision or {}).get("routingDecisionId"),
                 "execute": True,
-                "timeoutSeconds": 900,
+                "timeoutSeconds": PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
             },
+            trusted_operation="product_owner_model_call",
+            trusted_resource_decision=resource_decision,
         )
         return _execution_result_from_tool_call(model_eval["toolCall"])
 
@@ -595,34 +1185,78 @@ class ProductOwnerAgentRunner:
         broker: ToolBroker,
         prompt: str,
     ) -> dict[str, Any]:
-        runtime_argv = build_product_owner_agent_argv(
-            runtime=runtime,
-            workspace_id=workspace["id"],
-            workspace_path=workspace["path"],
-            prompt=prompt,
-            agent_id=PRODUCT_OWNER_AGENT_ID,
-            connection=self.connection,
+        execution_workspace = workspace
+        ephemeral_prompt_workspace: dict[str, Any] | None = None
+        if str(runtime.get("id") or "") in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+            ephemeral_prompt_workspace = self.workspaces.allocate_prompt_workspace(
+                project_id=str(payload["projectId"]),
+                task_id=f"{workspace['taskId']}:product-owner-cli-prompt:{agent_run['id']}",
+                agent_id=PRODUCT_OWNER_AGENT_ID,
+                source_workspace_id=workspace["id"],
+                reason="Isolated prompt-only cwd for ProductOwnerAgent CLI execution.",
+                workflow_run_id=agent_run.get("workflowRunId"),
+                workflow_step_id=agent_run.get("workflowStepId"),
+            )
+            execution_workspace = ephemeral_prompt_workspace
+
+        environment_context = (
+            isolated_product_owner_codex_environment()
+            if str(runtime.get("id") or "") == "codex_cli"
+            else nullcontext(None)
         )
-        runtime_eval = broker.evaluate_tool_call(
-            project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": "shell",
-                "command": " ".join(runtime_argv),
-                "argv": runtime_argv,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "product_owner_runtime",
-                "runtimeId": runtime["id"],
-                "capability": "code_edit",
-                "execute": True,
-                "timeoutSeconds": 900,
-            },
-        )
-        return _execution_result_from_tool_call(runtime_eval["toolCall"])
+        try:
+            with environment_context as subprocess_environment:
+                runtime_argv = build_product_owner_agent_argv(
+                    runtime=runtime,
+                    workspace_id=execution_workspace["id"],
+                    workspace_path=execution_workspace["path"],
+                    prompt=prompt,
+                    model=payload.get("model"),
+                    agent_id=PRODUCT_OWNER_AGENT_ID,
+                    connection=self.connection,
+                )
+                metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+                resource_decision = (
+                    metadata.get("resourceSelection")
+                    if isinstance(metadata.get("resourceSelection"), dict)
+                    else None
+                )
+                runtime_eval = broker.evaluate_tool_call(
+                    project_id=payload["projectId"],
+                    agent_run_id=agent_run["id"],
+                    agent_profile=profile,
+                    job_id=job["id"],
+                    tool_call={
+                        "tool": "shell",
+                        "command": " ".join(runtime_argv),
+                        "argv": runtime_argv,
+                        "workspaceId": execution_workspace["id"],
+                        "workspacePath": execution_workspace["path"],
+                        "path": execution_workspace["path"],
+                        "operation": "product_owner_runtime",
+                        "runtimeId": runtime["id"],
+                        "model": payload.get("model"),
+                        "capability": "chat",
+                        "providerTransportRequired": True,
+                        "workspaceReadRequired": False,
+                        "networkRequired": False,
+                        "secretsRequired": False,
+                        "execute": True,
+                        "timeoutSeconds": PRODUCT_OWNER_RUNTIME_TIMEOUT_SECONDS,
+                        "captureStdoutArtifact": True,
+                        "resourceDecisionId": (resource_decision or {}).get("routingDecisionId"),
+                    },
+                    trusted_operation="product_owner_runtime",
+                    trusted_resource_decision=resource_decision,
+                    trusted_subprocess_environment=subprocess_environment,
+                )
+                return _execution_result_from_tool_call(runtime_eval["toolCall"])
+        finally:
+            if ephemeral_prompt_workspace is not None:
+                self.workspaces.archive_workspace(
+                    ephemeral_prompt_workspace["id"],
+                    reason="ProductOwnerAgent CLI prompt workspace released after execution.",
+                )
 
     def _persist_initiative(
         self, *, project_id: str, assessment: dict[str, Any], brief: dict[str, Any]
@@ -651,7 +1285,7 @@ class ProductOwnerAgentRunner:
         automatic: list[dict[str, Any]] = []
         escalated: list[dict[str, Any]] = []
         for decision in blocking_decisions:
-            if decision["status"] == "resolved":
+            if decision["status"] in {"accepted", "resolved"}:
                 resolved.append({"decision": decision, "record": None})
                 continue
             candidate = _autonomy_candidate(decision)
@@ -682,14 +1316,17 @@ class ProductOwnerAgentRunner:
                 "briefId": brief_id,
                 "title": decision["title"],
                 "status": status,
-                "context": decision["question"],
-                "decision": (audit or {}).get("chosen", ""),
-                "rationale": decision["rationale"],
+                "context": decision.get("question") or decision.get("title", ""),
+                "decision": (audit or {}).get("chosen")
+                or decision.get("decision")
+                or decision.get("recommendation", ""),
+                "rationale": decision.get("rationale", ""),
                 "decidedBy": PRODUCT_OWNER_AGENT_ID,
                 "metadata": {
                     "source": PRODUCT_OWNER_AGENT_ID,
                     "taskId": task_id,
                     "blocking": blocking,
+                    "options": list(decision.get("options") or []),
                     "autonomy": audit,
                 },
             }
@@ -787,45 +1424,59 @@ class ProductOwnerAgentRunner:
         )
         return {"questions": questions, "assumptions": assumptions, "brief": brief, "decisions": decisions}
 
-    def _persist_backlog(self, *, project_id: str, output: dict[str, Any]) -> list[dict[str, Any]]:
-        epics: list[dict[str, Any]] = []
-        for epic in output["epics"]:
-            epic_record = self.backlog.create_epic(
-                {
-                    "projectId": project_id,
-                    "title": epic["title"],
-                    "description": epic["description"],
-                    "status": "active",
-                    "owner": PRODUCT_OWNER_AGENT_ID,
-                }
-            )
-            stories: list[dict[str, Any]] = []
-            for story in epic["stories"]:
-                story_record = self.backlog.create_user_story(
-                    {
-                        "projectId": project_id,
-                        "epicId": epic_record["id"],
-                        "title": story["title"],
-                        "asA": story["asA"],
-                        "iWant": story["iWant"],
-                        "soThat": story["soThat"],
-                        "businessValue": story["businessValue"],
-                        "owner": PRODUCT_OWNER_AGENT_ID,
-                    }
-                )
-                criteria = [
-                    self.backlog.create_acceptance_criterion(
-                        {
-                            "projectId": project_id,
-                            "storyId": story_record["id"],
-                            "criterion": criterion,
-                        }
-                    )
-                    for criterion in story["acceptanceCriteria"]
-                ]
-                stories.append({"story": story_record, "acceptanceCriteria": criteria})
-            epics.append({"epic": epic_record, "stories": stories})
-        return epics
+    def _persist_product_owner_output(
+        self,
+        *,
+        project_id: str,
+        initiative_id: str,
+        brief_id: str,
+        output: dict[str, Any],
+        runtime_id: str,
+        output_artifact_id: str | None,
+        task_id: str,
+    ) -> dict[str, Any]:
+        return self.discovery.create_product_owner_output(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative_id,
+                "briefId": brief_id,
+                "status": output["status"],
+                "summary": output["summary"],
+                "confidence": output["confidence"],
+                "questions": output["questions"],
+                "assumptions": output["assumptions"],
+                "decisions": output["decisions"],
+                "productBriefPatch": output["productBriefPatch"],
+                "epics": output["epics"],
+                "userStories": output["userStories"],
+                "risks": output["risks"],
+                "recommendedNextAction": output["recommendedNextAction"],
+                "runtimeId": runtime_id,
+                "outputArtifactId": output_artifact_id or "",
+                "metadata": {
+                    "source": PRODUCT_OWNER_AGENT_ID,
+                    "taskId": task_id,
+                    "questionSelection": output.get("questionSelection") or {},
+                    "autonomy": output.get("autonomy") or {},
+                },
+            }
+        )
+
+    def _persist_backlog(
+        self,
+        *,
+        project_id: str,
+        output: dict[str, Any],
+        product_owner_output_id: str | None = None,
+        existing_epic: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return persist_product_owner_backlog(
+            self.backlog,
+            project_id=project_id,
+            output=output,
+            product_owner_output_id=product_owner_output_id,
+            existing_epic=existing_epic,
+        )
 
     def _write_manifest_artifact(self, *, project_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
         artifact_id = f"artifact-{uuid.uuid4()}"
@@ -855,26 +1506,42 @@ class ProductOwnerAgentRunner:
         completitud, persiste discovery siempre tras validar y backlog solo si no quedan decisiones
         bloqueantes. Falla cerrado (runtime_unavailable/failed_validation) ante cualquier brecha.
         """
+        max_attempts = payload.get("maxRuntimeAttempts", PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS)
+        if type(max_attempts) is not int or not 1 <= max_attempts <= PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS:
+            raise ValueError("ProductOwnerAgent maxRuntimeAttempts must be an integer between 1 and 2.")
         project_id = str(payload["projectId"])
         task_id = str(payload.get("taskId") or "product_owner_agent")
         idea = str(payload.get("idea") or "")
         initiative_id = payload.get("initiativeId")
         threshold = payload.get("completenessThreshold")
         threshold = int(threshold) if isinstance(threshold, (int, float)) else DEFAULT_COMPLETENESS_THRESHOLD
+        epic: dict[str, Any] | None = None
+        epic_id = str(payload.get("epicId") or "").strip()
+        if epic_id:
+            epic = self.backlog.get_epic(epic_id)
+            if epic["projectId"] != project_id:
+                raise KeyError(f"Epic not found in project: {epic_id}")
+            if not idea.strip():
+                idea = f"Expand the epic {epic['title']!r} into additional user stories."
         workspace = self._workspace(project_id=project_id, workspace_id=str(payload["workspaceId"]))
         assessment = self._assessment(project_id=project_id, idea=idea, initiative_id=initiative_id)
-        assessment["projectAssessment"] = self._project_assessment_signals(project_id)
-
-        readiness = self.status(preferred_runtime=payload.get("preferredRuntime"))
-        runtime = self._runtime_by_id(readiness.get("selectedRuntimeId")) or {
+        readiness = self.status(preferred_runtime=payload.get("preferredRuntime"), project_id=project_id)
+        supplied_assessment = payload.get("assessment")
+        assessment["projectAssessment"] = (
+            redact_secrets(_supplied_assessment_signals(supplied_assessment))
+            if isinstance(supplied_assessment, dict) and supplied_assessment
+            else self._project_assessment_signals(project_id)
+            if readiness["executable"]
+            else None
+        )
+        runtime = self._runtime_by_id(readiness.get("selectedRuntimeId"), project_id=project_id) or {
             "id": readiness.get("selectedRuntimeId") or "unresolved",
             "kind": "unknown",
             "executable": False,
             "reason": readiness["reason"],
             "capabilities": [],
         }
-        runtime_id = str(runtime.get("id") or "unresolved")
-        profile = self._ensure_profile(runtime_id)
+        profile = self._ensure_profile(runtime)
         workflow_context = payload.get("workflowContext") or {}
         job = self.jobs.create_job(
             project_id=project_id,
@@ -907,6 +1574,7 @@ class ProductOwnerAgentRunner:
             assessment=assessment,
             task_id=task_id,
             threshold=threshold,
+            epic=epic,
         )
         return self._finalize(
             project_id=project_id,
@@ -919,6 +1587,152 @@ class ProductOwnerAgentRunner:
             workflow_context=workflow_context,
             result=result,
         )
+
+    def _mint_repair_resource_decision(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Acuña una decisión de ruteo hermana para autorizar un intento de reparación.
+
+        La frontera anti-replay del ToolBroker consume cada decisión de ruteo exactamente una vez;
+        el intento de reparación es una invocación adicional legítima del mismo run (misma
+        selección de proveedor/modelo/runtime y mismo workflow), así que se registra una decisión
+        nueva auditada como reparación en vez de debilitar el invariante de un solo uso.
+        """
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        selection = metadata.get("resourceSelection")
+        if not isinstance(selection, dict):
+            return None
+        original_id = str(selection.get("routingDecisionId") or "").strip()
+        if not original_id:
+            return None
+        row = self.connection.execute(
+            "SELECT * FROM ai_routing_decisions WHERE id = ?", (original_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        record["id"] = f"ai-routing-{uuid.uuid4()}"
+        record["usage_status"] = "not_executed"
+        record["actual_cost_usd"] = None
+        record["decision_reason"] = f"Repair attempt re-authorization of routing decision {original_id}."
+        record["created_at"] = utc_now()
+        columns = ", ".join(record.keys())
+        placeholders = ", ".join(["?"] * len(record))
+        self.connection.execute(
+            f"INSERT INTO ai_routing_decisions ({columns}) VALUES ({placeholders})",
+            tuple(record.values()),
+        )
+        return {
+            **selection,
+            "routingDecisionId": record["id"],
+            "usageStatus": "not_executed",
+            "decisionReason": record["decision_reason"],
+        }
+
+    def _execute_once(
+        self,
+        *,
+        payload: dict[str, Any],
+        runtime: dict[str, Any],
+        workspace: dict[str, Any],
+        agent_run: dict[str, Any],
+        job: dict[str, Any],
+        profile: dict[str, Any],
+        broker: ToolBroker,
+        assessment: dict[str, Any],
+        detected_facts: set[str],
+        epic: dict[str, Any] | None,
+        epic_expansion: dict[str, Any] | None,
+        repair: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Ejecuta el runtime una vez y valida su salida contra el contrato estricto.
+
+        Returns:
+            ``{"kind": "ok", output, selection, runtimeResult, outputArtifactId}`` en éxito;
+            ``{"kind": "invalid", reason, runtimeResult, outputText, outputArtifactId}`` si la
+            salida no valida (candidata a reparación); ``{"kind": "infra_failed", reason,
+            runtimeResult}`` si el runtime no completó (la reparación no aplica).
+        """
+        runtime_id = str(runtime["id"])
+        goal_statement = str(payload.get("goalStatement") or "").strip() or None
+        constitution = str(payload.get("constitution") or "").strip() or None
+        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
+            try:
+                runtime_result = self._execute_cli_runtime(
+                    payload=payload,
+                    runtime=runtime,
+                    workspace=workspace,
+                    agent_run=agent_run,
+                    job=job,
+                    profile=profile,
+                    broker=broker,
+                    prompt=self.agent.cli_prompt(
+                        idea=assessment["idea"],
+                        assessment=assessment,
+                        epic_expansion=epic_expansion,
+                        repair=repair,
+                        goal_statement=goal_statement,
+                        constitution=constitution,
+                    ),
+                )
+            except RuntimeCommandUnavailableError as error:
+                return {
+                    "kind": "infra_failed",
+                    "reason": str(error),
+                    "runtimeResult": {"status": "failed", "reason": str(error)},
+                }
+        else:
+            runtime_result = self._execute_model_runtime(
+                payload=payload,
+                runtime=runtime,
+                workspace=workspace,
+                agent_run=agent_run,
+                job=job,
+                profile=profile,
+                broker=broker,
+                messages=self.agent.model_messages(
+                    idea=assessment["idea"],
+                    assessment=assessment,
+                    epic_expansion=epic_expansion,
+                    repair=repair,
+                    goal_statement=goal_statement,
+                    constitution=constitution,
+                ),
+            )
+        if runtime_result["status"] != "completed":
+            return {
+                "kind": "infra_failed",
+                "reason": str(runtime_result.get("reason") or "ProductOwnerAgent runtime execution failed."),
+                "runtimeResult": runtime_result,
+            }
+        try:
+            runtime_output = self._runtime_output_text(runtime_result)
+        except ProductOwnerOutputValidationError as error:
+            return {
+                "kind": "invalid",
+                "reason": str(error),
+                "runtimeResult": runtime_result,
+                "outputText": "",
+                "outputArtifactId": None,
+            }
+        try:
+            output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
+            if epic:
+                self.agent.validate_epic_expansion_output(output, epic_title=epic["title"])
+            selection = ImpactQuestionEngine().select(output["questions"], detected_facts=detected_facts)
+        except (ProductOwnerOutputValidationError, ImpactQuestionValidationError) as error:
+            return {
+                "kind": "invalid",
+                "reason": str(error),
+                "runtimeResult": runtime_result,
+                "outputText": str(redact_secrets(runtime_output["text"])),
+                "outputArtifactId": runtime_output["artifactId"],
+            }
+        return {
+            "kind": "ok",
+            "output": output,
+            "selection": selection,
+            "runtimeResult": runtime_result,
+            "outputArtifactId": runtime_output["artifactId"],
+        }
 
     def _execute_and_persist(
         self,
@@ -933,16 +1747,18 @@ class ProductOwnerAgentRunner:
         assessment: dict[str, Any],
         task_id: str,
         threshold: int,
+        epic: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "status": RUNTIME_UNAVAILABLE_STATUS,
             "reason": readiness["reason"],
-            "runtimeResult": _runtime_unavailable_result(readiness["reason"]),
+            "runtimeResult": runtime_unavailable_result(readiness["reason"]),
             "output": None,
             "completeness": None,
             "initiative": None,
             "discovery": None,
             "backlog": [],
+            "outputRecord": None,
             "outputArtifactId": None,
         }
         if not readiness["executable"]:
@@ -951,57 +1767,56 @@ class ProductOwnerAgentRunner:
         project_id = str(payload["projectId"])
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_id = str(runtime["id"])
-        if runtime_id in PRODUCT_OWNER_AGENT_CLI_RUNTIMES:
-            try:
-                runtime_result = self._execute_cli_runtime(
-                    payload=payload,
-                    runtime=runtime,
-                    workspace=workspace,
-                    agent_run=agent_run,
-                    job=job,
-                    profile=profile,
-                    broker=broker,
-                    prompt=self.agent.cli_prompt(idea=assessment["idea"], assessment=assessment),
-                )
-            except RuntimeCommandUnavailableError as error:
-                result["status"] = "failed"
-                result["reason"] = str(error)
-                result["runtimeResult"] = {"status": "failed", "reason": str(error)}
-                return result
-        else:
-            runtime_result = self._execute_model_runtime(
-                payload=payload,
+        epic_expansion = self._epic_expansion_context(epic) if epic else None
+        detected_facts = detected_facts_from_assessment(
+            brief=assessment.get("brief"),
+            existing_questions=assessment.get("askedQuestions") or assessment.get("openQuestions"),
+        )
+        repair: dict[str, Any] | None = None
+        attempt_payload = payload
+        attempt_result: dict[str, Any] = {}
+        max_attempts = payload.get("maxRuntimeAttempts", PRODUCT_OWNER_MAX_REPAIR_ATTEMPTS)
+        for _attempt in range(max_attempts):
+            attempt_result = self._execute_once(
+                payload=attempt_payload,
                 runtime=runtime,
                 workspace=workspace,
                 agent_run=agent_run,
                 job=job,
                 profile=profile,
                 broker=broker,
-                messages=self.agent.model_messages(idea=assessment["idea"], assessment=assessment),
+                assessment=assessment,
+                detected_facts=detected_facts,
+                epic=epic,
+                epic_expansion=epic_expansion,
+                repair=repair,
             )
-        result["runtimeResult"] = runtime_result
-        if runtime_result["status"] != "completed":
-            result["status"] = "failed"
-            result["reason"] = str(
-                runtime_result.get("reason") or "ProductOwnerAgent runtime execution failed."
-            )
-            return result
-
-        try:
-            runtime_output = self._runtime_output_text(runtime_result)
-            result["outputArtifactId"] = runtime_output["artifactId"]
-            output = self.agent.validate_output(self._json_object_from_text(runtime_output["text"]))
-            selection = ImpactQuestionEngine().select(
-                output["questions"],
-                detected_facts=detected_facts_from_assessment(
-                    brief=assessment.get("brief"),
-                    existing_questions=assessment.get("openQuestions"),
-                ),
-            )
-        except (ProductOwnerOutputValidationError, ImpactQuestionValidationError) as error:
+            result["runtimeResult"] = attempt_result["runtimeResult"]
+            if attempt_result.get("outputArtifactId"):
+                result["outputArtifactId"] = attempt_result["outputArtifactId"]
+            if attempt_result["kind"] == "ok":
+                break
+            if attempt_result["kind"] == "infra_failed":
+                result["status"] = "failed"
+                result["reason"] = attempt_result["reason"]
+                return result
+            if _attempt + 1 == max_attempts:
+                break
+            repair = {
+                "error": attempt_result["reason"],
+                "previousOutput": attempt_result.get("outputText", ""),
+            }
+            repair_selection = self._mint_repair_resource_decision(payload)
+            if repair_selection is not None:
+                attempt_metadata = dict(payload.get("metadata") or {})
+                attempt_metadata["resourceSelection"] = repair_selection
+                attempt_payload = {**payload, "metadata": attempt_metadata}
+        if attempt_result["kind"] != "ok":
             result["status"] = FAILED_VALIDATION_STATUS
-            result["reason"] = str(error)
+            result["reason"] = attempt_result["reason"]
             return result
+        output = attempt_result["output"]
+        selection = attempt_result["selection"]
         output["questions"] = selection["turn"]
         output["deferredQuestions"] = selection["deferred"]
         output["suppressedQuestions"] = selection["suppressed"]
@@ -1011,6 +1826,8 @@ class ProductOwnerAgentRunner:
         routing = self._route_decisions(output["blockingDecisions"], engine=engine)
         existing_unresolved = assessment.get("unresolvedDecisions") or []
         unresolved_count = len(routing["escalated"]) + len(existing_unresolved)
+        if _stale_needs_input(output, unresolved_count=unresolved_count):
+            output["status"] = "backlog_ready"
         completeness = self.agent.calculate_completeness(
             brief=output["brief"],
             unresolved_blocking=unresolved_count,
@@ -1042,6 +1859,24 @@ class ProductOwnerAgentRunner:
             task_id=task_id,
             routing=routing,
         )
+        output_record = self._persist_product_owner_output(
+            project_id=project_id,
+            initiative_id=initiative["id"],
+            brief_id=result["discovery"]["brief"]["id"],
+            output=output,
+            runtime_id=runtime_id,
+            output_artifact_id=result.get("outputArtifactId"),
+            task_id=task_id,
+        )
+        result["outputRecord"] = output_record
+        if output["status"] in {NEEDS_INPUT_STATUS, "questions_required"}:
+            result["status"] = BLOCKED_STATUS
+            result["reason"] = (
+                output["recommendedNextAction"]
+                or output["summary"]
+                or "ProductOwnerAgent requires product clarification before backlog generation."
+            )
+            return result
         if unresolved_count:
             result["status"] = BLOCKED_STATUS
             result["reason"] = (
@@ -1049,10 +1884,42 @@ class ProductOwnerAgentRunner:
                 "decision(s) remain unresolved."
             )
             return result
-        result["backlog"] = self._persist_backlog(project_id=project_id, output=output)
+        if (payload.get("metadata") or {}).get("requireBriefApproval"):
+            result["status"] = BRIEF_READY_STATUS
+            result["reason"] = (
+                "ProductOwnerAgent produced a brief awaiting approval before backlog generation."
+            )
+            return result
+        if output["status"] == SCOPE_IS_CLEAR_STATUS:
+            result["status"] = BRIEF_READY_STATUS
+            result["reason"] = (
+                "ProductOwnerAgent produced a mini brief/task scope for a direct technical order."
+            )
+            return result
+        result["backlog"] = self._persist_backlog(
+            project_id=project_id,
+            output=output,
+            product_owner_output_id=output_record["id"],
+            existing_epic=epic,
+        )
         result["status"] = COMPLETED_STATUS
-        result["reason"] = "ProductOwnerAgent completed real analysis and generated a validated backlog."
+        result["reason"] = (
+            f"ProductOwnerAgent expanded epic {epic['title']!r} with validated user stories."
+            if epic
+            else "ProductOwnerAgent completed real analysis and generated a validated backlog."
+        )
         return result
+
+    def _epic_expansion_context(self, epic: dict[str, Any]) -> dict[str, Any]:
+        existing_titles = [
+            str(story.get("title") or "")
+            for story in self.backlog.list_user_stories(epic_id=epic["id"])[:PROMPT_COLLECTION_LIMIT]
+        ]
+        return {
+            "epicTitle": epic["title"],
+            "epicDescription": _bounded_text(str(epic.get("description") or "")),
+            "existingStoryTitles": existing_titles,
+        }
 
     def _finalize(
         self,
@@ -1069,6 +1936,8 @@ class ProductOwnerAgentRunner:
     ) -> dict[str, Any]:
         final_status = result["status"]
         runtime_id = str(runtime.get("id") or "unresolved")
+        output = result.get("output") or {}
+        output_record = result.get("outputRecord")
         manifest = self._write_manifest_artifact(
             project_id=project_id,
             manifest={
@@ -1076,6 +1945,7 @@ class ProductOwnerAgentRunner:
                 "reason": result["reason"],
                 "completeness": result["completeness"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
                 "epicIds": [item["epic"]["id"] for item in result["backlog"]],
                 "runtimeResult": result["runtimeResult"],
             },
@@ -1091,11 +1961,12 @@ class ProductOwnerAgentRunner:
         ]
         qa_verdict = {
             COMPLETED_STATUS: "backlog_generated",
+            BRIEF_READY_STATUS: "brief_ready",
             BLOCKED_STATUS: "blocked_pending_decisions",
             RUNTIME_UNAVAILABLE_STATUS: "blocked",
             FAILED_VALIDATION_STATUS: "failed",
         }.get(final_status, "failed")
-        runtime_links_required = final_status in {COMPLETED_STATUS, BLOCKED_STATUS}
+        runtime_links_required = final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
         evidence = self.evidence.create_evidence_package(
             project_id=project_id,
             workflow_run_id=workflow_context.get("workflowRunId"),
@@ -1174,7 +2045,9 @@ class ProductOwnerAgentRunner:
 
         agent_run = self.agents.update_agent_run_status(
             agent_run["id"],
-            status="completed" if final_status in {COMPLETED_STATUS, BLOCKED_STATUS} else "failed",
+            status="completed"
+            if final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
+            else "failed",
             output_payload={
                 "status": final_status,
                 "reason": result["reason"],
@@ -1182,6 +2055,7 @@ class ProductOwnerAgentRunner:
                 "runtime": runtime,
                 "runtimeResult": result["runtimeResult"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
                 "epicIds": [item["epic"]["id"] for item in result["backlog"]],
                 "evidence_refs": [evidence["id"], *artifact_ids],
                 "output": result["output"],
@@ -1189,17 +2063,22 @@ class ProductOwnerAgentRunner:
         )
         job = self.jobs.update_job_status(
             job["id"],
-            status="completed" if final_status in {COMPLETED_STATUS, BLOCKED_STATUS} else "failed",
+            status="completed"
+            if final_status in {COMPLETED_STATUS, BRIEF_READY_STATUS, BLOCKED_STATUS}
+            else "failed",
             metadata={
                 "status": final_status,
                 "reason": result["reason"],
                 "evidencePackageId": evidence["id"],
                 "initiativeId": (result.get("initiative") or {}).get("id"),
+                "productOwnerOutputId": (output_record or {}).get("id"),
             },
         )
         return {
             "status": final_status,
             "reason": result["reason"],
+            "summary": output.get("summary", ""),
+            "confidence": output.get("confidence", "low"),
             "productOwnerAgent": readiness,
             "workspace": workspace,
             "job": job,
@@ -1207,12 +2086,19 @@ class ProductOwnerAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": result["runtimeResult"],
+            "localRuntimeCause": result["runtimeResult"].get("localRuntimeCause"),
             "output": result["output"],
             "completeness": result["completeness"],
             "initiative": result.get("initiative"),
             "questions": (result.get("discovery") or {}).get("questions", []),
             "assumptions": (result.get("discovery") or {}).get("assumptions", []),
+            "decisions": output.get("decisions", []),
             "brief": (result.get("discovery") or {}).get("brief"),
+            "productBriefPatch": output.get("productBriefPatch") or output.get("brief"),
             "blockingDecisions": (result.get("discovery") or {}).get("decisions", []),
+            "userStories": output.get("userStories", []),
+            "risks": output.get("risks", []),
+            "recommendedNextAction": output.get("recommendedNextAction", ""),
+            "productOwnerOutput": output_record,
             "epics": result["backlog"],
         }

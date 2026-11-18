@@ -21,6 +21,12 @@ unless `executable=true`.
 - Store only `credential_ref` values such as
   `openbao:secret/providers/nvidia_nim#api_key`; never store raw keys. See
   `docs/credentials.md`.
+- Local runtimes (Ollama, `llama_cpp`, `lm_studio`, `vllm`,
+  `local_openai_compatible`) are endpoint-scoped accounts that need no API key
+  and no `AIDO_ENABLE_REAL_PROVIDER_CALLS`: `runtime.local.enabled` governs
+  them. A bearer `credentialRef` is optional and never sent over `http://` to a
+  remote host. Locality, zero-cost and enablement rules are in
+  `docs/runtime-providers.md#local-runtimes`.
 
 ## Endpoints
 
@@ -45,6 +51,51 @@ unless `executable=true`.
 - `GET /api/v1/model-gateway/cli-sessions`
 - `GET /api/v1/model-gateway/cli-sessions/{id}`
 
+### Local endpoints
+
+Local OpenAI-compatible servers and Ollama endpoints share one read model; the
+router lives in `local_control_center/local_runtimes/api.py`. Every write
+requires the loopback write token and rejects unknown body fields.
+
+- `GET /api/v1/local-endpoints`: every local account, Ollama included, with
+  locality, network scope, health, loaded models and per-model settings
+  (`LocalEndpointView`). `loadedModels` is filled only for enabled, profiled
+  accounts whose locality is not `remote`.
+- `POST /api/v1/local-endpoints`: creates an account from a catalog entry with
+  a local runtime profile (`llama_cpp`, `lm_studio`, `vllm`,
+  `local_openai_compatible`) from `catalogId`, optional `baseUrl`, `instanceId`,
+  `displayName` and `credentialRef`; the server writes `providerCatalogId`, and
+  a client-supplied `providerCatalogId` is rejected. `local_openai_compatible`
+  has no default URL, so `baseUrl` is required. Ollama endpoints are still
+  created through `/api/v1/ollama/endpoints`.
+- `PATCH /api/v1/local-endpoints/{provider_id}`: edits base URL, display name,
+  enabled flag, credential reference or concurrency limit; a re-save never
+  resets the URL.
+- `PUT /api/v1/local-endpoints/{provider_id}/declare-local`: audited WSL/Docker
+  declaration; answers `422` `local_declaration_host_not_allowed` unless the
+  host is a private or link-local IP literal or `host.docker.internal`.
+- `PATCH /api/v1/local-endpoints/{provider_id}/models`: per-model enabled flag,
+  default, `codeEdit`, `codeReview` and operator order.
+- `POST /api/v1/local-endpoints/{provider_id}/validate-model`: queued (`202`
+  `ExecutionAccepted`) real validation of one model; the execution result is a
+  `RuntimeValidationResponse` whose `validation.status` is `validated`,
+  `failed` or `deferred` (reason `model_loading` while the server loads it, or
+  `local_endpoint_busy` while the account's concurrency slot is held).
+- `DELETE /api/v1/local-endpoints/{provider_id}`: transactional tombstone;
+  `409` `local_endpoint_in_use` lists the references that still use the
+  account, `thread_team` (labelled with the thread title) and `role_policy`
+  (labelled with the role). Ledger, audit and evidence are preserved.
+- `POST /api/v1/local-runtimes/discover`: queued (`202` `ExecutionAccepted`);
+  the execution result is `{"suggestions": [...]}`. It probes only `127.0.0.1`
+  on known ports (8080, 8082, 1234, 8000, 1337, 5001) with `GET`, a 2 s timeout
+  and no credentials, and never creates accounts. An unknown `/v1/models`
+  signature needs explicit operator confirmation.
+
+Queued results are read from `GET /api/v1/executions/{execution_id}`. Probing
+and syncing reuse `POST /api/v1/model-gateway/providers/{id}/health-check` and
+`POST /api/v1/provider-accounts/{id}/sync-models`.
+`/api/v1/ollama/endpoints` stays as a compatible wrapper.
+
 ## Testing
 
 Run:
@@ -52,6 +103,7 @@ Run:
 ```powershell
 uv run pytest tests_py/test_model_runtime_gateway.py tests_py/test_ci_and_openapi_client.py -q
 uv run pytest tests_py/test_internal_mock_product_boundary.py tests_py/test_real_readiness_architecture.py -q
+uv run pytest tests_py/test_local_runtimes_docs.py -q
 corepack pnpm@10.24.0 run openapi:generate
 ```
 

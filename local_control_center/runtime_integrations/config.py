@@ -5,7 +5,7 @@ env var existe gana como override puntual, si no se usa el valor guardado en ``r
 ``runtime_preferences``. Así la configuración normal vive en la base y las env vars no son la fuente de
 configuración, solo una excepción. No lee ni expone secretos: el override de CLI es la ruta del ejecutable.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

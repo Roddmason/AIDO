@@ -4,7 +4,7 @@ Cada función envuelve su resultado en el shape de respuesta que espera la API y
 persistencia al repositorio. La creación resuelve la ruta destino, redacta la telemetría
 sensible del metadata y emite un evento de auditoría tras escribir el proyecto.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -12,9 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.telemetry import redact_telemetry
 
+from .auto_configuration import apply_project_auto_configuration
 from .discovery import discover_project_path
 from .repository import ProjectsRepository
 
@@ -90,14 +92,31 @@ def create_project(
         source="api",
         metadata=metadata,
     )
+    bootstrap_base_team_if_needed(projects.connection)
     created = bool(project.pop("_created", False))
+    auto_configuration: dict[str, Any] = {"assigned": {}, "preserved": [], "detected": {}}
+    if created:
+        auto_configuration = apply_project_auto_configuration(
+            projects.connection, project_id=project["id"], project_path=project_path
+        )
+    if auto_configuration["assigned"]:
+        events.record_audit(
+            project_id=project["id"],
+            action="project.auto_configured",
+            target=project["id"],
+            payload={
+                "assigned": auto_configuration["assigned"],
+                "preserved": auto_configuration["preserved"],
+            },
+            actor="system",
+        )
     audit = events.record_audit(
         project_id=project["id"],
         action="project.create",
         target=project["id"],
         payload={**redact_telemetry(body), "path": str(project_path), "created": created},
     )
-    return {"project": project, "auditEvent": audit}
+    return {"project": project, "auditEvent": audit, "autoConfiguration": auto_configuration}
 
 
 def list_providers(projects: ProjectsRepository) -> dict[str, Any]:

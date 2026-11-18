@@ -4,7 +4,7 @@
  * optional shortcut hint), so MenuBar renders and dispatches from a single
  * source — mirroring navigation.ts and productLoopModel.ts. Pure: holds no React
  * and no callbacks; MenuBar maps each item's `command` to a handler.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { PageId } from './navigation';
@@ -28,14 +28,10 @@ export type MenuCommandId =
 	| 'go-threads'
 	| 'go-home'
 	| 'go-workbench'
-	| 'go-runs'
 	| 'go-review'
-	| 'go-evidence'
-	| 'go-governance'
-	| 'go-audit'
-	| 'go-models'
-	| 'go-integrations'
 	| 'go-memory'
+	| 'go-workspaces'
+	| 'go-integrations'
 	| 'go-settings'
 	| 'keyboard-shortcuts'
 	| 'about';
@@ -203,13 +199,6 @@ export const MENUS: MenuDef[] = [
 				label: 'Workbench',
 				page: 'workbench',
 			},
-			{
-				kind: 'command',
-				command: 'go-runs',
-				labelKey: 'app.menu.goRuns',
-				label: 'Runs',
-				page: 'workflows',
-			},
 			separator,
 			{
 				kind: 'command',
@@ -220,32 +209,17 @@ export const MENUS: MenuDef[] = [
 			},
 			{
 				kind: 'command',
-				command: 'go-evidence',
-				labelKey: 'app.menu.goEvidence',
-				label: 'Evidence',
-				page: 'evidence',
+				command: 'go-memory',
+				labelKey: 'app.menu.goMemory',
+				label: 'Memory',
+				page: 'memory',
 			},
 			{
 				kind: 'command',
-				command: 'go-governance',
-				labelKey: 'app.menu.goGovernance',
-				label: 'Governance',
-				page: 'governance',
-			},
-			{
-				kind: 'command',
-				command: 'go-audit',
-				labelKey: 'app.menu.goAudit',
-				label: 'Audit',
-				page: 'audit',
-			},
-			separator,
-			{
-				kind: 'command',
-				command: 'go-models',
-				labelKey: 'app.menu.goModels',
-				label: 'Model gateway',
-				page: 'models',
+				command: 'go-workspaces',
+				labelKey: 'app.menu.goWorkspaces',
+				label: 'Workspaces',
+				page: 'workspaces',
 			},
 			{
 				kind: 'command',
@@ -254,13 +228,7 @@ export const MENUS: MenuDef[] = [
 				label: 'Integrations',
 				page: 'integrations',
 			},
-			{
-				kind: 'command',
-				command: 'go-memory',
-				labelKey: 'app.menu.goMemory',
-				label: 'Memory',
-				page: 'memory',
-			},
+			separator,
 			{
 				kind: 'command',
 				command: 'go-settings',

@@ -5,11 +5,20 @@
  * write token via `X-Local-Control-Token`. Request/response aliases here keep call
  * sites readable while staying anchored to the generated operation contracts, so a
  * server schema change surfaces as a type error rather than a silent drift.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
-import type { ApiOperationId, OperationRequestBody, OperationResponse } from './generated/openapi';
-import { extractErrorDetail, requestGeneratedOperation } from './generated/openapi';
+import {
+	type ExecutionObserver,
+	requestCompletedOperation as requestGeneratedOperation,
+} from './execution-client';
+import type {
+	ApiOperationId,
+	JsonObject,
+	OperationRequestBody,
+	OperationResult as OperationResponse,
+} from './generated/openapi';
+import { extractErrorDetail } from './generated/openapi';
 import type { Overview, RetrievalStatus, RuntimeProviders } from './types';
 
 const WRITE_HEADER = 'X-Local-Control-Token';
@@ -36,12 +45,136 @@ export type ModelGatewayBenchmarkOutcomeRequest =
 	MutationBody<'create_benchmark_outcome_api_v1_model_gateway_benchmark_outcomes_post'>;
 export type ModelGatewayProviderPatchRequest =
 	MutationBody<'patch_provider_api_v1_model_gateway_providers__provider_id__patch'>;
-export type ChatCreateRequest = MutationBody<'create_chat_api_v1_chats_post'>;
-export type ChatCreateResponse = OperationResponse<'create_chat_api_v1_chats_post'>;
-export type SessionCreateRequest = MutationBody<'create_session_api_v1_sessions_post'>;
-export type SessionCreateResponse = OperationResponse<'create_session_api_v1_sessions_post'>;
-export type PipelineCreateRequest = MutationBody<'create_pipeline_api_v1_pipelines_post'>;
-export type PipelineCreateResponse = OperationResponse<'create_pipeline_api_v1_pipelines_post'>;
+export type ModelGatewayProviderLimitUpsertRequest =
+	MutationBody<'create_provider_limit_api_v1_model_gateway_provider_limits_post'>;
+export type ModelGatewayProviderLimitPatchRequest =
+	MutationBody<'patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch'>;
+export type ModelGatewayAIExecutionRequest =
+	MutationBody<'execute_ai_execution_api_v1_model_gateway_ai_executions_post'>;
+export type ModelGatewayProviderLimitStatusQuery = {
+	providerId: string;
+	model: string;
+	requestTokens?: number;
+	estimatedCostUsd?: number;
+};
+export type ModelGatewayTestPromptRequest =
+	MutationBody<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type ModelGatewayTestPromptResponse =
+	OperationResponse<'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post'>;
+export type RuntimeTeamCandidatesResponse =
+	OperationResponse<'list_runtime_team_candidates_api_v1_runtime_team_candidates_get'>;
+export type RuntimeTeamCandidate = RuntimeTeamCandidatesResponse['candidates'][number];
+export type RuntimeTeamResponse = OperationResponse<'get_runtime_team_api_v1_runtime_team_get'>;
+export type ProviderUsage =
+	OperationResponse<'get_provider_usage_api_v1_runtime_provider_usage_get'>;
+export type ProviderUsageEntry = ProviderUsage['providers'][number];
+export type ThreadSealedRuntimeTeam =
+	OperationResponse<'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get'>;
+export type RuntimeValidationResponse =
+	OperationResponse<'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post'>;
+export type CatalogValidationRequest =
+	MutationBody<'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post'>;
+export type CatalogValidationResponse =
+	OperationResponse<'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post'>;
+export type ModelValidationStatus =
+	OperationResponse<'model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get'>;
+export type ModelValidationRun = NonNullable<ModelValidationStatus['run']>;
+export type ModelValidationOutcome = ModelValidationStatus['outcomes'][number];
+export type ThreadRunConfigurationRequest =
+	MutationBody<'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch'>;
+export type ThreadRunConfigurationResponse =
+	OperationResponse<'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch'>;
+export type ModelGatewayModelCreateRequest =
+	MutationBody<'create_model_api_v1_model_gateway_models_post'>;
+export type ModelGatewayPricingSnapshotCreateRequest =
+	MutationBody<'create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post'>;
+export type ProviderCatalogResponse =
+	OperationResponse<'list_catalog_api_v1_providers_catalog_get'>;
+export type ProviderAccountFromCatalogRequest =
+	MutationBody<'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post'>;
+export type ProviderAccountFromCatalogResponse =
+	OperationResponse<'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post'>;
+export type ProviderAccountSyncModelsResponse =
+	OperationResponse<'sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post'>;
+export type OllamaEndpointCreateRequest =
+	MutationBody<'create_endpoint_api_v1_ollama_endpoints_post'>;
+export type OllamaEndpointResponse =
+	OperationResponse<'create_endpoint_api_v1_ollama_endpoints_post'>;
+export type OllamaEndpointsListResponse =
+	OperationResponse<'list_endpoints_api_v1_ollama_endpoints_get'>;
+export type OllamaEndpointHealthResponse =
+	OperationResponse<'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post'>;
+export type OllamaSyncModelsResponse =
+	OperationResponse<'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post'>;
+export type LocalEndpointsListResponse =
+	OperationResponse<'list_local_endpoints_api_v1_local_endpoints_get'>;
+export type LocalEndpointView = LocalEndpointsListResponse['endpoints'][number];
+export type LocalModelView = NonNullable<LocalEndpointView['models']>[number];
+export type LocalEndpointCreateRequest =
+	MutationBody<'create_local_endpoint_api_v1_local_endpoints_post'>;
+export type LocalEndpointPatchRequest =
+	MutationBody<'patch_local_endpoint_api_v1_local_endpoints__provider_id__patch'>;
+export type LocalModelPatchRequest =
+	MutationBody<'patch_local_model_api_v1_local_endpoints__provider_id__models_patch'>;
+export type LocalRuntimeDiscoveryResponse =
+	OperationResponse<'discover_runtimes_api_v1_local_runtimes_discover_post'>;
+export type LocalRuntimeSuggestion = LocalRuntimeDiscoveryResponse['suggestions'][number];
+export type ThreadCreateRequest = MutationBody<'create_thread_api_v1_threads_post'>;
+export type ThreadDetailResponse = OperationResponse<'get_thread_api_v1_threads__thread_id__get'>;
+export type ThreadListResponse = OperationResponse<'list_threads_api_v1_threads_get'>;
+export type ThreadUpdateRequest = MutationBody<'update_thread_api_v1_threads__thread_id__patch'>;
+export type ThreadArchiveRequest =
+	MutationBody<'archive_thread_api_v1_threads__thread_id__archive_post'>;
+export type ThreadArchiveResponse =
+	OperationResponse<'archive_thread_api_v1_threads__thread_id__archive_post'>;
+export type ThreadDeleteRequest = MutationBody<'delete_thread_api_v1_threads__thread_id__delete'>;
+export type ThreadDeleteResponse =
+	OperationResponse<'delete_thread_api_v1_threads__thread_id__delete'>;
+export type ThreadEventsResponse =
+	OperationResponse<'thread_events_api_v1_threads__thread_id__events_get'>;
+export type ThreadMessageRequest =
+	MutationBody<'post_message_api_v1_threads__thread_id__messages_post'>;
+export type ThreadMessageResultResponse =
+	OperationResponse<'post_message_api_v1_threads__thread_id__messages_post'>;
+export type ThreadNoteRequest = MutationBody<'post_note_api_v1_threads__thread_id__notes_post'>;
+export type ThreadNoteResponse =
+	OperationResponse<'post_note_api_v1_threads__thread_id__notes_post'>;
+export type ThreadCancelRequest =
+	MutationBody<'cancel_execution_api_v1_threads__thread_id__cancel_post'>;
+export type ThreadCancelResponse =
+	OperationResponse<'cancel_execution_api_v1_threads__thread_id__cancel_post'>;
+export type ThreadDecisionResolveRequest =
+	MutationBody<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
+export type ThreadDecisionResolveResponse =
+	OperationResponse<'resolve_decision_api_v1_threads__thread_id__decisions__decision_id__resolve_post'>;
+export type ThreadDecisionBatchResolveRequest =
+	MutationBody<'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post'>;
+export type ThreadDecisionBatchResolveResponse =
+	OperationResponse<'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post'>;
+export type ThreadSimilarityResponse =
+	OperationResponse<'find_similar_threads_api_v1_threads_similar_get'>;
+export type ThreadSimilarityMarkRequest =
+	MutationBody<'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post'>;
+export type ThreadSimilarityMarkResponse =
+	OperationResponse<'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post'>;
+export type ThreadMemoryRecallResponse =
+	OperationResponse<'thread_memory_api_v1_threads__thread_id__memory_get'>;
+export type ThreadCostPerformanceResponse =
+	OperationResponse<'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get'>;
+export type ThreadCostPerformanceRecord = ThreadCostPerformanceResponse['costPerformance'];
+export type ThreadBoardResponse =
+	OperationResponse<'get_thread_board_api_v1_threads__thread_id__board_get'>;
+export type ThreadBoardCard = ThreadBoardResponse['columns'][number]['cards'][number];
+export type WorkerStatusResponse = OperationResponse<'worker_status_api_v1_workers_status_get'>;
+export type WorkerRunOnceResponse =
+	OperationResponse<'worker_run_once_api_v1_workers_run_once_post'>;
+export type ThreadRemediationsResponse =
+	OperationResponse<'list_thread_remediations_api_v1_threads__thread_id__remediations_get'>;
+export type RemediationActionRecord = ThreadRemediationsResponse['remediations'][number];
+export type RemediationExecuteResponse =
+	OperationResponse<'execute_remediation_api_v1_remediations__remediation_id__execute_post'>;
+export type RemediationDismissResponse =
+	OperationResponse<'dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post'>;
 export type IssueToPatchRequest =
 	MutationBody<'run_issue_to_patch_api_v1_workflows_issue_to_patch_post'>;
 export type IssueToPatchResponse =
@@ -73,10 +206,20 @@ export type EvidenceDetailResponse =
 	OperationResponse<'get_evidence_api_v1_evidence__evidence_id__get'>;
 export type ProjectProductLoopResponse =
 	OperationResponse<'get_product_loop_state_api_v1_projects__project_id__product_loop_get'>;
+export type StorySpecResponse =
+	OperationResponse<'get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get'>;
 export type ProductLoopStartRequest =
 	MutationBody<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductLoopTransitionRequest =
 	MutationBody<'transition_product_loop_api_v1_projects__project_id__product_loop__loop_id__transition_post'>;
+export type ProductLoopAidoDecideRequest =
+	MutationBody<'aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post'>;
+export type ProductLoopApprovalRequest =
+	MutationBody<'approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post'>;
+export type ProductLoopFeedbackRequest =
+	MutationBody<'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post'>;
+export type ProductLoopFeedbackApplyResponse =
+	OperationResponse<'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post'>;
 export type ProductLoopResumeResponse =
 	OperationResponse<'start_product_loop_api_v1_projects__project_id__product_loop_post'>;
 export type ProductOwnerAgentRunRequest =
@@ -114,6 +257,12 @@ export type ArchitectAgentRunResponse =
 	OperationResponse<'run_architect_agent_api_v1_agents_architect_runs_post'>;
 export type ArchitectAgentStatusResponse =
 	OperationResponse<'architect_agent_status_api_v1_agents_architect_status_get'>;
+export type AgentProfilesResponse =
+	OperationResponse<'list_agent_profiles_api_v1_agent_profiles_get'>;
+export type AgentProfileProjectOverrideRequest =
+	MutationBody<'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put'>;
+export type AgentProfileProjectOverrideResponse =
+	OperationResponse<'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put'>;
 export type CredentialsResponse = OperationResponse<'list_credentials_api_v1_credentials_get'>;
 export type CredentialCreateRequest = MutationBody<'create_credential_api_v1_credentials_post'>;
 export type CredentialCreateResponse =
@@ -224,13 +373,25 @@ export function getEvidenceDetail(evidenceId: string, signal?: AbortSignal) {
 }
 
 /** Project-scoped product-loop aggregate (loops, questions, brief, assumptions, decisions, backlog,
- *  iterations) that backs the Workbench loop sections; a read, so no write token. */
+ *  tasks) that backs the Workbench loop sections; a read, so no write token. */
 export function getProjectProductLoop(projectId: string, signal?: AbortSignal) {
 	return requestGeneratedOperation<
 		'get_product_loop_state_api_v1_projects__project_id__product_loop_get',
 		ProjectProductLoopResponse
 	>('get_product_loop_state_api_v1_projects__project_id__product_loop_get', {
 		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Executable spec of one user story (epic, story, criteria, role responsibilities and the
+ *  prompt text the implementing agent receives); a read, so no write token. */
+export function getStorySpec(projectId: string, storyId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get',
+		StorySpecResponse
+	>('get_story_spec_api_v1_projects__project_id__product_loop_stories__story_id__spec_get', {
+		pathParams: { project_id: projectId, story_id: storyId },
 		signal,
 	});
 }
@@ -309,6 +470,65 @@ export function transitionProductLoop(
 	);
 }
 
+/** Accepts AIDO-selected answers for open product-loop questions and records product decisions. */
+export function aidoDecideProductLoop(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopAidoDecideRequest,
+) {
+	return requestGeneratedOperation(
+		'aido_decide_product_loop_api_v1_projects__project_id__product_loop__loop_id__aido_decide_post',
+		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
+	);
+}
+
+/** Approves a ProductOwnerAgent brief and materializes its validated backlog payload. */
+export function approveProductBrief(
+	token: string,
+	projectId: string,
+	briefId: string,
+	body: ProductLoopApprovalRequest,
+) {
+	return requestGeneratedOperation(
+		'approve_product_brief_api_v1_projects__project_id__product_loop_brief__brief_id__approve_post',
+		{ token, pathParams: { project_id: projectId, brief_id: briefId }, body },
+	);
+}
+
+/** Records backlog approval and advances the loop when the FSM allows iteration planning. */
+export function approveProductLoopBacklog(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopApprovalRequest,
+) {
+	return requestGeneratedOperation(
+		'approve_product_loop_backlog_api_v1_projects__project_id__product_loop__loop_id__backlog_approve_post',
+		{ token, pathParams: { project_id: projectId, loop_id: loopId }, body },
+	);
+}
+
+/** Records an operator delivery decision as traceable Product Loop feedback. */
+export function applyProductLoopFeedback(
+	token: string,
+	projectId: string,
+	loopId: string,
+	body: ProductLoopFeedbackRequest,
+) {
+	return requestGeneratedOperation<
+		'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post',
+		ProductLoopFeedbackApplyResponse
+	>(
+		'apply_product_loop_feedback_api_v1_projects__project_id__product_loop__loop_id__feedback_post',
+		{
+			token,
+			pathParams: { project_id: projectId, loop_id: loopId },
+			body,
+		},
+	);
+}
+
 /** Runs the Product Owner agent over an idea: it produces and persists the brief, clarification
  *  questions, assumptions, decisions and backlog (epics/stories/criteria). A write, so the token is
  *  required; fail-closed — with no executable product-owner runtime it persists nothing and says so. */
@@ -324,11 +544,6 @@ export type CliSessionStartResponse = OperationResponse<'start_session_api_v1_cl
 export type CliSessionEventsResponse =
 	OperationResponse<'session_events_api_v1_cli_sessions__session_id__events_get'>;
 export type CliSessionEvent = CliSessionEventsResponse['events'][number];
-
-/** Starts a streaming CLI session (runs a command in a workspace, emitting live events); a write. */
-export function startCliSession(token: string, body: CliSessionStartRequest) {
-	return requestGeneratedOperation('start_session_api_v1_cli_sessions_post', { token, body });
-}
 
 /** Reads the bounded CLI-session event log incrementally (events with seq > afterSeq); a read. */
 export function getCliSessionEvents(sessionId: string, afterSeq = 0, signal?: AbortSignal) {
@@ -506,6 +721,134 @@ export interface ProjectFilesResponse {
 	nodes: ProjectFileNode[];
 }
 
+export type GitWorkspaceStatus = 'completed' | 'blocked' | 'configuration_required' | 'failed';
+
+export interface ProjectGitRemote {
+	name: string;
+	url: string;
+	direction: 'fetch' | 'push';
+}
+
+export interface ProjectGitStatusResponse
+	extends Pick<
+		OperationResponse<'git_status_api_v1_projects__project_id__git_status_get'>,
+		'snapshotAt' | 'refreshRequired'
+	> {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	root: string;
+	currentBranch: string;
+	dirty: boolean;
+	porcelain: string[];
+	changedFiles: string[];
+	untrackedFiles: string[];
+	stagedFiles: string[];
+	remotes: ProjectGitRemote[];
+	lastCommit: {
+		hash: string;
+		shortHash: string;
+		author: string;
+		authoredAt: string;
+		subject: string;
+	} | null;
+	worktrees: Array<{
+		path: string;
+		head: string;
+		branch: string;
+		detached: boolean;
+		bare: boolean;
+	}>;
+}
+
+export interface ProjectGitBranchesResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	currentBranch: string;
+	dirty: boolean;
+	localBranches: string[];
+	remoteBranches: string[];
+	remotes: ProjectGitRemote[];
+}
+
+export type ProjectGitInitRequest =
+	MutationBody<'init_git_repository_api_v1_projects__project_id__git_init_post'>;
+export type ProjectGitInitResponse =
+	OperationResponse<'init_git_repository_api_v1_projects__project_id__git_init_post'>;
+export type ProjectGitRemoteAddRequest =
+	MutationBody<'add_git_remote_api_v1_projects__project_id__git_remotes_post'>;
+export type ProjectGitRemoteMutationResponse =
+	OperationResponse<'add_git_remote_api_v1_projects__project_id__git_remotes_post'>;
+export type ProjectGitRemoteTestRequest =
+	MutationBody<'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post'>;
+export type ProjectGitRemoteTestResponse =
+	OperationResponse<'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post'>;
+
+export interface ProjectGitBranchCreateRequest {
+	name: string;
+	base?: string | null;
+}
+
+export interface ProjectGitBranchMutationResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	branch: string;
+	base?: string | null;
+	currentBranch: string;
+}
+
+export type ProjectGitBranchPolicyApplyRequest =
+	MutationBody<'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post'>;
+export type ProjectGitBranchPolicyApplyResponse =
+	OperationResponse<'apply_git_branch_policy_api_v1_projects__project_id__git_branch_policy_apply_post'>;
+
+export interface ProjectGitCheckoutRequest {
+	branch: string;
+	allowDirty?: boolean;
+}
+
+export interface ProjectGitCheckoutResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	requestedBranch: string;
+	currentBranch: string;
+	dirty: boolean;
+}
+
+export interface ProjectGitGitleaksScanResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	deliveryBlocked: boolean;
+	gitleaks: {
+		status: GitWorkspaceStatus;
+		reason: string;
+		executable: boolean;
+		configured: boolean;
+		exitCode: number | null;
+		findingCount: number;
+		reportPath: string | null;
+	};
+}
+
+export interface ProjectGitDiffResponse {
+	status: GitWorkspaceStatus;
+	reason: string;
+	projectId: string;
+	workspaceId: string;
+	root: string;
+	diff: string;
+	changedFiles: string[];
+}
+
 export function getProjectFiles(
 	projectId: string,
 	signal?: AbortSignal,
@@ -516,12 +859,270 @@ export function getProjectFiles(
 	);
 }
 
-export function listProjects(signal?: AbortSignal) {
-	return requestGeneratedOperation('projects_api_v1_projects_get', { signal });
+export function getProjectGitStatus(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitStatusResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/status`,
+		{ signal },
+	);
 }
 
-export function listProjectTemplates(signal?: AbortSignal) {
-	return requestGeneratedOperation('project_templates_api_v1_project_templates_get', { signal });
+export function getProjectGitBranches(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitBranchesResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/branches`,
+		{ signal },
+	);
+}
+
+export function initProjectGitRepository(
+	token: string,
+	projectId: string,
+	body: ProjectGitInitRequest = {},
+) {
+	return requestGeneratedOperation<
+		'init_git_repository_api_v1_projects__project_id__git_init_post',
+		ProjectGitInitResponse
+	>('init_git_repository_api_v1_projects__project_id__git_init_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
+}
+
+export function addProjectGitRemote(
+	token: string,
+	projectId: string,
+	body: ProjectGitRemoteAddRequest,
+) {
+	return requestGeneratedOperation<
+		'add_git_remote_api_v1_projects__project_id__git_remotes_post',
+		ProjectGitRemoteMutationResponse
+	>('add_git_remote_api_v1_projects__project_id__git_remotes_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
+}
+
+export function testProjectGitRemote(
+	token: string,
+	projectId: string,
+	name: string,
+	body: ProjectGitRemoteTestRequest = {},
+) {
+	return requestGeneratedOperation<
+		'test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post',
+		ProjectGitRemoteTestResponse
+	>('test_git_remote_api_v1_projects__project_id__git_remotes__name__test_post', {
+		pathParams: { project_id: projectId, name },
+		token,
+		body,
+	});
+}
+
+export function createProjectGitBranch(
+	token: string,
+	projectId: string,
+	body: ProjectGitBranchCreateRequest,
+) {
+	return requestGeneratedOperation<
+		'create_git_branch_api_v1_projects__project_id__git_branches_post',
+		ProjectGitBranchMutationResponse
+	>('create_git_branch_api_v1_projects__project_id__git_branches_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
+}
+
+export function checkoutProjectGitBranch(
+	token: string,
+	projectId: string,
+	body: ProjectGitCheckoutRequest,
+) {
+	return requestGeneratedOperation<
+		'checkout_git_branch_api_v1_projects__project_id__git_checkout_post',
+		ProjectGitCheckoutResponse
+	>('checkout_git_branch_api_v1_projects__project_id__git_checkout_post', {
+		pathParams: { project_id: projectId },
+		token,
+		body,
+	});
+}
+
+export function scanProjectGitleaks(token: string, projectId: string) {
+	return requestGeneratedOperation<
+		'git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post',
+		ProjectGitGitleaksScanResponse
+	>('git_gitleaks_scan_api_v1_projects__project_id__git_gitleaks_scan_post', {
+		pathParams: { project_id: projectId },
+		token,
+	});
+}
+
+export function getProjectGitDiff(projectId: string, signal?: AbortSignal) {
+	return apiRequest<ProjectGitDiffResponse>(
+		`/api/v1/projects/${encodeURIComponent(projectId)}/git/diff`,
+		{ signal },
+	);
+}
+
+export type WorkspaceCleanupPlanResponse =
+	OperationResponse<'workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get'>;
+export type WorkspaceCleanupCandidateRecord = WorkspaceCleanupPlanResponse['candidates'][number];
+export type WorkspaceCleanupOrphanRecord = WorkspaceCleanupPlanResponse['repoOrphans'][number];
+export type WorkspaceCleanupApplyRequest =
+	MutationBody<'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post'>;
+export type WorkspaceCleanupApplyResponse =
+	OperationResponse<'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post'>;
+
+/** Read-only cleanup plan: orphan workspace candidates plus stale repo worktrees; no token needed. */
+export function getWorkspaceCleanupPlan(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get',
+		WorkspaceCleanupPlanResponse
+	>('workspace_cleanup_plan_api_v1_projects__project_id__workspaces_cleanup_plan_get', {
+		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Applies the user-confirmed cleanup selection (archives rows, removes worktrees, prunes); a write. */
+export function applyWorkspaceCleanup(
+	token: string,
+	projectId: string,
+	body: WorkspaceCleanupApplyRequest,
+) {
+	return requestGeneratedOperation<
+		'workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post',
+		WorkspaceCleanupApplyResponse
+	>('workspace_cleanup_apply_api_v1_projects__project_id__workspaces_cleanup_post', {
+		token,
+		pathParams: { project_id: projectId },
+		body,
+	});
+}
+
+export type BranchInventory =
+	OperationResponse<'git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get'>;
+export type BranchInventoryRecord = NonNullable<BranchInventory['branches']>[number];
+export type BranchHealthIssue = NonNullable<BranchInventory['health']>['issues'] extends
+	| Array<infer TIssue>
+	| undefined
+	? TIssue
+	: never;
+export type BranchScanRequest =
+	MutationBody<'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post'>;
+export type BranchDeleteRequest =
+	MutationBody<'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post'>;
+export type BranchRenameRequest =
+	MutationBody<'rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post'>;
+export type BranchPruneRequest =
+	MutationBody<'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post'>;
+export type BranchWorktreeRemoveRequest =
+	MutationBody<'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post'>;
+export type BranchActionResponse =
+	OperationResponse<'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post'>;
+export type BranchActionResult = NonNullable<BranchActionResponse['results']>[number];
+export type ProjectOpenFolderResponse =
+	OperationResponse<'open_project_folder_api_v1_projects__project_id__open_folder_post'>;
+
+/** Last durable branch inventory (no git runs in the API process); a scan refreshes it. */
+export function getBranchInventory(projectId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get',
+		BranchInventory
+	>('git_branch_inventory_api_v1_projects__project_id__git_branch_manager_get', {
+		pathParams: { project_id: projectId },
+		signal,
+	});
+}
+
+/** Queues a brokered branch inventory scan and resolves with the fresh inventory. */
+export function scanBranches(
+	token: string,
+	projectId: string,
+	body: BranchScanRequest = {},
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post',
+		BranchInventory
+	>(
+		'scan_git_branches_api_v1_projects__project_id__git_branch_manager_scan_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+/** Deletes the confirmed selection; the server re-validates protection and merge state per branch. */
+export function deleteBranches(
+	token: string,
+	projectId: string,
+	body: BranchDeleteRequest,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post',
+		BranchActionResponse
+	>(
+		'delete_git_branches_api_v1_projects__project_id__git_branch_manager_delete_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+export function renameBranch(token: string, projectId: string, body: BranchRenameRequest) {
+	return requestGeneratedOperation<
+		'rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post',
+		BranchActionResponse
+	>('rename_git_branch_api_v1_projects__project_id__git_branch_manager_rename_post', {
+		token,
+		pathParams: { project_id: projectId },
+		body,
+	});
+}
+
+export function pruneRemoteBranches(
+	token: string,
+	projectId: string,
+	body: BranchPruneRequest = {},
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post',
+		BranchActionResponse
+	>(
+		'prune_git_remote_refs_api_v1_projects__project_id__git_branch_manager_prune_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+export function removeMergedWorktrees(
+	token: string,
+	projectId: string,
+	body: BranchWorktreeRemoveRequest,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post',
+		BranchActionResponse
+	>(
+		'remove_merged_git_worktrees_api_v1_projects__project_id__git_branch_manager_worktrees_remove_post',
+		{ token, pathParams: { project_id: projectId }, body },
+		onExecution,
+	);
+}
+
+/** Opens the project's REGISTERED folder in the OS file manager (server resolves the path). */
+export function openProjectFolder(token: string, projectId: string) {
+	return requestGeneratedOperation<
+		'open_project_folder_api_v1_projects__project_id__open_folder_post',
+		ProjectOpenFolderResponse
+	>('open_project_folder_api_v1_projects__project_id__open_folder_post', {
+		token,
+		pathParams: { project_id: projectId },
+	});
 }
 
 export function createProject(
@@ -554,24 +1155,6 @@ export function selectLocalDirectory(
 	});
 }
 
-export function listProviders(signal?: AbortSignal) {
-	return requestGeneratedOperation('providers_api_v1_providers_get', { signal });
-}
-
-export function listTeams(projectId?: string, signal?: AbortSignal) {
-	return requestGeneratedOperation('teams_api_v1_teams_get', {
-		query: projectId ? { projectId } : undefined,
-		signal,
-	});
-}
-
-export function listAgents(teamId?: string, signal?: AbortSignal) {
-	return requestGeneratedOperation('agents_api_v1_agents_get', {
-		query: teamId ? { teamId } : undefined,
-		signal,
-	});
-}
-
 /** Extracts the download filename from a Content-Disposition header, preferring RFC 5987 UTF-8. */
 function filenameFromContentDisposition(header: string | null): string {
 	if (!header) return '';
@@ -589,7 +1172,7 @@ function downloadBlob(blob: Blob, filename: string) {
 	document.body.appendChild(link);
 	link.click();
 	link.remove();
-	URL.revokeObjectURL(url);
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
@@ -601,10 +1184,12 @@ export async function fetchEvidenceArtifact(
 	token: string,
 	evidenceId: string,
 	artifactId: string,
+	signal?: AbortSignal,
 ): Promise<ArtifactPayload> {
 	const response = await fetch(
 		`/api/v1/evidence/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}`,
 		{
+			signal,
 			headers: {
 				Accept: '*/*',
 				[WRITE_HEADER]: token,
@@ -613,8 +1198,7 @@ export async function fetchEvidenceArtifact(
 	);
 	const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
 	if (!response.ok) {
-		const detail = await response.text();
-		throw new Error(detail || response.statusText);
+		throw new Error(extractErrorDetail(await response.text(), response.statusText));
 	}
 	const blob = await response.blob();
 	const textLike =
@@ -694,43 +1278,324 @@ export function createWorkflowWithBody(
 	});
 }
 
-export function createChat(token: string, body: ChatCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_chat_api_v1_chats_post', ChatCreateResponse>(
-		'create_chat_api_v1_chats_post',
+/** Creates a real project thread bound to an owner entity; requires the write token. */
+export function createThread(token: string, body: ThreadCreateRequest, signal?: AbortSignal) {
+	return requestGeneratedOperation<'create_thread_api_v1_threads_post', ThreadDetailResponse>(
+		'create_thread_api_v1_threads_post',
+		{ token, body, signal },
+	);
+}
+
+/** Lists thread headers; `includeArchived` opts archived rows in (deleted stay hidden); a read. */
+export function listThreads(
+	options: { projectId?: string; includeArchived?: boolean } = {},
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<'list_threads_api_v1_threads_get', ThreadListResponse>(
+		'list_threads_api_v1_threads_get',
 		{
-			token,
-			body,
+			query: { projectId: options.projectId, includeArchived: options.includeArchived },
 			signal,
 		},
 	);
 }
 
-export function createSession(token: string, body: SessionCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_session_api_v1_sessions_post', SessionCreateResponse>(
-		'create_session_api_v1_sessions_post',
-		{
-			token,
-			body,
-			signal,
-		},
-	);
-}
-
-export function createPipeline(token: string, body: PipelineCreateRequest, signal?: AbortSignal) {
-	return requestGeneratedOperation<'create_pipeline_api_v1_pipelines_post', PipelineCreateResponse>(
-		'create_pipeline_api_v1_pipelines_post',
-		{
-			token,
-			body,
-			signal,
-		},
-	);
-}
-
-export function runIssueToPatch(token: string, body: IssueToPatchRequest) {
-	return requestGeneratedOperation('run_issue_to_patch_api_v1_workflows_issue_to_patch_post', {
+/** Renames a thread through the header PATCH; requires the write token. */
+export function renameThread(
+	token: string,
+	threadId: string,
+	body: ThreadUpdateRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'update_thread_api_v1_threads__thread_id__patch',
+		ThreadDetailResponse
+	>('update_thread_api_v1_threads__thread_id__patch', {
 		token,
+		pathParams: { thread_id: threadId },
 		body,
+		signal,
+	});
+}
+
+/** Archives a thread logically (messages/artifacts untouched); requires the write token. */
+export function archiveThread(
+	token: string,
+	threadId: string,
+	body: ThreadArchiveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'archive_thread_api_v1_threads__thread_id__archive_post',
+		ThreadArchiveResponse
+	>('archive_thread_api_v1_threads__thread_id__archive_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Reopens an archived thread; requires the write token. */
+export function unarchiveThread(
+	token: string,
+	threadId: string,
+	body: ThreadArchiveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'unarchive_thread_api_v1_threads__thread_id__unarchive_post',
+		ThreadArchiveResponse
+	>('unarchive_thread_api_v1_threads__thread_id__unarchive_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Soft-deletes a thread (server rejects queued/running with 409); requires the write token. */
+export function deleteThread(
+	token: string,
+	threadId: string,
+	body: ThreadDeleteRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'delete_thread_api_v1_threads__thread_id__delete',
+		ThreadDeleteResponse
+	>('delete_thread_api_v1_threads__thread_id__delete', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Reads one thread with its full timeline (messages, artifacts, decisions, events); a read. */
+export function getThread(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_api_v1_threads__thread_id__get',
+		ThreadDetailResponse
+	>('get_thread_api_v1_threads__thread_id__get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Reads the thread execution console incrementally (events with sequence > afterSeq); a read. */
+export function getThreadEvents(threadId: string, afterSeq = 0, limit = 300, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_events_api_v1_threads__thread_id__events_get',
+		ThreadEventsResponse
+	>('thread_events_api_v1_threads__thread_id__events_get', {
+		pathParams: { thread_id: threadId },
+		query: { afterSeq, limit },
+		signal,
+	});
+}
+
+/** Finds threads similar to free text within a project (lexical index); a read, no token needed. */
+export function findSimilarThreads(
+	projectId: string,
+	query: string,
+	limit = 3,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'find_similar_threads_api_v1_threads_similar_get',
+		ThreadSimilarityResponse
+	>('find_similar_threads_api_v1_threads_similar_get', {
+		query: { projectId, query, limit },
+		signal,
+	});
+}
+
+/** Recalls what AIDO remembers about work similar to this thread (six categories); a read, no token needed. */
+export function getThreadMemory(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_memory_api_v1_threads__thread_id__memory_get',
+		ThreadMemoryRecallResponse
+	>('thread_memory_api_v1_threads__thread_id__memory_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Reads the thread's cost/token/latency snapshot and the cost policy governing it; a read, no token. */
+export function getThreadCostPerformance(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'thread_cost_performance_api_v1_threads__thread_id__cost_performance_get',
+		ThreadCostPerformanceResponse
+	>('thread_cost_performance_api_v1_threads__thread_id__cost_performance_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Reads the per-story board of the thread's latest planned loop; a read, so no token needed. */
+export function getThreadBoard(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_board_api_v1_threads__thread_id__board_get',
+		ThreadBoardResponse
+	>('get_thread_board_api_v1_threads__thread_id__board_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Lists the persisted, user-repairable actions for a blocked thread; a read, so no token needed. */
+export function getThreadRemediations(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_thread_remediations_api_v1_threads__thread_id__remediations_get',
+		ThreadRemediationsResponse
+	>('list_thread_remediations_api_v1_threads__thread_id__remediations_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Executes one remediation action (the backend performs the side effect); requires the write token. */
+export function executeRemediation(token: string, remediationId: string, payload?: JsonObject) {
+	return requestGeneratedOperation<
+		'execute_remediation_api_v1_remediations__remediation_id__execute_post',
+		RemediationExecuteResponse
+	>('execute_remediation_api_v1_remediations__remediation_id__execute_post', {
+		token,
+		pathParams: { remediation_id: remediationId },
+		body: payload ? { payload } : undefined,
+	});
+}
+
+/** Dismisses one pending remediation action so it stops surfacing; requires the write token. */
+export function dismissRemediation(token: string, remediationId: string) {
+	return requestGeneratedOperation<
+		'dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post',
+		RemediationDismissResponse
+	>('dismiss_remediation_api_v1_remediations__remediation_id__dismiss_post', {
+		token,
+		pathParams: { remediation_id: remediationId },
+	});
+}
+
+/** Records the operator's decision about a similar-thread candidate; requires the write token. */
+export function markSimilarThread(
+	token: string,
+	threadId: string,
+	candidateId: string,
+	body: ThreadSimilarityMarkRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post',
+		ThreadSimilarityMarkResponse
+	>('mark_similar_thread_api_v1_threads__thread_id__similar__candidate_id__mark_post', {
+		token,
+		pathParams: { thread_id: threadId, candidate_id: candidateId },
+		body,
+		signal,
+	});
+}
+
+/** Posts a user message and enqueues the real Product Loop run when intake is executable. */
+export function postThreadMessage(
+	token: string,
+	threadId: string,
+	body: ThreadMessageRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'post_message_api_v1_threads__thread_id__messages_post',
+		ThreadMessageResultResponse
+	>('post_message_api_v1_threads__thread_id__messages_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/**
+ * Attaches an operator note to a thread that is executing. Unlike {@link postThreadMessage}, a note
+ * never queues a run — it is the safe write while the loop is in flight, so accidental concurrent
+ * executions are impossible from the composer.
+ */
+export function postThreadNote(
+	token: string,
+	threadId: string,
+	body: ThreadNoteRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'post_note_api_v1_threads__thread_id__notes_post',
+		ThreadNoteResponse
+	>('post_note_api_v1_threads__thread_id__notes_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Cancels the thread's in-flight execution (queued/running jobs) and reopens it; write token. */
+export function cancelThreadExecution(
+	token: string,
+	threadId: string,
+	body: ThreadCancelRequest = {},
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'cancel_execution_api_v1_threads__thread_id__cancel_post',
+		ThreadCancelResponse
+	>('cancel_execution_api_v1_threads__thread_id__cancel_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Resolves several pending decisions together, in one chat message; requires the write token. */
+export function resolveThreadDecisionsBatch(
+	token: string,
+	threadId: string,
+	body: ThreadDecisionBatchResolveRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post',
+		ThreadDecisionBatchResolveResponse
+	>('resolve_decisions_batch_api_v1_threads__thread_id__decisions_resolve_batch_post', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/** Reads the local worker runtime state; a read, so no write token is required. */
+export function getWorkerStatus(signal?: AbortSignal) {
+	return requestGeneratedOperation<'worker_status_api_v1_workers_status_get', WorkerStatusResponse>(
+		'worker_status_api_v1_workers_status_get',
+		{ signal },
+	);
+}
+
+/** Lets the worker leader claim queued jobs again (a fresh install starts paused); write token. */
+export function resumeWorker(token: string) {
+	return requestGeneratedOperation<
+		'worker_resume_api_v1_workers_resume_post',
+		WorkerStatusResponse
+	>('worker_resume_api_v1_workers_resume_post', { token });
+}
+
+/** Runs one bounded batch of queued local jobs now; requires the write token. */
+export function runWorkerOnce(token: string) {
+	return requestGeneratedOperation<
+		'worker_run_once_api_v1_workers_run_once_post',
+		WorkerRunOnceResponse
+	>('worker_run_once_api_v1_workers_run_once_post', {
+		token,
 	});
 }
 
@@ -829,13 +1694,6 @@ export function createPullRequestFromIssueToPr(
 	);
 }
 
-export function runDeveloperAgent(token: string, body: DeveloperAgentRunRequest) {
-	return requestGeneratedOperation('run_developer_agent_api_v1_agents_developer_runs_post', {
-		token,
-		body,
-	});
-}
-
 export function runDevOpsAgent(token: string, body: DevOpsAgentRunRequest) {
 	return requestGeneratedOperation('run_devops_agent_api_v1_agents_devops_runs_post', {
 		token,
@@ -874,6 +1732,35 @@ export function createAgentProfile(
 	});
 }
 
+export function getAgentProfiles(projectId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'list_agent_profiles_api_v1_agent_profiles_get',
+		AgentProfilesResponse
+	>('list_agent_profiles_api_v1_agent_profiles_get', {
+		query: projectId ? { projectId } : undefined,
+		signal,
+	});
+}
+
+export function upsertAgentProfileProjectOverride(
+	token: string,
+	projectId: string,
+	profileId: string,
+	body: AgentProfileProjectOverrideRequest,
+) {
+	return requestGeneratedOperation<
+		'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put',
+		AgentProfileProjectOverrideResponse
+	>(
+		'agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put',
+		{
+			token,
+			pathParams: { project_id: projectId, profile_id: profileId },
+			body,
+		},
+	);
+}
+
 export function createModelGatewayRolePolicy(
 	token: string,
 	body: MutationBody<'create_role_policy_api_v1_model_gateway_role_policies_post'>,
@@ -882,6 +1769,21 @@ export function createModelGatewayRolePolicy(
 		token,
 		body,
 	});
+}
+
+export function patchModelGatewayRolePolicy(
+	token: string,
+	policyId: string,
+	body: MutationBody<'patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch'>,
+) {
+	return requestGeneratedOperation(
+		'patch_role_policy_api_v1_model_gateway_role_policies__policy_id__patch',
+		{
+			token,
+			pathParams: { policy_id: policyId },
+			body,
+		},
+	);
 }
 
 export function createRisk(token: string, body: MutationBody<'create_risk_api_v1_risks_post'>) {
@@ -963,6 +1865,193 @@ export function getModelGatewayModels(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_models_api_v1_model_gateway_models_get', { signal });
 }
 
+export function createModelGatewayModel(token: string, body: ModelGatewayModelCreateRequest) {
+	return requestGeneratedOperation('create_model_api_v1_model_gateway_models_post', {
+		token,
+		body,
+	});
+}
+
+export function createModelGatewayPricingSnapshot(
+	token: string,
+	body: ModelGatewayPricingSnapshotCreateRequest,
+) {
+	return requestGeneratedOperation(
+		'create_pricing_snapshot_api_v1_model_gateway_pricing_snapshots_post',
+		{
+			token,
+			body,
+		},
+	);
+}
+
+export function getOllamaEndpoints(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_endpoints_api_v1_ollama_endpoints_get'>(
+		'list_endpoints_api_v1_ollama_endpoints_get',
+		{ signal },
+	);
+}
+
+export function createOllamaEndpoint(token: string, body: OllamaEndpointCreateRequest) {
+	return requestGeneratedOperation<'create_endpoint_api_v1_ollama_endpoints_post'>(
+		'create_endpoint_api_v1_ollama_endpoints_post',
+		{ token, body },
+	);
+}
+
+export function healthCheckOllamaEndpoint(token: string, endpointId: string) {
+	return requestGeneratedOperation<'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post'>(
+		'health_endpoint_api_v1_ollama_endpoints__endpoint_id__health_post',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+		},
+	);
+}
+
+export function syncOllamaEndpointModels(token: string, endpointId: string) {
+	return requestGeneratedOperation<'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post'>(
+		'sync_models_api_v1_ollama_endpoints__endpoint_id__sync_models_post',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+		},
+	);
+}
+
+/** Operator switch of one Ollama endpoint: switched off, no thread or agent uses it. */
+export function patchOllamaEndpoint(token: string, endpointId: string, enabled: boolean) {
+	return requestGeneratedOperation<'patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch'>(
+		'patch_endpoint_api_v1_ollama_endpoints__endpoint_id__patch',
+		{
+			token,
+			pathParams: { endpoint_id: endpointId },
+			body: { enabled },
+		},
+	);
+}
+
+/**
+ * Deletes an Ollama endpoint (tombstoned, so no migration seed brings it back). While a thread team or
+ * an operator-authored role policy still uses it the route answers 409 `local_endpoint_in_use` with
+ * the references; the seeded `ollama:local_default` placeholder never blocks.
+ */
+export async function deleteOllamaEndpoint(token: string, endpointId: string): Promise<void> {
+	await requestGeneratedOperation<
+		'delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete',
+		unknown
+	>('delete_endpoint_api_v1_ollama_endpoints__endpoint_id__delete', {
+		token,
+		pathParams: { endpoint_id: endpointId },
+	});
+}
+
+/** Local OpenAI-compatible servers with health, locality, load state and per-model settings. */
+export function getLocalEndpoints(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_local_endpoints_api_v1_local_endpoints_get'>(
+		'list_local_endpoints_api_v1_local_endpoints_get',
+		{ signal },
+	);
+}
+
+/** Registers a local server from its catalog preset; requires the write token. */
+export function createLocalEndpoint(token: string, body: LocalEndpointCreateRequest) {
+	return requestGeneratedOperation<
+		'create_local_endpoint_api_v1_local_endpoints_post',
+		LocalEndpointView
+	>('create_local_endpoint_api_v1_local_endpoints_post', { token, body });
+}
+
+/** Edits URL, name, enablement or credential reference of a local server; requires the write token. */
+export function patchLocalEndpoint(
+	token: string,
+	endpointId: string,
+	body: LocalEndpointPatchRequest,
+) {
+	return requestGeneratedOperation<
+		'patch_local_endpoint_api_v1_local_endpoints__provider_id__patch',
+		LocalEndpointView
+	>('patch_local_endpoint_api_v1_local_endpoints__provider_id__patch', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body,
+	});
+}
+
+/** Declares (or withdraws) that a non-loopback server runs on this machine (WSL/Docker); audited. */
+export function declareLocalEndpoint(token: string, endpointId: string, declared: boolean) {
+	return requestGeneratedOperation<
+		'declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put',
+		LocalEndpointView
+	>('declare_local_endpoint_api_v1_local_endpoints__provider_id__declare_local_put', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body: { declared },
+	});
+}
+
+/** Updates one model of a local server (enabled, default, code capabilities, order). */
+export function patchLocalEndpointModel(
+	token: string,
+	endpointId: string,
+	body: LocalModelPatchRequest,
+) {
+	return requestGeneratedOperation<
+		'patch_local_model_api_v1_local_endpoints__provider_id__models_patch',
+		LocalModelView
+	>('patch_local_model_api_v1_local_endpoints__provider_id__models_patch', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body,
+	});
+}
+
+/**
+ * Real validation of one model: chat round trip plus JSON output against a schema. The route queues
+ * `local_endpoints.validate_model` (202); this resolves with the execution's final result.
+ */
+export function validateLocalEndpointModel(
+	token: string,
+	endpointId: string,
+	model: string,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post',
+		RuntimeValidationResponse
+	>('validate_local_model_api_v1_local_endpoints__provider_id__validate_model_post', {
+		token,
+		pathParams: { provider_id: endpointId },
+		body: { model },
+		signal,
+	});
+}
+
+/**
+ * Tombstones a local server. While a sealed thread team or a role policy still uses it the backend
+ * answers 409 and this rejects with that detail (`local_endpoint_in_use` plus its references).
+ */
+export async function deleteLocalEndpoint(token: string, endpointId: string): Promise<void> {
+	await requestGeneratedOperation<
+		'delete_local_endpoint_api_v1_local_endpoints__provider_id__delete',
+		unknown
+	>('delete_local_endpoint_api_v1_local_endpoints__provider_id__delete', {
+		token,
+		pathParams: { provider_id: endpointId },
+	});
+}
+
+/**
+ * Probes 127.0.0.1 on the known local-runtime ports; returns suggestions and never creates accounts.
+ * The route queues `local_runtimes.discover` (202); this resolves with the execution's final result.
+ */
+export function discoverLocalRuntimes(token: string) {
+	return requestGeneratedOperation<
+		'discover_runtimes_api_v1_local_runtimes_discover_post',
+		LocalRuntimeDiscoveryResponse
+	>('discover_runtimes_api_v1_local_runtimes_discover_post', { token });
+}
+
 export function getModelGatewayRoutingProfiles(signal?: AbortSignal) {
 	return requestGeneratedOperation(
 		'list_routing_profiles_api_v1_model_gateway_routing_profiles_get',
@@ -1002,6 +2091,58 @@ export function getModelGatewayProviderLimits(signal?: AbortSignal) {
 	);
 }
 
+export function getNvidiaNimPreflight(profileId?: string, signal?: AbortSignal) {
+	return requestGeneratedOperation('local_preflight_api_v1_nvidia_nim_preflight_get', {
+		query: { profileId },
+		signal,
+	});
+}
+
+export function getModelGatewayProviderLimitStatus(
+	query: ModelGatewayProviderLimitStatusQuery,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation(
+		'provider_limit_status_api_v1_model_gateway_provider_limits_status_get',
+		{ query, signal },
+	);
+}
+
+export function createModelGatewayProviderLimit(
+	token: string,
+	body: ModelGatewayProviderLimitUpsertRequest,
+) {
+	return requestGeneratedOperation(
+		'create_provider_limit_api_v1_model_gateway_provider_limits_post',
+		{ token, body },
+	);
+}
+
+export function patchModelGatewayProviderLimit(
+	token: string,
+	limitId: string,
+	body: ModelGatewayProviderLimitPatchRequest,
+) {
+	return requestGeneratedOperation(
+		'patch_provider_limit_api_v1_model_gateway_provider_limits__limit_id__patch',
+		{
+			token,
+			pathParams: { limit_id: limitId },
+			body,
+		},
+	);
+}
+
+export function executeModelGatewayAIExecution(
+	token: string,
+	body: ModelGatewayAIExecutionRequest,
+) {
+	return requestGeneratedOperation('execute_ai_execution_api_v1_model_gateway_ai_executions_post', {
+		token,
+		body,
+	});
+}
+
 export function getModelGatewayBudgetRules(signal?: AbortSignal) {
 	return requestGeneratedOperation('list_budget_rules_api_v1_model_gateway_budget_rules_get', {
 		signal,
@@ -1017,6 +2158,17 @@ export function getModelGatewayCliRuntimes(signal?: AbortSignal) {
 export function detectModelGatewayCliRuntime(token: string, runtimeId: string) {
 	return requestGeneratedOperation(
 		'detect_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__detect_post',
+		{
+			token,
+			pathParams: { runtime_id: runtimeId },
+		},
+	);
+}
+
+/** Re-runs the CLI health check, which also refreshes the runtime's native-auth validation. */
+export function healthCheckModelGatewayCliRuntime(token: string, runtimeId: string) {
+	return requestGeneratedOperation(
+		'health_cli_runtime_api_v1_model_gateway_cli_runtimes__runtime_id__health_check_post',
 		{
 			token,
 			pathParams: { runtime_id: runtimeId },
@@ -1081,6 +2233,19 @@ export function patchModelGatewayProvider(
 	);
 }
 
+export function createProviderAccountFromCatalog(
+	token: string,
+	body: ProviderAccountFromCatalogRequest,
+) {
+	return requestGeneratedOperation<
+		'create_account_from_catalog_api_v1_provider_accounts_from_catalog_post',
+		ProviderAccountFromCatalogResponse
+	>('create_account_from_catalog_api_v1_provider_accounts_from_catalog_post', {
+		token,
+		body,
+	});
+}
+
 export function healthCheckModelGatewayProvider(token: string, providerId: string) {
 	return requestGeneratedOperation(
 		'provider_health_check_api_v1_model_gateway_providers__provider_id__health_check_post',
@@ -1099,4 +2264,298 @@ export function discoverModelGatewayProviderModels(token: string, providerId: st
 			pathParams: { provider_id: providerId },
 		},
 	);
+}
+
+export function syncProviderAccountModels(token: string, accountId: string) {
+	return requestGeneratedOperation<
+		'sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post',
+		ProviderAccountSyncModelsResponse
+	>('sync_provider_account_models_api_v1_provider_accounts__account_id__sync_models_post', {
+		token,
+		pathParams: { account_id: accountId },
+	});
+}
+
+export function testPromptModelGatewayProvider(
+	token: string,
+	providerId: string,
+	body?: ModelGatewayTestPromptRequest,
+) {
+	return requestGeneratedOperation<
+		'test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post',
+		ModelGatewayTestPromptResponse
+	>('test_prompt_api_v1_model_gateway_providers__provider_id__test_prompt_post', {
+		token,
+		pathParams: { provider_id: providerId },
+		body: body ?? {},
+	});
+}
+
+/** Enabled runtimes with their 30-minute validation, eligible roles and the backend split for `selected`. */
+export function getRuntimeTeamCandidates(
+	projectId: string,
+	selected: readonly string[] | null,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'list_runtime_team_candidates_api_v1_runtime_team_candidates_get',
+		RuntimeTeamCandidatesResponse
+	>('list_runtime_team_candidates_api_v1_runtime_team_candidates_get', {
+		query: { projectId, selected: selected === null ? undefined : selected.join(',') },
+		signal,
+	});
+}
+
+/** AI team sealed in the thread's latest run (its own team, the global one, or none yet). */
+export function getThreadSealedRuntimeTeam(threadId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get',
+		ThreadSealedRuntimeTeam
+	>('get_thread_sealed_runtime_team_api_v1_threads__thread_id__runtime_team_get', {
+		pathParams: { thread_id: threadId },
+		signal,
+	});
+}
+
+/** Quota usage per provider, effective threshold and automatic suspension (no network call). */
+export function getProviderUsage(signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'get_provider_usage_api_v1_runtime_provider_usage_get',
+		ProviderUsage
+	>('get_provider_usage_api_v1_runtime_provider_usage_get', { signal });
+}
+
+/** Refreshes Claude/Codex usage and AIDO's own accounting now; requires the write token. */
+export function refreshProviderUsage(token: string) {
+	return requestGeneratedOperation<
+		'refresh_provider_usage_now_api_v1_runtime_provider_usage_refresh_post',
+		ProviderUsage
+	>('refresh_provider_usage_now_api_v1_runtime_provider_usage_refresh_post', { token });
+}
+
+/** Sets a provider's own suspension threshold, or `null` to inherit the general one. */
+export function putProviderUsagePolicy(
+	token: string,
+	providerId: string,
+	thresholdPercent: number | null,
+) {
+	return requestGeneratedOperation<
+		'put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put',
+		ProviderUsage
+	>('put_provider_usage_policy_api_v1_runtime_provider_usage__provider_id__policy_put', {
+		token,
+		pathParams: { provider_id: providerId },
+		body: { thresholdPercent },
+	});
+}
+
+/** Resumes a quota-suspended provider until the reset of the window that suspended it. */
+export function resumeProviderUsage(token: string, providerId: string) {
+	return requestGeneratedOperation<
+		'resume_provider_usage_api_v1_runtime_provider_usage__provider_id__resume_post',
+		ProviderUsage
+	>('resume_provider_usage_api_v1_runtime_provider_usage__provider_id__resume_post', {
+		token,
+		pathParams: { provider_id: providerId },
+	});
+}
+
+/** Effective global AI team (project > general > automatic) with the active, eligible candidates per role. */
+export function getRuntimeTeam(projectId: string | null, signal?: AbortSignal) {
+	return requestGeneratedOperation<'get_runtime_team_api_v1_runtime_team_get', RuntimeTeamResponse>(
+		'get_runtime_team_api_v1_runtime_team_get',
+		{ query: projectId ? { projectId } : {}, signal },
+	);
+}
+
+/**
+ * Real round trip against one runtime (queued `models.validate_runtime`); requires the write token.
+ * `onExecution` sees each poll of the queued execution, e.g. `resource_wait` with the governor reason.
+ * Without `model` an API/gateway runtime picks its candidates (last validated, role-policy models, then
+ * enabled ones, capped) and reports every model it tried in `validation.attempts`.
+ */
+export function validateRuntime(
+	token: string,
+	providerId: string,
+	projectId: string | null,
+	signal?: AbortSignal,
+	onExecution?: ExecutionObserver,
+	model?: string | null,
+) {
+	return requestGeneratedOperation<
+		'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post',
+		RuntimeValidationResponse
+	>(
+		'validate_runtime_api_v1_model_gateway_providers__provider_id__validate_runtime_post',
+		{
+			token,
+			pathParams: { provider_id: providerId },
+			body: { projectId, ...(model ? { model } : {}) },
+			signal,
+		},
+		onExecution,
+	);
+}
+
+/**
+ * Tests every enabled model of an API/gateway provider one by one (queued `models.validate_all_models`),
+ * or only `models` (catalog ids, e.g. a discarded model to retest). Passing models become validated;
+ * definitive failures are discarded (disabled with `disabledReason: validation_failed`, never deleted).
+ * Progress is read with {@link getModelValidationStatus}; `onExecution` sees each poll (executionId to cancel).
+ */
+export function validateAllModels(
+	token: string,
+	providerId: string,
+	body: CatalogValidationRequest = {},
+	signal?: AbortSignal,
+	onExecution?: ExecutionObserver,
+) {
+	return requestGeneratedOperation<
+		'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post',
+		CatalogValidationResponse
+	>(
+		'validate_all_models_api_v1_model_gateway_providers__provider_id__validate_all_models_post',
+		{ token, pathParams: { provider_id: providerId }, body, signal },
+		onExecution,
+	);
+}
+
+/** Last model-by-model validation run of a provider and the last result per model; a read, no network. */
+export function getModelValidationStatus(providerId: string, signal?: AbortSignal) {
+	return requestGeneratedOperation<
+		'model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get',
+		ModelValidationStatus
+	>('model_validation_status_api_v1_model_gateway_providers__provider_id__model_validation_get', {
+		pathParams: { provider_id: providerId },
+		signal,
+	});
+}
+
+/** Requests cancellation of a durable execution (idempotent); requires the write token. */
+export function cancelExecution(token: string, executionId: string, reason: string) {
+	return requestGeneratedOperation('cancel_api_v1_executions__execution_id__cancel_post', {
+		token,
+		pathParams: { execution_id: executionId },
+		body: { reason },
+	});
+}
+
+/** Sets or clears the thread's AI team; requires the write token. */
+export function updateThreadRunConfiguration(
+	token: string,
+	threadId: string,
+	body: ThreadRunConfigurationRequest,
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch',
+		ThreadRunConfigurationResponse
+	>('update_thread_run_configuration_api_v1_threads__thread_id__run_configuration_patch', {
+		token,
+		pathParams: { thread_id: threadId },
+		body,
+		signal,
+	});
+}
+
+/**
+ * Enables or disables many catalog models of one provider in a single transaction (all of them when
+ * `models` is omitted). All or nothing: an id outside the provider's catalog rejects the whole batch.
+ */
+export function patchModelGatewayProviderModels(
+	token: string,
+	providerId: string,
+	body: MutationBody<'patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch'>,
+) {
+	return requestGeneratedOperation(
+		'patch_provider_models_api_v1_model_gateway_providers__provider_id__models_patch',
+		{
+			token,
+			pathParams: { provider_id: providerId },
+			body,
+		},
+	);
+}
+
+export type PluginListResponse = OperationResponse<'list_plugins_api_v1_plugins_get'>;
+export type PluginRecord = PluginListResponse['plugins'][number];
+export type PluginInstallLocalRequest =
+	MutationBody<'install_local_plugin_api_v1_plugins_install_local_post'>;
+export type PluginInstallResponse =
+	OperationResponse<'install_local_plugin_api_v1_plugins_install_local_post'>;
+export type PluginValidationResponse =
+	OperationResponse<'validate_plugin_api_v1_plugins__plugin_id__validate_post'>;
+
+/** Installed plugin catalog with trust, status, and active-version detail; a read, no token. */
+export function listPlugins(signal?: AbortSignal) {
+	return requestGeneratedOperation<'list_plugins_api_v1_plugins_get', PluginListResponse>(
+		'list_plugins_api_v1_plugins_get',
+		{ signal },
+	);
+}
+
+/** Installs a local plugin folder after strict manifest validation; requires the write token. */
+export function installLocalPlugin(token: string, body: PluginInstallLocalRequest) {
+	return requestGeneratedOperation<
+		'install_local_plugin_api_v1_plugins_install_local_post',
+		PluginInstallResponse
+	>('install_local_plugin_api_v1_plugins_install_local_post', { token, body });
+}
+
+/** Revalidates the active plugin manifest and records the outcome; requires the write token. */
+export function validatePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation<
+		'validate_plugin_api_v1_plugins__plugin_id__validate_post',
+		PluginValidationResponse
+	>('validate_plugin_api_v1_plugins__plugin_id__validate_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+/** Enables a plugin after manifest revalidation; requires the write token. */
+export function enablePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation('enable_plugin_api_v1_plugins__plugin_id__enable_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+/** Disables a plugin; requires the write token. */
+export function disablePlugin(token: string, pluginId: string) {
+	return requestGeneratedOperation('disable_plugin_api_v1_plugins__plugin_id__disable_post', {
+		token,
+		pathParams: { plugin_id: pluginId },
+	});
+}
+
+export type PluginScanLocalRequest =
+	MutationBody<'scan_local_plugins_api_v1_plugins_scan_local_post'>;
+export type PluginScanLocalResponse =
+	OperationResponse<'scan_local_plugins_api_v1_plugins_scan_local_post'>;
+export type PluginScanCandidate = PluginScanLocalResponse['candidates'][number];
+export type PluginInstallEventsResponse =
+	OperationResponse<'list_plugin_install_events_api_v1_plugins_install_events_get'>;
+export type PluginInstallEvent = PluginInstallEventsResponse['events'][number];
+
+/** Scans a local folder for plugin candidates without installing; requires the write token. */
+export function scanLocalPlugins(token: string, body: PluginScanLocalRequest) {
+	return requestGeneratedOperation<
+		'scan_local_plugins_api_v1_plugins_scan_local_post',
+		PluginScanLocalResponse
+	>('scan_local_plugins_api_v1_plugins_scan_local_post', { token, body });
+}
+
+/** Plugin install lifecycle events, optionally filtered by status (e.g. blocked); a read. */
+export function listPluginInstallEvents(
+	params?: { status?: string; limit?: number },
+	signal?: AbortSignal,
+) {
+	return requestGeneratedOperation<
+		'list_plugin_install_events_api_v1_plugins_install_events_get',
+		PluginInstallEventsResponse
+	>('list_plugin_install_events_api_v1_plugins_install_events_get', {
+		query: params,
+		signal,
+	});
 }

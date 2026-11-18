@@ -3,14 +3,22 @@
  * and surfaces the summary (stack, risk/gap counts, quality signals, debt markers) plus a
  * filterable findings table. Owns its own fetch lifecycle; does NOT touch client.ts or the
  * generated OpenAPI layer — consumes the three assessment endpoints via apiRequest directly.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiRequest } from '../../api/client';
 import type { Overview, Project } from '../../api/types';
-import { DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { Button, ErrorState, Skeleton, StatusChip } from '../../components/ui';
+import {
+	Button,
+	DataTable,
+	EmptyState,
+	ErrorState,
+	PageHeader,
+	Skeleton,
+	StatusChip,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 
@@ -352,7 +360,6 @@ export function AssessmentPage({
 				)}
 			/>
 
-			{/* Run action bar */}
 			<Surface flat>
 				<div className="toolbar">
 					<Button
@@ -379,7 +386,6 @@ export function AssessmentPage({
 				</div>
 			</Surface>
 
-			{/* Run error */}
 			{runError && (
 				<ErrorState
 					title={t('app.assessment.runErrorTitle', 'Assessment failed')}
@@ -392,7 +398,6 @@ export function AssessmentPage({
 				/>
 			)}
 
-			{/* Load error */}
 			{loadError && (
 				<ErrorState
 					title={t('app.assessment.loadErrorTitle', 'Could not load assessment')}
@@ -405,7 +410,6 @@ export function AssessmentPage({
 				/>
 			)}
 
-			{/* Loading skeleton */}
 			{loading && !assessment && (
 				<>
 					<Skeleton
@@ -417,7 +421,6 @@ export function AssessmentPage({
 				</>
 			)}
 
-			{/* Empty state: no project selected */}
 			{!loading && noProject && !loadError && (
 				<Surface flat>
 					<EmptyState
@@ -430,7 +433,6 @@ export function AssessmentPage({
 				</Surface>
 			)}
 
-			{/* Empty state: project selected but no assessments yet */}
 			{!loading && !noProject && !assessment && !loadError && (
 				<Surface flat>
 					<EmptyState
@@ -443,7 +445,6 @@ export function AssessmentPage({
 				</Surface>
 			)}
 
-			{/* Assessment summary */}
 			{assessment && !loading && (
 				<>
 					<Surface title={t('app.assessment.summarySection', 'Latest assessment')}>

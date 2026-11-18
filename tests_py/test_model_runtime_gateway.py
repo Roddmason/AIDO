@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
+from contextlib import ExitStack, closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 
 from local_control_center.agents.cli_runtimes.base import RuntimeRequest, RuntimeResult
 from local_control_center.agents.cli_runtimes.claude_code_cli import ClaudeCodeCliRuntime
@@ -20,7 +22,8 @@ from local_control_center.agents.cli_sessions import CliSessionStore
 from local_control_center.agents.credential_preflight import run_credential_preflight
 from local_control_center.agents.credentials import CredentialResolver
 from local_control_center.agents.model_benchmarks import ModelBenchmarkStore
-from local_control_center.agents.model_gateway import ModelGateway
+from local_control_center.agents.model_gateway import ModelGateway, provider_instance
+from local_control_center.agents.model_gateway_api import _run_provider_test_prompt
 from local_control_center.agents.pricing_catalog import PricingCatalog
 from local_control_center.agents.provider_accounts import ProviderAccountStore
 from local_control_center.agents.providers.anthropic_api import AnthropicAPIProvider
@@ -29,13 +32,28 @@ from local_control_center.agents.providers.nvidia_nim import NvidiaNimProvider
 from local_control_center.agents.providers.openai_compatible import OpenAICompatibleProvider
 from local_control_center.agents.quota_manager import QuotaManager
 from local_control_center.agents.repository import AgentsRepository
+from local_control_center.agents.runtime_registry import (
+    RuntimeCommandUnavailableError,
+    build_product_owner_agent_argv,
+    validate_product_owner_runtime_argv,
+)
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.app import create_app
+from local_control_center.control_plane.overview import build_overview_from_connection
+from local_control_center.runtime_integrations.repository import RuntimeConfigRepository
 from local_control_center.shared.db import open_sqlite_connection
-from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.migrations import _execute_atomic_statements, initialize_platform_schema
 from local_control_center.shared.redaction import redact_secrets
 from tests_py.control_plane_fixture import ControlPlaneFixture
 from tests_py.evidence_helpers import real_qa_evidence_fields
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -43,12 +61,36 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    return TestClient(app)
+def enable_runtime_policy(
+    connection,
+    *,
+    cli: bool = False,
+    remote: bool = False,
+    nvidia: bool = False,
+) -> None:
+    repo = RuntimeConfigRepository(connection)
+    if cli:
+        repo.set_runtime_setting("runtime.cli.enabled", True)
+    if remote:
+        repo.set_runtime_setting("runtime.remote.enabled", True)
+    if nvidia:
+        repo.set_runtime_setting("runtime.nvidia.enabled", True)
+
+
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            return _owned_fixture_resources.enter_context(TestClient(app))
+
+        yield create_owned
 
 
 def enable_provider(client: TestClient, headers: dict[str, str], provider_id: str, **extra: object) -> None:
@@ -63,15 +105,24 @@ def enable_provider(client: TestClient, headers: dict[str, str], provider_id: st
         headers=headers,
     )
     assert response.status_code == 200
-    with open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"])) as connection:
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        enable_runtime_policy(connection, remote=True, nvidia=provider_id == "nvidia_nim")
         ProviderAccountStore(connection).record_health_check(
             provider_id=provider_id,
             status="available" if health_status == "healthy" else health_status,
             payload={"healthStatus": health_status, "message": health_message},
         )
+        if provider_id in {"codex_cli", "claude_code_cli"}:
+            models = ProviderAccountStore(connection)
+            for model in models.list_models(provider_id=provider_id):
+                models.patch_model(model["id"], {"enabled": True})
 
 
 def register_workspace(connection, workspace_id: str, path: Path) -> None:
+    enable_runtime_policy(connection, cli=True)
     connection.execute(
         """
         INSERT INTO workspaces
@@ -179,7 +230,7 @@ def run_anthropic_gateway_server(
 
 
 def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -203,6 +254,9 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
         }
         usage_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
+        }
+        model_call_columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
         }
 
     assert 12 in migrations
@@ -251,10 +305,216 @@ def test_phase12_schema_adds_unified_model_runtime_gateway_tables(tmp_path: Path
     } <= seeded_providers
     assert "metadata_json" in provider_columns
     assert "usage_source" in usage_columns
+    assert model_call_columns["cost_usd"]["notnull"] == 0
+
+
+def test_model_calls_cost_migration_preserves_existing_rows_and_accepts_unknown_cost(
+    tmp_path: Path,
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        connection.executescript(
+            """
+            CREATE TABLE model_calls (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                agent_run_id TEXT,
+                model_policy_id TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO model_calls
+                (id, project_id, agent_run_id, model_policy_id, provider, model, status,
+                 prompt_tokens, completion_tokens, cost_usd, metadata, created_at)
+            VALUES
+                ('model-call-existing', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'configured_model', 'completed', 10, 5, 0.012, '{}', '2026-01-01T00:00:00Z'),
+                ('model-call-unknown', 'project-gateway', NULL, NULL, 'nvidia_nim',
+                 'unknown-model', 'completed', 0, 0, 0,
+                 '{"tokenStatus":"unknown","costStatus":"unknown"}', '2026-01-01T00:00:01Z'),
+                ('model-call-actual-zero', 'project-gateway', NULL, NULL, 'ollama',
+                 'free-model', 'completed', 0, 0, 0,
+                 '{"tokenStatus":"actual","costStatus":"actual"}', '2026-01-01T00:00:02Z'),
+                ('model-call-failed', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'failed-model', 'failed', 3, 2, 0.01, '{}', '2026-01-01T00:00:03Z'),
+                ('model-call-invalid-metadata', 'project-gateway', NULL, NULL, 'openai_compatible',
+                 'legacy-model', 'completed', 4, 2, 0.02, '{invalid', '2026-01-01T00:00:04Z');
+            """
+        )
+
+        initialize_platform_schema(connection)
+        initialize_platform_schema(connection)
+        columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+        }
+        existing = connection.execute(
+            """
+            SELECT id, prompt_tokens, completion_tokens, cost_usd
+            FROM model_calls WHERE id = 'model-call-existing'
+            """
+        ).fetchone()
+        unknown = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-unknown'"
+        ).fetchone()
+        actual_zero = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-actual-zero'"
+        ).fetchone()
+        failed = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-failed'"
+        ).fetchone()
+        invalid_metadata = connection.execute(
+            "SELECT prompt_tokens, completion_tokens, cost_usd FROM model_calls WHERE id = 'model-call-invalid-metadata'"
+        ).fetchone()
+        created = AgentsRepository(connection).record_model_call(
+            project_id="project-gateway",
+            provider="anthropic_api",
+            model="claude-test-model",
+            status="completed",
+            prompt_tokens=11,
+            completion_tokens=5,
+            cost_usd=None,
+        )
+
+    assert columns["cost_usd"]["notnull"] == 0
+    assert columns["prompt_tokens"]["notnull"] == 0
+    assert columns["completion_tokens"]["notnull"] == 0
+    assert existing["cost_usd"] == 0.012
+    assert existing["prompt_tokens"] == 10
+    assert existing["completion_tokens"] == 5
+    assert tuple(unknown) == (None, None, None)
+    assert tuple(actual_zero) == (0, 0, 0)
+    assert tuple(failed) == (None, None, None)
+    assert tuple(invalid_metadata) == (4, 2, 0.02)
+    assert created["costUsd"] is None
+
+
+def test_usage_token_migration_preserves_reported_values_and_nulls_unknown_zeros(
+    tmp_path: Path,
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        connection.executescript(
+            """
+            CREATE TABLE usage_ledger (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                runtime_type TEXT NOT NULL,
+                agent_id TEXT,
+                role TEXT,
+                workflow_run_id TEXT,
+                workflow_step_id TEXT,
+                job_id TEXT,
+                task_id TEXT,
+                request_id TEXT,
+                session_id TEXT,
+                input_tokens INTEGER NOT NULL,
+                cached_input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                reasoning_tokens INTEGER NOT NULL,
+                tool_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                estimated_cost_usd REAL,
+                actual_cost_usd REAL,
+                currency TEXT NOT NULL,
+                latency_ms INTEGER,
+                raw_usage_json TEXT NOT NULL,
+                usage_source TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO usage_ledger
+                (id, provider_id, model, runtime_type, input_tokens, cached_input_tokens,
+                 output_tokens, reasoning_tokens, tool_tokens, total_tokens, currency,
+                 raw_usage_json, usage_source, created_at)
+            VALUES
+                ('usage-actual', 'ollama', 'reported', 'ollama', 10, 0, 5, 0, 0, 15,
+                 'USD', '{"usage_source":"provider"}', 'actual', '2026-01-01T00:00:00Z'),
+                ('usage-unknown', 'nvidia_nim', 'unreported', 'api', 0, 0, 0, 0, 0, 0,
+                 'USD', '{"usage_source":"unknown"}', 'unknown', '2026-01-01T00:00:01Z');
+            """
+        )
+
+        initialize_platform_schema(connection)
+        initialize_platform_schema(connection)
+        columns = {
+            row["name"]: row for row in connection.execute("PRAGMA table_info(usage_ledger)").fetchall()
+        }
+        actual = connection.execute(
+            "SELECT input_tokens, output_tokens, total_tokens FROM usage_ledger WHERE id = 'usage-actual'"
+        ).fetchone()
+        unknown = connection.execute(
+            "SELECT input_tokens, output_tokens, total_tokens FROM usage_ledger WHERE id = 'usage-unknown'"
+        ).fetchone()
+        migration = connection.execute("SELECT 1 FROM schema_migrations WHERE version = 50").fetchone()
+        index = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_ledger_provider_created'"
+        ).fetchone()
+
+    assert all(columns[name]["notnull"] == 0 for name in ("input_tokens", "output_tokens", "total_tokens"))
+    assert tuple(actual) == (10, 5, 15)
+    assert tuple(unknown) == (None, None, None)
+    assert migration is not None
+    assert index is not None
+
+
+def test_schema_rebuild_rolls_back_ddl_and_data_on_failure(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        connection.execute("CREATE TABLE source_rows (id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO source_rows (id) VALUES ('preserved')")
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            _execute_atomic_statements(
+                connection,
+                [
+                    ("CREATE TABLE staged_rows AS SELECT * FROM source_rows", ()),
+                    ("DROP TABLE source_rows", ()),
+                    ("INSERT INTO missing_table (id) VALUES ('fail')", ()),
+                ],
+            )
+
+        preserved = connection.execute("SELECT id FROM source_rows").fetchone()
+        staged = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'staged_rows'"
+        ).fetchone()
+
+    assert preserved["id"] == "preserved"
+    assert staged is None
+
+
+def test_provider_test_prompt_keeps_missing_usage_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.model_gateway_api.provider_instance",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            chat_completion=lambda _request: SimpleNamespace(
+                content="ok",
+                provider_id="ollama",
+                model="test-model",
+                usage=SimpleNamespace(
+                    total_tokens=0,
+                    raw_usage={"usage_source": "provider"},
+                ),
+            )
+        ),
+    )
+
+    with closing(open_sqlite_connection(tmp_path / "model-health.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        result = _run_provider_test_prompt("ollama", "test-model", connection=connection)
+
+    assert result["ok"] is True
+    assert result["totalTokens"] is None
+    assert result["usageSource"] == "unknown"
 
 
 def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -274,7 +534,7 @@ def test_phase13_schema_adds_benchmark_outcomes(tmp_path: Path) -> None:
 
 
 def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -315,7 +575,7 @@ def test_provider_accounts_crud_endpoints_do_not_expose_raw_credentials(
 
 
 def test_provider_account_requests_cannot_write_health_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -359,7 +619,7 @@ def test_provider_account_requests_cannot_write_health_state(
 
 
 def test_provider_account_config_change_resets_server_owned_health(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         store = ProviderAccountStore(connection)
         store.patch_provider_account(
@@ -384,7 +644,7 @@ def test_provider_account_config_change_resets_server_owned_health(tmp_path: Pat
 
 
 def test_prepare_model_call_preserves_unknown_estimated_cost(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         policy = AgentsRepository(connection).upsert_model_policy(
             {
@@ -406,7 +666,7 @@ def test_prepare_model_call_preserves_unknown_estimated_cost(tmp_path: Path) -> 
 
 
 def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("AIDO_TEST_COMPATIBLE_API_KEY", "sk-testsecret123456")
     client = create_client(tmp_path, monkeypatch)
@@ -462,6 +722,42 @@ def test_provider_accounts_reject_raw_credential_refs_and_support_env_scheme(
         },
     )
     assert uppercase_secret.status_code == 400
+
+
+def test_known_openai_compatible_provider_uses_default_base_url_without_manual_entry(
+    tmp_path: Path,
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        store = ProviderAccountStore(connection)
+        store.upsert_provider_account(
+            {
+                "providerId": "deepseek",
+                "displayName": "DeepSeek",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "",
+                "credentialRef": "env:DEEPSEEK_API_KEY",
+                "enabled": True,
+            }
+        )
+        store.upsert_provider_account(
+            {
+                "providerId": "custom_gateway",
+                "displayName": "Custom gateway",
+                "providerType": "api",
+                "apiFormat": "openai_compatible",
+                "baseUrl": "",
+                "credentialRef": "env:CUSTOM_GATEWAY_API_KEY",
+                "enabled": True,
+            }
+        )
+
+        known_provider = provider_instance("deepseek", connection=connection)
+        custom_provider = provider_instance("custom_gateway", connection=connection)
+
+    assert known_provider.base_url == "https://api.deepseek.com"
+    assert custom_provider.base_url == ""
 
 
 def test_credential_resolver_supports_env_keyring_fallbacks_and_redaction(
@@ -706,7 +1002,7 @@ def test_credential_preflight_script_accepts_pnpm_argument_separator() -> None:
 
 
 def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -724,6 +1020,8 @@ def test_provider_health_check_does_not_mark_missing_remote_vault_ref_healthy(
             "enabled": True,
         },
     )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        enable_runtime_policy(connection, remote=True)
     health = client.post(
         "/api/v1/model-gateway/providers/remote_secret_provider/health-check", headers=headers
     )
@@ -743,11 +1041,70 @@ def test_openai_compatible_provider_uses_credential_resolver(monkeypatch: pytest
         base_url="https://example.invalid/v1",
         credential_ref="env:AIDO_PROVIDER_SECRET",
     )
+    provider.base_url = ""
 
     assert provider._credential() == "sk-testsecret123456"
     health = provider.health_check()
-    assert health.status == "disabled"
+    assert health.status == "misconfigured"
     assert "sk-testsecret" not in health.message
+
+
+def test_openai_compatible_transport_fails_closed_on_cross_origin_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_state: dict[str, object] = {"calls": 0, "authorization": None}
+
+    class RedirectTargetHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            target_state["calls"] = int(target_state["calls"]) + 1
+            target_state["authorization"] = self.headers.get("Authorization")
+            body = json.dumps({"data": [{"id": "redirected-model"}]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    target_server = HTTPServer(("127.0.0.1", 0), RedirectTargetHandler)
+    target_thread = threading.Thread(target=target_server.serve_forever, daemon=True)
+    target_thread.start()
+    target_url = f"http://127.0.0.1:{target_server.server_port}/models"
+
+    class RedirectOriginHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_GET(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", target_url)
+            self.end_headers()
+
+    origin_server = HTTPServer(("127.0.0.1", 0), RedirectOriginHandler)
+    origin_thread = threading.Thread(target=origin_server.serve_forever, daemon=True)
+    origin_thread.start()
+    monkeypatch.setenv("REDIRECT_TEST_API_KEY", "redirect-secret-token")
+    try:
+        provider = OpenAICompatibleProvider(
+            provider_id="redirect-test",
+            base_url=f"http://127.0.0.1:{origin_server.server_port}/v1",
+            credential_ref="env:REDIRECT_TEST_API_KEY",
+        )
+
+        models = provider.list_models()
+    finally:
+        origin_server.shutdown()
+        origin_server.server_close()
+        origin_thread.join(timeout=5)
+        target_server.shutdown()
+        target_server.server_close()
+        target_thread.join(timeout=5)
+
+    assert models == []
+    assert target_state["calls"] == 0
+    assert target_state["authorization"] is None
 
 
 def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
@@ -758,8 +1115,9 @@ def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
     base_url, handler, server = run_json_gateway_server({"unexpected": True})
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
                     "providerId": "openai_compatible",
@@ -787,6 +1145,7 @@ def test_model_gateway_blocks_unconfigured_openai_compatible_before_http_call(
         assert handler.seen_requests == []
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
@@ -796,8 +1155,9 @@ def test_model_gateway_redacts_secrets_from_unavailable_provider_errors(
     secret = "sk-redactgateway123456"
     monkeypatch.setenv("MODEL_GATEWAY_SECRET_KEY", secret)
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
+        enable_runtime_policy(connection, remote=True)
         ProviderAccountStore(connection).upsert_provider_account(
             {
                 "providerId": "openai_compatible",
@@ -837,7 +1197,7 @@ def test_model_gateway_budget_exceeded_blocks_before_provider_call(
     monkeypatch.setattr(OpenAICompatibleProvider, "chat_completion", fail_chat_completion)
     monkeypatch.setenv("MODEL_GATEWAY_BUDGET_KEY", "sk-budgetgateway123456")
     monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ProviderAccountStore(connection).upsert_provider_account(
             {
@@ -872,7 +1232,7 @@ def test_model_gateway_budget_exceeded_blocks_before_provider_call(
 def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path) -> None:
     base_url, _handler, server = run_json_gateway_server({})
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
@@ -892,6 +1252,37 @@ def test_model_gateway_ollama_health_uses_configured_local_server(tmp_path: Path
         assert health["models"] == ["llama3:latest"]
     finally:
         server.shutdown()
+        server.server_close()
+
+
+def test_model_gateway_endpoint_scoped_ollama_requires_explicit_base_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AIDO_OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        ProviderAccountStore(connection).upsert_provider_account(
+            {
+                "providerId": "ollama_remote",
+                "providerType": "gateway",
+                "apiFormat": "ollama",
+                "baseUrl": "",
+                "credentialRef": "",
+                "enabled": True,
+            }
+        )
+        enable_runtime_policy(connection, remote=True)
+
+        provider = provider_instance("ollama_remote", connection=connection)
+        health = ModelGateway(connection).provider_health("ollama_remote")
+
+    assert provider.base_url == ""
+    assert health["status"] == "configuration_required"
+    assert "base URL" in health["message"]
 
 
 def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_usage(
@@ -914,8 +1305,9 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         }
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
@@ -950,13 +1342,17 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
                 messages=[{"role": "user", "content": "hello"}],
             )
             result = ModelGateway(connection).execute_model_call(plan)
+            cost_projects = {
+                row["project_id"] for row in connection.execute("SELECT project_id FROM cost_usage")
+            }
 
         assert result["status"] == "completed"
+        assert cost_projects == {"project-gateway"}
         assert result["content"] == "real provider response"
         assert result["usage"]["inputTokens"] == 7
         assert result["usage"]["cachedInputTokens"] == 2
         assert result["usage"]["outputTokens"] == 5
-        assert result["usage"]["totalTokens"] == 14
+        assert result["usage"]["totalTokens"] == 12
         assert result["usage"]["actualCostUsd"] == 0.000016
         assert result["usage"]["estimatedCostUsd"] is None
         assert result["usage"]["usageSource"] == "actual"
@@ -966,6 +1362,94 @@ def test_model_gateway_openai_compatible_executes_real_http_and_records_actual_u
         assert handler.seen_requests[0]["authorization"] == "Bearer sk-realgateway123456"
     finally:
         server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize(
+    ("pricing_mode", "free_tier", "expected_cost_usd"),
+    [("unknown", False, 0.000016), ("free", True, 0.0)],
+    ids=["paid", "free"],
+)
+def test_model_gateway_call_cost_is_counted_once_in_the_overview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pricing_mode: str,
+    free_tier: bool,
+    expected_cost_usd: float,
+) -> None:
+    """La UI suma todo `costUsage[].amountUsd`: cada llamada del gateway debe aportar su costo una vez.
+
+    La llamada pagada escribía la fila de compatibilidad del ledger y la fila `model_call` con el mismo
+    monto (costo duplicado en la barra de estado); la gratuita conserva su fila de $0.00 para que la UI
+    no muestre el costo como desconocido. El presupuesto (scope `model_call`) debe coincidir.
+    """
+    monkeypatch.setenv("MODEL_GATEWAY_REAL_KEY", "sk-realgateway123456")
+    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    base_url, _handler, server = run_json_gateway_server(
+        {
+            "id": "chatcmpl-test",
+            "model": "configured_model",
+            "choices": [{"message": {"role": "assistant", "content": "real provider response"}}],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 5,
+                "total_tokens": 12,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            },
+        }
+    )
+    try:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+            initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
+            store = ProviderAccountStore(connection)
+            store.upsert_provider_account(
+                {
+                    "providerId": "openai_compatible",
+                    "providerType": "api",
+                    "apiFormat": "openai_compatible",
+                    "pricingMode": pricing_mode,
+                    "baseUrl": f"{base_url}/v1",
+                    "credentialRef": "env:MODEL_GATEWAY_REAL_KEY",
+                    "enabled": True,
+                    "healthStatus": "healthy",
+                    "lastHealthCheckAt": "2026-01-01T00:00:00Z",
+                }
+            )
+            store.upsert_model(
+                {
+                    "providerId": "openai_compatible",
+                    "model": "configured_model",
+                    "enabled": True,
+                    "freeTier": free_tier,
+                    "inputPricePerMtok": 1.0,
+                    "cachedInputPricePerMtok": 0.25,
+                    "outputPricePerMtok": 2.0,
+                    "reasoningPricePerMtok": 3.0,
+                    "source": "unit_test_pricing",
+                }
+            )
+            gateway = ModelGateway(connection)
+            plan = gateway.plan_model_call(
+                project_id="project-gateway",
+                provider="openai_compatible",
+                model="configured_model",
+                runtime_type="api",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            result = gateway.execute_model_call(plan)
+            overview = build_overview_from_connection(connection=connection, cwd=tmp_path)
+            budget_spend = AgentsRepository(connection).total_cost_usage(
+                project_id="project-gateway", scope="model_call"
+            )
+
+        assert result["status"] == "completed"
+        assert result["usage"]["actualCostUsd"] == expected_cost_usd
+        assert [row["amountUsd"] for row in overview["costUsage"]] == [pytest.approx(expected_cost_usd)]
+        assert budget_spend == pytest.approx(expected_cost_usd)
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_anthropic_provider_health_and_model_listing_use_real_endpoints(
@@ -999,6 +1483,7 @@ def test_anthropic_provider_health_and_model_listing_use_real_endpoints(
         assert handler.seen_requests[0]["anthropic_version"] == "2023-06-01"
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
@@ -1024,8 +1509,9 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         models_payload={"data": []},
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True)
             ProviderAccountStore(connection).upsert_provider_account(
                 {
                     "providerId": "anthropic_api",
@@ -1067,7 +1553,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         assert result["usage"]["rawUsage"]["cost_status"] == "unknown"
         assert result["modelCall"]["promptTokens"] == 11
         assert result["modelCall"]["completionTokens"] == 5
-        assert result["modelCall"]["costUsd"] == 0.0
+        assert result["modelCall"]["costUsd"] is None
         assert message_request["path"] == "/v1/messages"
         assert message_request["x_api_key"] == "sk-ant-gateway123456"
         assert message_request["anthropic_version"] == "2023-06-01"
@@ -1077,6 +1563,7 @@ def test_model_gateway_anthropic_executes_real_http_and_records_actual_usage(
         assert message_request["body"]["messages"] == [{"role": "user", "content": "hello"}]
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_anthropic_provider_without_usage_marks_tokens_unknown() -> None:
@@ -1105,19 +1592,23 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
     base_url, _handler, server = run_json_gateway_server(
         {
             "id": "chatcmpl-nvidia-no-usage",
-            "model": "auto_best_available",
+            "model": "fixture-nvidia-model",
             "choices": [{"message": {"role": "assistant", "content": "provider text without usage"}}],
         }
     )
     try:
-        with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+        with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
             initialize_platform_schema(connection)
+            enable_runtime_policy(connection, remote=True, nvidia=True)
             store = ProviderAccountStore(connection)
             store.upsert_provider_account(
                 {
                     "providerId": "nvidia_nim",
                     "providerType": "api",
                     "apiFormat": "openai_compatible",
+                    "deploymentMode": "self_hosted_development",
+                    "termsMode": "accepted",
+                    "pricingMode": "free",
                     "baseUrl": f"{base_url}/v1",
                     "credentialRef": "env:NVIDIA_NIM_API_KEY",
                     "enabled": True,
@@ -1129,30 +1620,31 @@ def test_nvidia_nim_without_provider_usage_does_not_invent_cost_or_tokens(
             plan = ModelGateway(connection).plan_model_call(
                 project_id="project-nvidia",
                 provider="nvidia_nim",
-                model="auto_best_available",
+                model="fixture-nvidia-model",
                 runtime_type="api",
                 messages=[{"role": "user", "content": "hello"}],
             )
             result = ModelGateway(connection).execute_model_call(plan)
 
         assert result["status"] == "completed"
-        assert result["usage"]["inputTokens"] == 0
-        assert result["usage"]["outputTokens"] == 0
-        assert result["usage"]["totalTokens"] == 0
+        assert result["usage"]["inputTokens"] is None
+        assert result["usage"]["outputTokens"] is None
+        assert result["usage"]["totalTokens"] is None
         assert result["usage"]["estimatedCostUsd"] is None
         assert result["usage"]["actualCostUsd"] is None
         assert result["usage"]["usageSource"] == "unknown"
         assert result["usage"]["tokenStatus"] == "unknown"
         assert result["usage"]["costStatus"] == "unknown"
         assert result["usage"]["rawUsage"]["usage_source"] == "unknown"
-        assert result["modelCall"]["promptTokens"] == 0
-        assert result["modelCall"]["completionTokens"] == 0
-        assert result["modelCall"]["costUsd"] == 0.0
+        assert result["modelCall"]["promptTokens"] is None
+        assert result["modelCall"]["completionTokens"] is None
+        assert result["modelCall"]["costUsd"] is None
     finally:
         server.shutdown()
+        server.server_close()
 
 
-def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_catalog_crud_endpoints(create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -1189,7 +1681,7 @@ def test_model_catalog_crud_endpoints(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_routing_profiles_and_role_policy_seeds_are_exposed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     profiles = client.get("/api/v1/model-gateway/routing-profiles")
@@ -1214,7 +1706,7 @@ def test_routing_profiles_and_role_policy_seeds_are_exposed(
 
 
 def test_agent_profile_stores_routing_runtime_and_budget_controls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1254,11 +1746,19 @@ def test_agent_profile_stores_routing_runtime_and_budget_controls(
 
 
 def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quota(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "nvidia_nim")
+    assert (
+        client.post(
+            "/api/v1/model-gateway/models",
+            headers=headers,
+            json={"providerId": "nvidia_nim", "model": "fixture-nvidia-model", "enabled": True},
+        ).status_code
+        == 201
+    )
 
     response = client.post(
         "/api/v1/model-gateway/route/preview",
@@ -1298,12 +1798,59 @@ def test_route_preview_free_first_chooses_nvidia_when_enabled_healthy_and_in_quo
     }
 
 
+def test_route_preview_ranks_provider_wildcard_preferred_candidate(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El candidato comodín ``{provider, model: "*"}`` debe aportar rank en el scorer legacy.
+
+    Es la forma que escriben el wizard de providers y scripts/setup_omniroute.py para gateways
+    auto-ruteados: sin el alias "*" el preferred del rol no sube el roleFitScore del proveedor
+    (queda en el 0.45 de un proveedor no listado) y la asignación de roles resulta inerte.
+    """
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+    enable_provider(client, headers, "ollama")
+
+    patched = client.patch(
+        "/api/v1/model-gateway/role-policies/analyst",
+        headers=headers,
+        json={"preferred": [{"provider": "ollama", "model": "*"}]},
+    )
+    assert patched.status_code == 200
+
+    response = client.post(
+        "/api/v1/model-gateway/route/preview",
+        headers=headers,
+        json={
+            "role": "analyst",
+            "taskType": "doc_summary",
+            "mode": "free_first",
+            "riskLevel": "low",
+            "contextTokensEstimate": 2000,
+            "privacyLevel": "remote_allowed",
+            "budgetRemainingUsd": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    candidate = next(item for item in response.json()["candidates"] if item["provider"] == "ollama")
+    assert candidate["scoreBreakdown"]["roleFitScore"] == 1.0
+
+
 def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "nvidia_nim")
+    assert (
+        client.post(
+            "/api/v1/model-gateway/models",
+            headers=headers,
+            json={"providerId": "nvidia_nim", "model": "fixture-nvidia-model", "enabled": True},
+        ).status_code
+        == 201
+    )
     enable_provider(client, headers, "ollama")
 
     patched_policy = client.patch(
@@ -1342,7 +1889,7 @@ def test_route_preview_rejects_remote_unknown_cost_when_role_policy_disallows_it
 
 
 def test_route_preview_local_private_blocks_remote_providers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1370,7 +1917,7 @@ def test_route_preview_local_private_blocks_remote_providers(
 
 
 def test_route_preview_developer_prefers_cli_runtime_over_nvidia_for_code_edit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1400,7 +1947,7 @@ def test_route_preview_developer_prefers_cli_runtime_over_nvidia_for_code_edit(
 
 
 def test_route_preview_technical_lead_selects_premium_xhigh_when_budget_allows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1429,7 +1976,7 @@ def test_route_preview_technical_lead_selects_premium_xhigh_when_budget_allows(
 
 
 def test_route_preview_requires_approval_when_estimated_cost_exceeds_role_threshold(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1455,7 +2002,7 @@ def test_route_preview_requires_approval_when_estimated_cost_exceeds_role_thresh
 
 
 def test_budget_rule_denies_route_preview_before_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1500,7 +2047,7 @@ def test_budget_rule_denies_route_preview_before_selection(
 
 
 def test_budget_rule_requires_approval_in_route_preview(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1544,7 +2091,7 @@ def test_budget_rule_requires_approval_in_route_preview(
 
 
 def test_budget_rule_fallback_rejects_candidate_and_selects_next_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1590,7 +2137,7 @@ def test_budget_rule_fallback_rejects_candidate_and_selects_next_runtime(
 
 
 def test_budget_rule_warn_keeps_selection_and_surfaces_warning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1633,7 +2180,7 @@ def test_budget_rule_warn_keeps_selection_and_surfaces_warning(
 
 
 def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         connection.execute(
             "UPDATE model_catalog SET source = ?, updated_at = ? WHERE provider_id = ? AND model = ?",
@@ -1672,8 +2219,30 @@ def test_pricing_catalog_marks_nvidia_unknown_price_and_stale_prices(tmp_path: P
     assert stale["staleness"] == "stale"
 
 
+@pytest.mark.parametrize(
+    ("column", "tokens"),
+    [
+        ("input_price_per_mtok", {"input_tokens": 100}),
+        ("cached_input_price_per_mtok", {"input_tokens": 100, "cached_input_tokens": 100}),
+        ("output_price_per_mtok", {"output_tokens": 100}),
+        ("reasoning_price_per_mtok", {"reasoning_tokens": 100}),
+    ],
+)
+def test_pricing_does_not_report_missing_consumed_rate_as_zero(tmp_path, column, tokens):
+    with closing(open_sqlite_connection(tmp_path / "pricing.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        connection.execute(
+            f"UPDATE model_catalog SET {column}=NULL WHERE provider_id=? AND model=?",
+            ("codex_cli", "gpt-5.5"),
+        )
+        result = PricingCatalog(connection).estimate(provider_id="codex_cli", model="gpt-5.5", **tokens)
+        assert result["estimatedCostUsd"] is None
+        assert result["priceKnown"] is False
+        assert result["freeTier"] is False
+
+
 def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1706,8 +2275,8 @@ def test_route_preview_exposes_pricing_metadata_and_penalizes_unknown_price(
     assert codex["pricingSource"]
 
 
-def test_discover_models_blocks_when_real_calls_are_disabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_discover_models_uses_sqlite_policy_when_env_flag_is_absent(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1717,11 +2286,12 @@ def test_discover_models_blocks_when_real_calls_are_disabled(
 
     response = client.post("/api/v1/model-gateway/providers/nvidia_nim/discover-models", headers=headers)
 
-    assert response.status_code == 403
-    assert "disabled" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    assert "models" in response.json()
 
 
 def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1733,6 +2303,12 @@ def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
         json={"enabled": True, "healthStatus": "healthy"},
     )
     assert response.status_code == 200
+
+    # El modelo debe ser explícito: los seeds CLI ya no son candidatos ejecutables.
+    connection = client.app.state.runtime.connection
+    connection.execute(
+        "UPDATE model_catalog SET enabled=1, source='operator_override' WHERE provider_id='codex_cli'"
+    )
 
     preview = client.post(
         "/api/v1/model-gateway/route/preview",
@@ -1754,6 +2330,7 @@ def test_router_rejects_enabled_seed_provider_without_real_healthcheck(
 
 
 def test_discover_models_rejects_real_api_provider_without_configured_credential_before_network(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1781,6 +2358,7 @@ def test_discover_models_rejects_real_api_provider_without_configured_credential
 
 
 def test_discover_models_real_mode_stores_provider_sourced_models_without_real_network(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1834,6 +2412,7 @@ def test_discover_models_real_mode_stores_provider_sourced_models_without_real_n
 
 
 def test_pricing_snapshot_api_records_redacted_append_only_snapshot_and_updates_catalog(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1880,7 +2459,7 @@ def test_pricing_snapshot_api_records_redacted_append_only_snapshot_and_updates_
 
 
 def test_phase14_schema_adds_pricing_snapshots(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -1895,7 +2474,7 @@ def test_phase14_schema_adds_pricing_snapshots(tmp_path: Path) -> None:
 
 
 def test_benchmark_routing_ignores_insufficient_data_in_score(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -1943,13 +2522,13 @@ def test_benchmark_routing_ignores_insufficient_data_in_score(
 
 
 def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "codex_cli")
     enable_provider(client, headers, "openhands")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         manager = QuotaManager(connection)
         manager.record_rate_limit(provider_id="openhands", model="auto", retry_after_seconds=120)
 
@@ -1995,7 +2574,7 @@ def test_benchmark_routing_uses_sufficient_data_without_overriding_quota(
 
 
 def test_operator_reported_benchmarks_are_separated_from_objective_routing_score(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2047,7 +2626,7 @@ def test_operator_reported_benchmarks_are_separated_from_objective_routing_score
 
 
 def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def healthy_provider(self: OpenAICompatibleProvider) -> ProviderHealth:
         return ProviderHealth(
@@ -2072,6 +2651,8 @@ def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_p
         },
     )
     assert response.status_code == 200
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        enable_runtime_policy(connection, remote=True)
 
     health = client.post(
         "/api/v1/model-gateway/providers/openai_compatible/health-check",
@@ -2084,6 +2665,7 @@ def test_provider_health_real_mode_requires_explicit_env_and_uses_real_adapter_p
 
 
 def test_provider_health_429_records_cooldown_and_redacts_last_error(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2124,7 +2706,7 @@ def test_provider_health_429_records_cooldown_and_redacts_last_error(
 
 
 def test_quota_manager_blocks_provider_in_cooldown(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         manager = QuotaManager(connection)
         manager.record_rate_limit(
@@ -2139,7 +2721,7 @@ def test_quota_manager_blocks_provider_in_cooldown(tmp_path: Path) -> None:
 
 
 def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         ledger = UsageLedger(connection)
         estimated = ledger.record_usage(
@@ -2169,12 +2751,106 @@ def test_usage_ledger_records_estimated_and_actual_usage(tmp_path: Path) -> None
     assert estimated["actualCostUsd"] is None
     assert estimated["rawUsage"]["usage_source"] == "estimated"
     assert estimated["usageSource"] == "estimated"
+    assert estimated["inputTokens"] is None
+    assert estimated["totalTokens"] is None
     assert actual["actualCostUsd"] == 0
     assert actual["totalTokens"] == 30
     assert actual["usageSource"] == "actual"
 
 
-def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_usage_ledger_summary_preserves_unknown_actual_cost(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="nvidia_nim",
+            model="auto_best_available",
+            runtime_type="api",
+            role="analyst",
+            request_id="req-estimated",
+            input_tokens=10,
+            output_tokens=5,
+            estimated_cost_usd=0.001,
+            raw_usage={"usage_source": "estimated"},
+        )
+
+        unknown_summary = ledger.summary()
+
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            role="qa",
+            request_id="req-actual",
+            input_tokens=20,
+            output_tokens=10,
+            estimated_cost_usd=0,
+            actual_cost_usd=0,
+            raw_usage={"usage_source": "provider"},
+        )
+        mixed_summary = ledger.summary()
+    with closing(open_sqlite_connection(tmp_path / "actual-only.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="openai_compatible",
+            model="configured_model",
+            runtime_type="api",
+            role="qa",
+            request_id="req-actual-only",
+            input_tokens=20,
+            output_tokens=10,
+            estimated_cost_usd=0,
+            actual_cost_usd=0,
+            raw_usage={"usage_source": "provider"},
+        )
+        actual_summary = ledger.summary()
+
+    assert unknown_summary["estimatedCostUsd"] == 0.001
+    assert unknown_summary["actualCostUsd"] is None
+    assert unknown_summary["totalTokens"] is None
+    assert mixed_summary["estimatedCostUsd"] == 0.001
+    assert mixed_summary["actualCostUsd"] is None
+    assert mixed_summary["totalTokens"] is None
+    assert actual_summary["estimatedCostUsd"] == 0
+    assert actual_summary["actualCostUsd"] == 0
+    assert actual_summary["totalTokens"] == 30
+
+
+def test_usage_ledger_summary_does_not_present_known_cost_subtotals_as_complete(
+    tmp_path: Path,
+) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        ledger = UsageLedger(connection)
+        ledger.record_usage(
+            provider_id="ollama",
+            model="known",
+            runtime_type="ollama",
+            input_tokens=4,
+            output_tokens=2,
+            estimated_cost_usd=0.01,
+            actual_cost_usd=0.01,
+            raw_usage={"usage_source": "actual"},
+        )
+        ledger.record_usage(
+            provider_id="ollama",
+            model="unknown",
+            runtime_type="ollama",
+            raw_usage={"usage_source": "unknown"},
+            usage_source="unknown",
+        )
+
+        summary = ledger.summary()
+
+    assert summary["estimatedCostUsd"] is None
+    assert summary["actualCostUsd"] is None
+    assert summary["byProvider"][0]["estimatedCostUsd"] is None
+
+
+def test_route_execute_mock_endpoint_is_not_exposed(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
 
@@ -2197,7 +2873,7 @@ def test_route_execute_mock_endpoint_is_not_exposed(tmp_path: Path, monkeypatch:
 
 
 def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -2225,7 +2901,7 @@ def test_benchmarks_derive_attempt_cost_and_latency_from_usage_without_inventing
 
 
 def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2268,7 +2944,7 @@ def test_benchmark_outcome_endpoint_records_success_qa_and_rework_rates(
 
 
 def test_operator_reported_benchmark_outcomes_do_not_create_objective_rates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2314,7 +2990,7 @@ def test_operator_reported_benchmark_outcomes_do_not_create_objective_rates(
 
 
 def test_release_validation_benchmark_provenance_is_accepted_as_objective(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2351,7 +3027,7 @@ def test_release_validation_benchmark_provenance_is_accepted_as_objective(
 
 
 def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -2407,7 +3083,7 @@ def test_evidence_creation_ingests_benchmark_outcome_from_usage_ledger(
 
 
 def test_failed_test_result_overrides_passed_verdict_in_benchmarks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     with client:
@@ -2453,7 +3129,7 @@ def test_failed_test_result_overrides_passed_verdict_in_benchmarks(
 
 
 def test_nvidia_provider_parses_usage_and_handles_429(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         provider = NvidiaNimProvider(connection=connection)
         estimate = provider.estimate_cost(
@@ -2506,6 +3182,182 @@ def test_cli_detection_missing_binary_returns_not_installed() -> None:
     assert claude.message == "Claude Code CLI not detected"
 
 
+def test_claude_native_auth_probe_parses_logged_in_json_without_leaking_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    # Sin aislar CLAUDE_CONFIG_DIR el runtime lee el .credentials.json real del equipo y degrada a
+    # unauthenticated cuando ese token OAuth está vencido: el test pasaría a depender de la sesión
+    # local en vez de del probe que dice ejercitar.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": json.dumps(
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "email": "person@example.com",
+                    "orgName": "Person's Organization",
+                }
+            ),
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "authenticated"
+    assert "person@example.com" not in status.message
+    assert "Organization" not in status.message
+
+
+def test_claude_native_auth_probe_reports_logged_out_with_login_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": json.dumps({"loggedIn": False}),
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "unauthenticated"
+    assert "claude auth login" in status.message
+
+
+def test_codex_native_auth_probe_uses_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/codex.exe")
+    results = {
+        0: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 0,
+            "stdout": "Logged in using ChatGPT",
+            "stderr": "",
+        },
+        1: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": False,
+            "returnCode": 1,
+            "stdout": "",
+            "stderr": "Not logged in",
+        },
+    }
+    current = {"code": 0}
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: results[current["code"]],
+    )
+
+    logged_in = CodexCliRuntime(executable="codex").validate_native_auth()
+    current["code"] = 1
+    logged_out = CodexCliRuntime(executable="codex").validate_native_auth()
+
+    assert logged_in.status == "authenticated"
+    assert logged_out.status == "unauthenticated"
+    assert "codex login" in logged_out.message
+
+
+def test_native_auth_probe_timeout_is_unknown_not_unauthenticated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_control_center.agents.cli_runtimes import base as cli_base
+
+    monkeypatch.setattr(cli_base, "_which_executable", lambda executable: "C:/tools/claude.exe")
+    monkeypatch.setattr(
+        cli_base.subprocess_sandbox,
+        "run_auth_status_check",
+        lambda **kwargs: {
+            "executed": True,
+            "blocked": False,
+            "timedOut": True,
+            "returnCode": None,
+            "stdout": "",
+            "stderr": "",
+        },
+    )
+
+    status = ClaudeCodeCliRuntime(executable="claude").validate_native_auth()
+
+    assert status.status == "unknown"
+
+
+def test_auth_status_sandbox_rejects_unlisted_subcommands() -> None:
+    from local_control_center.security_policy import sandbox
+
+    blocked_argvs = [
+        ["claude", "auth", "login"],
+        ["claude", "auth", "status", "--json", "--extra"],
+        ["codex", "login"],
+        ["codex", "exec", "rm -rf /"],
+        ["claude"],
+    ]
+    for argv in blocked_argvs:
+        result = sandbox.run_auth_status_check(argv=argv)
+        assert result["blocked"] is True, argv
+        assert result["executed"] is False, argv
+
+
+def test_cli_detect_probe_without_version_degrades_instead_of_offline(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_control_center.agents.runtime_registry import RuntimeRegistry
+
+    client = create_client(tmp_path, monkeypatch)
+    headers = auth_headers(client)
+
+    def detect(self: RuntimeRegistry, runtime_id: str, *, executable: str | None = None):
+        return {
+            "runtime": runtime_id,
+            "status": "installed",
+            "executable": "C:/tools/codex.exe",
+            "version": None,
+            "message": "Codex CLI detected",
+        }
+
+    monkeypatch.setattr(RuntimeRegistry, "detect", detect)
+
+    response = client.post("/api/v1/model-gateway/cli-runtimes/codex_cli/detect", headers=headers)
+    assert response.status_code == 200
+
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        row = connection.execute(
+            "SELECT health_status, last_error FROM runtime_installations WHERE runtime_id = 'codex_cli'"
+        ).fetchone()
+
+    assert row["health_status"] == "degraded"
+    assert row["last_error"] != "Codex CLI detected"
+    assert "version" in str(row["last_error"]).lower()
+
+
 def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
     runtime = CodexCliRuntime(executable="codex")
 
@@ -2522,6 +3374,271 @@ def test_cli_runtime_blocks_dangerous_flags(tmp_path: Path) -> None:
         )
 
 
+def test_codex_cli_builds_current_non_interactive_command_contract(tmp_path: Path) -> None:
+    command = CodexCliRuntime(executable="codex").build_command(
+        RuntimeRequest(
+            runtime="codex_cli",
+            workspace_id="workspace-test",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            profile="codex_gpt55_developer",
+            model="test-operator-coding-model",
+            effort="high",
+        )
+    )
+
+    assert command[:4] == ["codex", "--ask-for-approval", "never", "exec"]
+    assert command[4:8] == ["--sandbox", "workspace-write", "--cd", str(tmp_path.resolve())]
+    assert "--model-reasoning-effort" not in command
+    assert command[command.index("--config") : command.index("--config") + 2] == [
+        "--config",
+        'model_reasoning_effort="high"',
+    ]
+    assert command[-1] == "Return JSON only"
+
+
+def test_claude_cli_separates_variadic_add_dir_from_prompt(tmp_path: Path) -> None:
+    command = ClaudeCodeCliRuntime(executable="claude").build_command(
+        RuntimeRequest(
+            runtime="claude_code_cli",
+            workspace_id="workspace-test",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            profile="claude_sonnet_developer",
+            model="test-operator-coding-model",
+        )
+    )
+
+    assert command[-2:] == ["--", "Return JSON only"]
+    assert command[command.index("--permission-mode") : command.index("--permission-mode") + 2] == [
+        "--permission-mode",
+        "acceptEdits",
+    ]
+    assert command[command.index("--add-dir") + 1] == str(tmp_path.resolve())
+    assert command.index("--") > command.index("--add-dir")
+
+
+def test_product_owner_codex_command_is_ephemeral_and_ignores_operator_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "local_control_center.agents.codex_compatibility.CodexCompatibilityService.status",
+        lambda *args, **kwargs: {"status": "compatible"},
+    )
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+        command = build_product_owner_agent_argv(
+            runtime={
+                "id": "codex_cli",
+                "detectedCommand": "codex",
+                "version": "codex-cli 0.142.2",
+                "versionVerified": True,
+            },
+            workspace_id="workspace-product-owner",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            model="gpt-5.5",
+            agent_id="product_owner_agent",
+            connection=connection,
+        )
+
+    assert command[command.index("--model") : command.index("--model") + 2] == [
+        "--model",
+        "gpt-5.5",
+    ]
+    assert "--ephemeral" in command
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert "--strict-config" in command
+    assert "--disable" in command
+    assert "shell_tool" in command
+    assert "shell_snapshot" in command
+    assert "unified_exec" in command
+    assert "in_app_browser" in command
+    assert "memories" in command
+    assert "hooks" in command
+    assert "plugins" in command
+    assert "plugin_sharing" in command
+    assert "skill_mcp_dependency_install" in command
+    assert "tools.web_search=false" in command
+    assert "mcp_servers={}" in command
+    assert "skills.config=[]" in command
+    assert "skills.include_instructions=false" in command
+    assert "project_doc_max_bytes=0" in command
+    assert "project_root_markers=[]" in command
+    assert 'shell_environment_policy.inherit="none"' in command
+    assert "shell_environment_policy.experimental_use_profile=false" in command
+    assert "allow_login_shell=false" in command
+    assert "--skip-git-repo-check" in command
+    assert command[command.index("--sandbox") : command.index("--sandbox") + 2] == [
+        "--sandbox",
+        "read-only",
+    ]
+    assert "workspace-write" not in command
+    assert command[-2:] == ["--", "Return JSON only"]
+    assert (
+        validate_product_owner_runtime_argv(
+            runtime_id="codex_cli",
+            argv=command,
+            workspace_path=str(tmp_path),
+        )
+        is None
+    )
+
+
+def test_product_owner_codex_command_rejects_unreviewed_cli_version(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="capability validation and matching smoke"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "version": "codex-cli 0.143.0",
+                    "versionVerified": True,
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+def test_product_owner_codex_command_rejects_stale_persisted_version(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="capability validation and matching smoke"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "version": "codex-cli 0.142.2",
+                    "versionVerified": False,
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+def test_product_owner_claude_command_uses_plan_permission_mode(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+        command = build_product_owner_agent_argv(
+            runtime={"id": "claude_code_cli", "detectedCommand": "claude"},
+            workspace_id="workspace-product-owner",
+            workspace_path=str(tmp_path),
+            prompt="Return JSON only",
+            model="sonnet",
+            agent_id="product_owner_agent",
+            connection=connection,
+        )
+
+    assert command[command.index("--permission-mode") : command.index("--permission-mode") + 2] == [
+        "--permission-mode",
+        "plan",
+    ]
+    assert "--safe-mode" in command
+    assert "--no-session-persistence" in command
+    assert "--tools=" in command
+    assert "acceptEdits" not in command
+    assert (
+        validate_product_owner_runtime_argv(
+            runtime_id="claude_code_cli",
+            argv=command,
+            workspace_path=str(tmp_path),
+        )
+        is None
+    )
+
+
+def test_product_owner_runtime_rejects_explicit_argv_override(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        register_workspace(connection, "workspace-product-owner", tmp_path)
+
+        with pytest.raises(RuntimeCommandUnavailableError, match="not supported"):
+            build_product_owner_agent_argv(
+                runtime={
+                    "id": "codex_cli",
+                    "detectedCommand": "codex",
+                    "productOwnerAgentArgv": [sys.executable, "-c", "print('unsafe override')"],
+                },
+                workspace_id="workspace-product-owner",
+                workspace_path=str(tmp_path),
+                prompt="Return JSON only",
+                model="gpt-5.5",
+                agent_id="product_owner_agent",
+                connection=connection,
+            )
+
+
+@pytest.mark.parametrize(
+    ("runtime_id", "unsafe_argv"),
+    [
+        (
+            "codex_cli",
+            [
+                "codex",
+                "--ask-for-approval",
+                "never",
+                "exec",
+                "--sandbox",
+                "workspace-write",
+                "--cd",
+                ".",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--",
+                "prompt",
+            ],
+        ),
+        (
+            "claude_code_cli",
+            [
+                "claude",
+                "--print",
+                "--permission-mode",
+                "acceptEdits",
+                "--add-dir",
+                ".",
+                "--safe-mode",
+                "--no-session-persistence",
+                "--tools=",
+                "--",
+                "prompt",
+            ],
+        ),
+    ],
+)
+def test_product_owner_runtime_argv_validator_rejects_mutating_modes(
+    tmp_path: Path,
+    runtime_id: str,
+    unsafe_argv: list[str],
+) -> None:
+    unsafe_argv[unsafe_argv.index(".")] = str(tmp_path.resolve())
+
+    reason = validate_product_owner_runtime_argv(
+        runtime_id=runtime_id,
+        argv=unsafe_argv,
+        workspace_path=str(tmp_path),
+    )
+
+    assert reason is not None
+    assert "canonical read-only" in reason
+
+
 def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2535,11 +3652,11 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute",
         lambda *args, **kwargs: {
             "returnCode": 0,
-            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n',
+            "stdout": '{"event":"token_usage","usage":{"prompt_tokens":7,"cached_input_tokens":2,"completion_tokens":5,"total_tokens":12}}\n',
             "stderr": "",
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -2566,11 +3683,12 @@ def test_cli_runtime_persists_real_session_and_usage_with_process_isolated(
     assert len(ledger) == 1
     assert ledger[0]["runtime_type"] == "cli"
     assert ledger[0]["usage_source"] == "actual"
+    assert ledger[0]["total_tokens"] == 12
 
 
 def test_cli_session_store_writes_redacted_stdout_stderr_and_log_artifacts(tmp_path: Path) -> None:
     secret = "Bearer sk-test1234567890abcdef"
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
 
         session = CliSessionStore(connection).record_result(
@@ -2625,7 +3743,7 @@ def test_cli_runtime_links_stdout_and_logs_artifacts_for_process_output(
             "stderr": "",
         },
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -2658,7 +3776,7 @@ def test_cli_runtime_links_stdout_and_logs_artifacts_for_process_output(
 
 
 def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -2680,11 +3798,12 @@ def test_cli_runtime_records_dangerous_flags_rejection_without_execution(tmp_pat
     assert "dangerous" in (result.error or "")
     assert session["status"] == "blocked"
     assert session["logs_artifact_id"]
-    assert ledger["usage_source"] == "estimated"
+    assert ledger["usage_source"] == "unavailable"
+    assert ledger["total_tokens"] is None
 
 
 def test_cli_runtime_records_invalid_workspace_without_execution(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
 
@@ -2717,7 +3836,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
     monkeypatch.setattr(
         "local_control_center.security_policy.sandbox.RestrictedSubprocessSandbox.execute", fail_execute
     )
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         register_workspace(connection, "workspace-cli-test", tmp_path)
         runtime = CodexCliRuntime(executable="codex", connection=connection)
@@ -2729,6 +3848,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
                 workspacePath=str(tmp_path),
                 prompt="edit code",
                 profile="codex_gpt55_developer",
+                model="test-operator-model",
                 envPolicy={"permissionProfile": "plan"},
             )
         )
@@ -2741,7 +3861,7 @@ def test_cli_runtime_records_policy_denied_without_sandbox_execution(
 
 
 def test_agent_profiles_accept_expanded_executable_role_catalog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
@@ -2845,7 +3965,9 @@ def test_secrets_are_redacted_from_logs() -> None:
     assert redacted["nested"]["api_key"] == "[redacted]"
 
 
-def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_gateway_endpoints_return_valid_json(
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     endpoints = [
@@ -2892,11 +4014,18 @@ def test_model_gateway_endpoints_return_valid_json(tmp_path: Path, monkeypatch: 
 
 
 def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_costly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    create_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = create_client(tmp_path, monkeypatch)
     headers = auth_headers(client)
     enable_provider(client, headers, "codex_cli")
+    # Los transportes vienen habilitados por defecto; este tramo verifica el fail-closed, así que se
+    # apaga runtime.cli.enabled explícitamente antes de exigir el 403.
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        RuntimeConfigRepository(connection).set_runtime_setting("runtime.cli.enabled", False)
 
     disabled = client.post(
         "/api/v1/model-gateway/route/execute",
@@ -2913,9 +4042,13 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
         },
     )
     assert disabled.status_code == 403
-    assert "disabled" in disabled.json()["detail"].lower()
+    assert "runtime.cli.enabled is false" in disabled.json()["detail"].lower()
 
-    monkeypatch.setenv("AIDO_ENABLE_REAL_PROVIDER_CALLS", "true")
+    with (
+        closing(open_sqlite_connection(Path(os.environ["LOCAL_CONTROL_CENTER_DB"]))) as connection,
+        connection,
+    ):
+        enable_runtime_policy(connection, cli=True)
     approval = client.post(
         "/api/v1/model-gateway/route/execute",
         headers=headers,
@@ -2941,15 +4074,17 @@ def test_route_execute_real_is_blocked_by_default_and_requires_approval_when_cos
 
 
 def test_workflow_start_records_model_router_decisions_for_each_step(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(
         name="Routing Workflow", path=tmp_path / "routing-workflow", template_id="other"
     )
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     workflow = client.post(
         "/api/v1/workflows",

@@ -6,7 +6,7 @@ de entrada: un payload que no cumpla el esquema hace que FastAPI lo rechace con 
 tocar el motor (Pydantic lanza ValidationError), que es la primera barrera de seguridad de
 entrada. Estos modelos no ejecutan ni persisten nada.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

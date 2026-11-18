@@ -6,7 +6,7 @@ promueve patches grandes a artefactos, crea el paquete de evidencia y emite los 
 dominio (``workspace.created/archived``, ``qa.evidence.created``). La escritura exige el guard
 ``require_write`` inyectado por la app.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17,16 +17,22 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.agents.team_bootstrap import bootstrap_base_team_if_needed
 from local_control_center.evidence.artifacts import promote_large_git_patches
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.executions.router import ExecutionRouter, queued_operation
 from local_control_center.shared.event_bus import EventBus
 
 from .cleanup import capture_workspace_snapshot
+from .cleanup_policy import apply_cleanup, build_cleanup_plan
 from .git_worktrees import capture_git_diff
 from .models import (
     WorkspaceAllocateRequest,
     WorkspaceArchiveRequest,
     WorkspaceArchiveResponse,
+    WorkspaceCleanupApplyRequest,
+    WorkspaceCleanupApplyResponse,
+    WorkspaceCleanupPlanResponse,
     WorkspaceResponse,
     WorkspacesListResponse,
 )
@@ -35,7 +41,10 @@ from .repository import WorkspaceConflictError, WorkspaceIsolationError, Workspa
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Construye el ``APIRouter`` de workspaces enlazado a la conexión y guard de la plataforma."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     def repository() -> WorkspacesRepository:
         return WorkspacesRepository(platform.connection, root=platform.cwd)
@@ -48,6 +57,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         return {"workspaces": repository().list_workspaces()}
 
     @router.post("/api/v1/workspaces", status_code=201, response_model=WorkspaceResponse)
+    @queued_operation("workspaces.allocate_workspace", workload_class="ops_light")
     async def allocate_workspace(body: WorkspaceAllocateRequest, request: Request) -> WorkspaceResponse:
         require_write(request)
         try:
@@ -62,6 +72,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
                 base_branch=body.base_branch,
                 devcontainer=body.devcontainer.model_dump(by_alias=True) if body.devcontainer else None,
             )
+            bootstrap_base_team_if_needed(platform.connection)
         except WorkspaceConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except WorkspaceIsolationError as error:
@@ -80,6 +91,7 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
     @router.post(
         "/api/v1/workspaces/{workspace_id}/archive", status_code=202, response_model=WorkspaceArchiveResponse
     )
+    @queued_operation("workspaces.archive_workspace", workload_class="ops_light")
     async def archive_workspace(
         workspace_id: str, body: WorkspaceArchiveRequest, request: Request
     ) -> WorkspaceArchiveResponse:
@@ -91,7 +103,16 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
         if workspace_manifest:
             diff_refs.append({"kind": "workspace_manifest", "status": "captured", **workspace_manifest})
         if pre_archive["isolationType"] == "git_worktree":
-            diff_refs.append(capture_git_diff(Path(pre_archive["path"])))
+            diff_refs.append(
+                capture_git_diff(
+                    Path(pre_archive["path"]),
+                    connection=platform.connection,
+                    root=platform.cwd,
+                    project_id=pre_archive["projectId"],
+                    workspace_id=pre_archive["id"],
+                    task_id=pre_archive["taskId"],
+                )
+            )
         diff_refs.append(capture_workspace_snapshot(pre_archive["path"]))
         workspace = repo.archive_workspace(workspace_id, reason=body.reason)
         diff_refs, artifact_specs = promote_large_git_patches(root=platform.cwd, diff_refs=diff_refs)
@@ -132,5 +153,39 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             payload={"evidencePackageId": evidence["id"], "qaVerdict": evidence["qaVerdict"]},
         )
         return WorkspaceArchiveResponse(workspace=workspace, evidencePackage=evidence)
+
+    @router.get(
+        "/api/v1/projects/{project_id}/workspaces/cleanup/plan",
+        response_model=WorkspaceCleanupPlanResponse,
+    )
+    async def workspace_cleanup_plan(project_id: str) -> dict[str, Any]:
+        """Plan read-only de limpieza: candidatos huérfanos + worktrees físicos sin fila activa."""
+        try:
+            return build_cleanup_plan(platform.connection, root=platform.cwd, project_id=project_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @router.post(
+        "/api/v1/projects/{project_id}/workspaces/cleanup",
+        response_model=WorkspaceCleanupApplyResponse,
+    )
+    @queued_operation("workspaces.workspace_cleanup_apply", workload_class="ops_light")
+    async def workspace_cleanup_apply(
+        project_id: str, body: WorkspaceCleanupApplyRequest, request: Request
+    ) -> dict[str, Any]:
+        """Aplica la limpieza sobre la selección explícita confirmada por el usuario (write token)."""
+        require_write(request)
+        try:
+            return apply_cleanup(
+                platform.connection,
+                root=platform.cwd,
+                project_id=project_id,
+                workspace_ids=body.workspace_ids,
+                orphan_worktree_paths=body.orphan_worktree_paths,
+                delete_branches=body.delete_branches,
+                reason=body.reason,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     return router

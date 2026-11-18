@@ -7,7 +7,7 @@ the downstream approve -> promote-branch -> create-PR transitions, adapting each
 issue_to_pr steps and timeline. A blocked gate stops the DAG and records why; nothing is promoted
 until every required gate has passed and a human approval action exists.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -36,11 +36,7 @@ from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_loads
 from local_control_center.shared.time import utc_now
-from local_control_center.workflows.issue_to_patch_runner import (
-    APPROVED_FOR_INTEGRATION_STATUS,
-    PR_CREATED_STATUS,
-    PROMOTED_TO_BRANCH_STATUS,
-    IssueToPatchRunner,
+from local_control_center.workflows.evidence_artifacts import (
     _artifact_content_bytes,
     _diff_summary,
     _final_diff_refs,
@@ -50,18 +46,17 @@ from local_control_center.workflows.issue_to_patch_runner import (
     _write_json_evidence_artifact,
     _write_text_evidence_artifact,
 )
+from local_control_center.workflows.issue_to_patch_runner import (
+    APPROVED_FOR_INTEGRATION_STATUS,
+    PR_CREATED_STATUS,
+    PROMOTED_TO_BRANCH_STATUS,
+    IssueToPatchRunner,
+)
 from local_control_center.workflows.repository import ISSUE_TO_PR_STEPS, WorkflowsRepository
 from local_control_center.workspaces_projects.git_worktrees import capture_git_diff
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
 ISSUE_TO_PR_APPROVAL_ACTION = "workflow.issue_to_pr.approve_issue_to_pr"
-ISSUE_TO_PR_AGENT_LABELS = {
-    DEVELOPER_AGENT_ID: "DeveloperAgent",
-    QA_AGENT_ID: "QAAgent",
-    SECURITY_AGENT_ID: "SecurityAgent",
-    ARCHITECT_AGENT_ID: "ArchitectAgent",
-    DEVOPS_AGENT_ID: "DevOpsAgent",
-}
 ISSUE_TO_PR_DAG = {
     "nodes": ISSUE_TO_PR_STEPS,
     "edges": [[left, right] for left, right in itertools.pairwise(ISSUE_TO_PR_STEPS)],
@@ -291,7 +286,14 @@ class IssueToPrRunner:
             gate["status"] == "passed" and gate.get("evidencePackageId") for gate in gate_results
         )
         blocked_gate = next((gate["name"] for gate in gate_results if gate["status"] != "passed"), None)
-        diff = capture_git_diff(Path(workspace["path"]))
+        diff = capture_git_diff(
+            Path(workspace["path"]),
+            connection=self.connection,
+            root=self.root,
+            project_id=workflow["projectId"],
+            workspace_id=workspace["id"],
+            task_id="issue_to_pr.evidence_aggregation",
+        )
         completion = {
             "allGatesPassed": all_gates_passed,
             "blockedGate": GATE_TO_STEP.get(blocked_gate or "", blocked_gate),
@@ -725,7 +727,6 @@ class IssueToPrRunner:
                         "workflowKind": "issue_to_pr",
                         "workflowRunId": run_id,
                         "workflowStepId": steps["architecture_review"]["id"],
-                        "dag": ISSUE_TO_PR_DAG,
                         "attempt": attempt,
                     },
                     "testResults": qa.get("results") or [],

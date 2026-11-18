@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.agents.model_gateway import ModelGateway
@@ -15,7 +17,15 @@ from local_control_center.shared import telemetry
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.time import utc_now
 from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -23,11 +33,15 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def test_http_requests_emit_redacted_telemetry_with_correlation_id(tmp_path: Path, monkeypatch) -> None:
+def test_http_requests_emit_redacted_telemetry_with_correlation_id(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    fixture = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    fixture = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     fixture.init()
-    client = TestClient(create_app(runtime=fixture, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=fixture, static_dir=None)))
 
     response = client.get(
         "/api/v1/overview",
@@ -270,3 +284,28 @@ def test_external_telemetry_exporter_is_optional_and_receives_redacted_events(
     assert payload["apiKey"] == "[redacted]"
     assert payload["authorization"] == "[redacted]"
     assert "testsecret" not in str(exported)
+
+
+def test_http_request_telemetry_is_pruned_by_retention(tmp_path: Path) -> None:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+
+        def seed_event(event_id: str, event_type: str, created_at: str) -> None:
+            connection.execute(
+                "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+                " VALUES (?, NULL, NULL, ?, '{}', ?)",
+                (event_id, event_type, created_at),
+            )
+
+        seed_event("event-old-http", "telemetry.http.request", "2020-01-01T00:00:00.000Z")
+        seed_event("event-old-domain", "job.created", "2020-01-01T00:00:00.000Z")
+        seed_event("event-new-http", "telemetry.http.request", utc_now())
+
+        deleted = telemetry.prune_high_volume_events(connection)
+
+        assert deleted == 1
+        remaining = {
+            row["id"]
+            for row in connection.execute("SELECT id FROM events WHERE id LIKE 'event-%'").fetchall()
+        }
+        assert remaining == {"event-old-domain", "event-new-http"}

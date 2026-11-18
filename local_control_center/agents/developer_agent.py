@@ -4,7 +4,7 @@ Selecciona un runtime CLI o de modelo, ejecuta la instrucción dentro del worksp
 captura el diff git resultante y corre el QAAgent; el run solo se da por completado si el QA lo permite.
 Todo queda asentado en un paquete de evidencia con artefactos y hashes; falla cerrado ante brechas.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -12,11 +12,12 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import subprocess
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from local_control_center.agents.local_runtime_causes import local_runtime_cause_of
 from local_control_center.evidence.artifacts import (
     artifact_hashes,
     artifact_records_from_ids,
@@ -26,6 +27,7 @@ from local_control_center.evidence.artifacts import (
 from local_control_center.evidence.quality import evidence_package_contract_errors
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
+from local_control_center.process_supervision.context import remaining_execution_timeout
 from local_control_center.security_policy.repository import SecurityPolicyRepository
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
@@ -38,39 +40,74 @@ from .developer_agent_contract import (
     DEVELOPER_AGENT_CLI_RUNTIMES,
     DEVELOPER_AGENT_ID,
     DEVELOPER_AGENT_MODEL_RUNTIMES,
+    DEVELOPER_AGENT_REMOTE_API_RUNTIMES,
     developer_agent_readiness,
 )
+from .developer_repository_context import repository_context
+from .local_model_call_input import local_model_call_input
+from .model_output_text import json_candidate_text
 from .qa_agent import QAAgentRunner, qa_verdict_allows_completion
+from .qa_doc_gate import is_doc_only_change, resolve_doc_only_qa_plan
 from .repository import AgentsRepository
+from .response_style import resolve_response_style
+from .runtime_adapters.transient_output import prefer_transient_output
 from .runtime_registry import (
     RuntimeCommandUnavailableError,
     build_developer_agent_argv,
     developer_agent_prompt,
+    isolated_product_owner_codex_environment,
+)
+from .runtime_selection import (
+    RUNTIME_UNAVAILABLE_STATUS,
+    display_command,
+    is_ollama_runtime,
+    runtime_provider_family,
+    runtime_requires_network,
+    runtime_unavailable_result,
 )
 from .runtime_status import RuntimeStatusService
 from .tool_broker import ToolBroker
 
-RUNTIME_UNAVAILABLE_STATUS = "runtime_unavailable"
 TERMINAL_STATUSES = {"completed", RUNTIME_UNAVAILABLE_STATUS, "qa_failed", "evidence_ready", "failed"}
+DEVELOPER_MODEL_PATCH_SCHEMA_NAME = "developer_agent_patch"
+"""El contrato del agente (developer_agent_contract) describe el resultado final compuesto (runtimeResult,
+diffSummary, evidencePackage), no lo que el modelo genera: aquí se formaliza como JSON Schema el patch
+crudo que ya pedía el prompt de _developer_model_messages, para poder pasarlo como response_schema.
+"""
+DEVELOPER_MODEL_PATCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["summary", "files", "tests", "risks"],
+    "properties": {
+        "summary": {"type": "string"},
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["path", "content"],
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "content": {"type": "string"},
+                },
+            },
+        },
+        "deleteFiles": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "tests": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+    },
+}
 
 
-def _runtime_mode(runtime_id: str) -> str:
-    if runtime_id == "ollama":
+def _runtime_mode(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    if is_ollama_runtime(runtime):
         return "ollama"
     if runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES:
         return "cli"
-    if runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES:
+    if runtime.get("localModelRuntime") is True:
+        return "local"
+    if runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
         return "api"
     return "hybrid"
-
-
-def _display_command(argv: list[str]) -> str:
-    if not argv:
-        return ""
-    executable = Path(argv[0]).name or str(argv[0])
-    if executable.lower() in {"python.exe", "python3.exe", "py.exe"}:
-        executable = "python"
-    return subprocess.list2cmdline([executable, *[str(item) for item in argv[1:]]])
 
 
 def _diff_summary(diff: dict[str, Any]) -> dict[str, Any]:
@@ -134,11 +171,8 @@ def _execution_result_from_tool_call(tool_call: dict[str, Any]) -> dict[str, Any
         "stderrArtifactId": execution_result.get("stderrArtifactId"),
         "outputArtifactId": execution_result.get("outputArtifactId"),
         "evidencePackageId": execution_result.get("evidencePackageId"),
+        "localRuntimeCause": local_runtime_cause_of(execution_result.get("failureCause")),
     }
-
-
-def _runtime_unavailable_result(reason: str) -> dict[str, Any]:
-    return {"status": RUNTIME_UNAVAILABLE_STATUS, "reason": reason, "execution": "not_executed"}
 
 
 def _complete_run_status(
@@ -164,6 +198,12 @@ def _complete_run_status(
             "evidence_ready",
             "blocked",
             "QA verdict requires real command execution evidence before completion.",
+        )
+    if diff.get("intentToAddBlocked"):
+        return (
+            "evidence_ready",
+            "blocked",
+            "Diff evidence is incomplete: git intent-to-add was blocked, so untracked files are missing from the patch.",
         )
     if not diff.get("nameOnly"):
         return "evidence_ready", "blocked", "DeveloperAgent produced no file changes."
@@ -238,10 +278,33 @@ def _write_manifest_artifact(
     )
 
 
-def _developer_model_messages(*, instruction: str, qa_commands: list[list[str]]) -> list[dict[str, str]]:
+def _developer_model_messages(
+    *,
+    instruction: str,
+    qa_commands: list[list[str]],
+    story_specs: str | None = None,
+    constitution: str | None = None,
+    connection: sqlite3.Connection | None = None,
+    project_id: str | None = None,
+    workspace_path: str | None = None,
+    base_commit: str = "",
+) -> list[dict[str, str]]:
+    """Mensajes del DeveloperAgent sobre un modelo: contrato JSON, tarea y contexto del repositorio.
+
+    El modelo no tiene herramientas: sin el mapa y el contenido actual del workspace inventaba la
+    estructura y reescribía archivos que no conocía (ver ``developer_repository_context``).
+    """
     schema = (
         '{"summary":"string","files":[{"path":"relative/path","content":"complete UTF-8 file content"}],'
+        '"deleteFiles":["relative/path of an existing file to remove (optional)"],'
         '"tests":["test command or blocker"],"risks":["risk or blocker"]}'
+    )
+    context = (
+        repository_context(
+            workspace_path, focus_text=f"{instruction}\n{story_specs or ''}", base_commit=base_commit
+        )
+        if workspace_path
+        else ""
     )
     return [
         {
@@ -253,21 +316,52 @@ def _developer_model_messages(*, instruction: str, qa_commands: list[list[str]])
         },
         {
             "role": "user",
-            "content": developer_agent_prompt(instruction=instruction, qa_commands=qa_commands),
+            "content": developer_agent_prompt(
+                instruction=instruction,
+                qa_commands=qa_commands,
+                story_specs=story_specs,
+                constitution=constitution,
+                response_style=resolve_response_style(connection, project_id=project_id),
+            )
+            + (f"\n{context}\n" if context else ""),
         },
     ]
 
 
+DEVELOPER_MODEL_REPAIR_ATTEMPTS = 1
+"""Reintentos de la llamada al modelo cuando su salida no es un patch JSON válido.
+
+Un modelo local puede entrar en un bucle de repetición y cortar el JSON por tope de tokens (visto en
+vivo: 46 KB de la misma línea en un rework). La salida es estocástica: un segundo intento que le dice
+qué falló suele bastar, igual que la reparación del ProductOwnerAgent. Más intentos solo gastan.
+"""
+
+
+def _repair_note(error: str) -> dict[str, str]:
+    """Mensaje que se agrega al reintento: qué falló y cómo evitarlo, sin reenviar la salida rota."""
+    return {
+        "role": "user",
+        "content": (
+            f"Your previous answer was rejected: {error} It was probably cut off by repeating the "
+            "same lines. Answer again with ONLY the JSON object, write each file once with its "
+            "complete content, and never repeat lines."
+        ),
+    }
+
+
 def _parse_model_patch(content: str) -> dict[str, Any]:
     try:
-        payload = json.loads(content)
+        payload = json.loads(json_candidate_text(content))
     except json.JSONDecodeError as error:
         raise ValueError("DeveloperAgent model output is not valid JSON patch output.") from error
     if not isinstance(payload, dict):
         raise ValueError("DeveloperAgent model output must be a JSON object.")
     files = payload.get("files")
-    if not isinstance(files, list) or not files:
-        raise ValueError("DeveloperAgent model output must include a non-empty files list.")
+    deletions = payload.get("deleteFiles", [])
+    if not isinstance(files, list) or not isinstance(deletions, list) or not (files or deletions):
+        raise ValueError("DeveloperAgent model output must include a non-empty files or deleteFiles list.")
+    if not all(isinstance(path, str) and path.strip() for path in deletions):
+        raise ValueError("DeveloperAgent deleteFiles must be a list of relative path strings.")
     for index, item in enumerate(files):
         if (
             not isinstance(item, dict)
@@ -301,29 +395,39 @@ class DeveloperAgentRunner:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
         return next((runtime for runtime in statuses if runtime["id"] == runtime_id), None)
 
-    def _create_profile(self, runtime_id: str) -> dict[str, Any]:
+    def _create_profile(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = str(runtime.get("id") or "")
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
+        remote_runtime = runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES)
         return self.agents.upsert_agent_profile(
             {
                 "id": DEVELOPER_AGENT_ID,
                 "name": "DeveloperAgent",
                 "role": "developer",
-                "runtimeMode": _runtime_mode(runtime_id),
+                "runtimeMode": _runtime_mode(runtime),
                 "permissionProfile": "dev_safe",
                 "allowedTools": DEVELOPER_AGENT_ALLOWED_TOOLS,
                 "allowedProviders": [runtime_id] if runtime_id else [],
                 "allowedRuntimes": [runtime_id] if runtime_id else [],
-                "allowRemote": runtime_id == "openai_compatible",
+                "allowRemote": remote_runtime,
                 "allowCli": runtime_id in DEVELOPER_AGENT_CLI_RUNTIMES,
-                "allowApi": runtime_id in DEVELOPER_AGENT_MODEL_RUNTIMES,
+                "allowApi": provider_family in DEVELOPER_AGENT_MODEL_RUNTIMES or ollama_runtime,
                 "outputSchema": developer_agent_readiness([])["contract"]["outputSchema"],
             }
         )
 
-    def _model_output_text(self, artifact_id: str | None) -> str:
-        if not artifact_id:
-            raise ValueError("DeveloperAgent model execution did not produce an output artifact.")
-        artifact = self.evidence.get_artifact_by_id(artifact_id)
-        return Path(artifact["path"]).read_text(encoding="utf-8")
+    def _model_output_text(self, model_result: dict[str, Any]) -> str:
+        """Devuelve la salida del modelo: el canal en proceso o, si no está, el artifact redactado."""
+
+        def read_artifact() -> str:
+            artifact_id = model_result.get("outputArtifactId")
+            if not artifact_id:
+                raise ValueError("DeveloperAgent model execution did not produce an output artifact.")
+            artifact = self.evidence.get_artifact_by_id(artifact_id)
+            return Path(artifact["path"]).read_text(encoding="utf-8")
+
+        return prefer_transient_output(model_result.get("toolCallId"), read_artifact)
 
     def _execute_cli_runtime(
         self,
@@ -336,6 +440,7 @@ class DeveloperAgentRunner:
         profile: dict[str, Any],
         broker: ToolBroker,
     ) -> dict[str, Any]:
+        timeout_seconds = remaining_execution_timeout(900)
         runtime_argv = build_developer_agent_argv(
             runtime=runtime,
             workspace_id=workspace["id"],
@@ -344,26 +449,35 @@ class DeveloperAgentRunner:
             qa_commands=payload.get("qaCommands") or [],
             agent_id=DEVELOPER_AGENT_ID,
             connection=self.connection,
+            model=payload.get("model"),
+            story_specs=payload.get("storySpecs"),
+            constitution=payload.get("constitution"),
         )
-        runtime_eval = broker.evaluate_tool_call(
-            project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": "shell",
-                "command": _display_command(runtime_argv),
-                "argv": runtime_argv,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "developer_agent_runtime",
-                "runtimeId": runtime["id"],
-                "capability": "code_edit",
-                "execute": True,
-                "timeoutSeconds": 900,
-            },
-        )
+        isolated_codex = runtime["id"] == "codex_cli" and not runtime.get("developerAgentArgv")
+        with (
+            isolated_product_owner_codex_environment() if isolated_codex else nullcontext(None) as environment
+        ):
+            runtime_eval = broker.evaluate_tool_call(
+                project_id=payload["projectId"],
+                agent_run_id=agent_run["id"],
+                agent_profile=profile,
+                job_id=job["id"],
+                trusted_operation="developer_agent_runtime" if isolated_codex else None,
+                trusted_subprocess_environment=environment,
+                tool_call={
+                    "tool": "shell",
+                    "command": display_command(runtime_argv),
+                    "argv": runtime_argv,
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "path": workspace["path"],
+                    "operation": "developer_agent_runtime",
+                    "runtimeId": runtime["id"],
+                    "capability": "code_edit",
+                    "execute": True,
+                    "timeoutSeconds": timeout_seconds,
+                },
+            )
         return _execution_result_from_tool_call(runtime_eval["toolCall"])
 
     def _execute_model_runtime(
@@ -379,40 +493,83 @@ class DeveloperAgentRunner:
     ) -> dict[str, Any]:
         runtime_id = str(runtime["id"])
         model = payload.get("model")
-        if runtime_id == "ollama":
+        ollama_runtime = is_ollama_runtime(runtime)
+        provider_family = runtime_provider_family(runtime)
+        if ollama_runtime:
             model = model or next(iter(runtime.get("models") or []), None)
-        model_eval = broker.evaluate_tool_call(
+        messages = _developer_model_messages(
+            instruction=str(payload["instruction"]),
+            qa_commands=payload.get("qaCommands") or [],
+            story_specs=payload.get("storySpecs"),
+            constitution=payload.get("constitution"),
+            connection=self.connection,
             project_id=payload["projectId"],
-            agent_run_id=agent_run["id"],
-            agent_profile=profile,
-            job_id=job["id"],
-            tool_call={
-                "tool": runtime_id,
-                "workspaceId": workspace["id"],
-                "workspacePath": workspace["path"],
-                "path": workspace["path"],
-                "operation": "developer_agent_model_call",
-                "runtimeId": runtime_id,
-                "capability": "chat",
-                "input": {
-                    "model": model,
-                    "messages": _developer_model_messages(
-                        instruction=str(payload["instruction"]),
-                        qa_commands=payload.get("qaCommands") or [],
-                    ),
-                    "temperature": 0.2,
-                },
-                "networkRequired": runtime_id == "openai_compatible",
-                "secretsRequired": False,
-                "approvalGrantId": payload.get("approvalGrantId"),
-                "execute": True,
-                "timeoutSeconds": 900,
-            },
+            workspace_path=str(workspace["path"]),
+            base_commit=str(
+                ((workspace.get("metadata") or {}).get("gitWorktree") or {}).get("sourceCommit") or ""
+            ),
         )
-        model_result = _execution_result_from_tool_call(model_eval["toolCall"])
-        if model_result["status"] != "completed":
-            return {"status": "failed", "modelCall": model_result, "reason": model_result.get("reason")}
-        patch_payload = _parse_model_patch(self._model_output_text(model_result.get("outputArtifactId")))
+        repair_attempts = 0
+        while True:
+            model_eval = broker.evaluate_tool_call(
+                project_id=payload["projectId"],
+                agent_run_id=agent_run["id"],
+                agent_profile=profile,
+                job_id=job["id"],
+                tool_call={
+                    "tool": provider_family,
+                    "workspaceId": workspace["id"],
+                    "workspacePath": workspace["path"],
+                    "path": workspace["path"],
+                    "operation": "developer_agent_model_call",
+                    "runtimeId": runtime_id,
+                    "capability": "chat",
+                    "input": {
+                        "providerId": runtime_id,
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.2,
+                        "streamOutput": True,
+                        **local_model_call_input(
+                            self.connection,
+                            provider_id=runtime_id,
+                            model=model,
+                            response_schema={
+                                "name": DEVELOPER_MODEL_PATCH_SCHEMA_NAME,
+                                "schema": DEVELOPER_MODEL_PATCH_SCHEMA,
+                            },
+                        ),
+                    },
+                    "networkRequired": runtime_requires_network(runtime, DEVELOPER_AGENT_REMOTE_API_RUNTIMES),
+                    "secretsRequired": False,
+                    "approvalGrantId": payload.get("approvalGrantId"),
+                    "execute": True,
+                    "timeoutSeconds": remaining_execution_timeout(900),
+                },
+            )
+            model_result = _execution_result_from_tool_call(model_eval["toolCall"])
+            if model_result["status"] != "completed":
+                return {
+                    "status": "failed",
+                    "modelCall": model_result,
+                    "reason": model_result.get("reason"),
+                    "localRuntimeCause": model_result.get("localRuntimeCause"),
+                    "repairAttempts": repair_attempts,
+                }
+            try:
+                patch_payload = _parse_model_patch(self._model_output_text(model_result))
+                break
+            except ValueError as error:
+                if repair_attempts >= DEVELOPER_MODEL_REPAIR_ATTEMPTS:
+                    return {
+                        "status": "failed",
+                        "modelCall": model_result,
+                        "reason": str(error),
+                        "outputArtifactId": model_result.get("outputArtifactId"),
+                        "repairAttempts": repair_attempts,
+                    }
+                repair_attempts += 1
+                messages = [*messages, _repair_note(str(error))]
         patch_eval = broker.evaluate_tool_call(
             project_id=payload["projectId"],
             agent_run_id=agent_run["id"],
@@ -438,6 +595,7 @@ class DeveloperAgentRunner:
             "patchApply": patch_result,
             "reason": patch_result.get("reason"),
             "outputArtifactId": model_result.get("outputArtifactId"),
+            "repairAttempts": repair_attempts,
         }
 
     def run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -466,12 +624,72 @@ class DeveloperAgentRunner:
             "reason": readiness["reason"],
             "capabilities": [],
         }
-        profile = self._create_profile(str(runtime.get("id") or "unresolved"))
+        profile = self._create_profile(runtime)
         if job_id:
             job = self.jobs.get_job(job_id)
             if job["projectId"] != payload["projectId"]:
                 raise ValueError("DeveloperAgent job does not belong to the requested project.")
         else:
+            from local_control_center.executions.repository import ExecutionRepository
+            from local_control_center.jobs_approvals.repository import StaleWorkerFenceError
+            from local_control_center.process_supervision.context import CURRENT_EXECUTION
+            from local_control_center.process_supervision.repository import ManagedProcessRepository
+
+            parent_identity = {}
+            context = CURRENT_EXECUTION.get()
+            if (
+                context is not None
+                and context.in_job_runner
+                and context.connection is self.connection
+                and context.project_id == payload["projectId"]
+                and context.execution_id
+                and context.attempt_id
+                and context.worker_id
+                and context.fencing_token is not None
+            ):
+                parent = self.connection.execute(
+                    "SELECT j.id FROM jobs j JOIN job_runs r ON r.job_id=j.id "
+                    "WHERE j.id=? AND j.project_id=? AND j.status='running' "
+                    "AND r.id=? AND r.status='running' AND r.worker_owner_id=? "
+                    "AND r.leader_fencing_token=? "
+                    "AND r.rowid=(SELECT MAX(rowid) FROM job_runs WHERE job_id=j.id)",
+                    (
+                        context.execution_id,
+                        context.project_id,
+                        context.attempt_id,
+                        context.worker_id,
+                        context.fencing_token,
+                    ),
+                ).fetchone()
+                loop_id = (payload.get("metadata") or {}).get("loopId")
+                loop = self.connection.execute(
+                    "SELECT id FROM product_loops WHERE id=? AND project_id=? "
+                    "AND COALESCE(json_extract(context,'$.durableRun.effectiveRequestMeta.jobId'),"
+                    "json_extract(context,'$.durableRun.requestMeta.jobId'))=? "
+                    "AND json_extract(context,'$.durableRun.workspaceId')=?",
+                    (loop_id, context.project_id, context.execution_id, workspace["id"]),
+                ).fetchone()
+                if (
+                    parent
+                    and loop
+                    and not ManagedProcessRepository(self.connection).cancellation_reason(
+                        context.execution_id
+                    )
+                ):
+                    try:
+                        ExecutionRepository(self.connection).require_fence(
+                            context.execution_id,
+                            owner_id=context.worker_id,
+                            fencing_token=context.fencing_token,
+                        )
+                    except StaleWorkerFenceError:
+                        pass
+                    else:
+                        parent_identity = {
+                            "parentExecutionId": context.execution_id,
+                            "parentAttemptId": context.attempt_id,
+                            "loopId": loop["id"],
+                        }
             job_result = self.jobs.create_job(
                 project_id=payload["projectId"],
                 kind="agent.developer",
@@ -484,6 +702,7 @@ class DeveloperAgentRunner:
                     "workspaceId": workspace["id"],
                     "qaCommands": payload.get("qaCommands") or [],
                     "maxCostUsd": payload.get("maxCostUsd"),
+                    **parent_identity,
                 },
             )
             job = job_result["job"]
@@ -501,7 +720,7 @@ class DeveloperAgentRunner:
 
         broker = ToolBroker(self.connection, artifact_root=self.root)
         runtime_status = RUNTIME_UNAVAILABLE_STATUS
-        runtime_result = _runtime_unavailable_result(preflight_block_reason or readiness["reason"])
+        runtime_result = runtime_unavailable_result(preflight_block_reason or readiness["reason"])
         if readiness["executable"] and not preflight_block_reason:
             try:
                 if str(runtime["id"]) in DEVELOPER_AGENT_CLI_RUNTIMES:
@@ -514,7 +733,7 @@ class DeveloperAgentRunner:
                         profile=profile,
                         broker=broker,
                     )
-                elif str(runtime["id"]) in DEVELOPER_AGENT_MODEL_RUNTIMES:
+                elif runtime_provider_family(runtime) in DEVELOPER_AGENT_MODEL_RUNTIMES:
                     runtime_result = self._execute_model_runtime(
                         payload=payload,
                         runtime=runtime,
@@ -526,12 +745,29 @@ class DeveloperAgentRunner:
                     )
                 runtime_status = str(runtime_result.get("status") or "failed")
             except (RuntimeCommandUnavailableError, ValueError) as error:
-                runtime_result = _runtime_unavailable_result(str(error))
+                runtime_result = runtime_unavailable_result(str(error))
                 runtime_status = RUNTIME_UNAVAILABLE_STATUS
 
-        diff = capture_git_diff(Path(workspace["path"]))
+        diff = capture_git_diff(
+            Path(workspace["path"]),
+            connection=self.connection,
+            root=self.root,
+            project_id=payload["projectId"],
+            workspace_id=workspace["id"],
+            task_id=payload["taskId"],
+        )
         if runtime_status == RUNTIME_UNAVAILABLE_STATUS:
             diff["blockerState"] = diff_blocker_state
+
+        explicit_qa_commands = payload.get("qaCommands") or []
+        qa_commands: list[Any] = explicit_qa_commands
+        qa_not_applicable_commands: list[dict[str, Any]] | None = None
+        if (
+            not explicit_qa_commands
+            and diff.get("state") == "captured"
+            and is_doc_only_change(diff.get("nameOnly") or [])
+        ):
+            qa_commands, qa_not_applicable_commands = resolve_doc_only_qa_plan(workspace["path"])
 
         qa_results: list[dict[str, Any]] = []
         qa_artifact_ids: list[str] = []
@@ -541,16 +777,19 @@ class DeveloperAgentRunner:
                 project_id=payload["projectId"],
                 workspace_id=workspace["id"],
                 task_id=payload["taskId"],
-                commands=payload.get("qaCommands") or [],
+                commands=qa_commands,
                 workflow_run_id=workflow_run_id,
                 workflow_step_id=qa_workflow_step_id,
                 job_id=job["id"],
                 parent_agent_run_id=agent_run["id"],
                 metadata={"source": DEVELOPER_AGENT_ID},
+                story_specs=payload.get("storySpecs") if isinstance(payload.get("storySpecs"), str) else None,
+                not_applicable_commands=qa_not_applicable_commands,
             )
             qa_results = qa_summary["results"]
             qa_artifact_ids = qa_summary["artifactIds"]
             qa_agent_run = qa_summary["agentRun"]
+            runtime_result["notApplicableCommands"] = qa_summary["notApplicableCommands"]
 
         final_status, qa_verdict, final_reason = _complete_run_status(
             runtime_status=runtime_status,
@@ -774,6 +1013,7 @@ class DeveloperAgentRunner:
             "evidencePackage": evidence,
             "runtime": runtime,
             "runtimeResult": runtime_result,
+            "localRuntimeCause": runtime_result.get("localRuntimeCause"),
             "qaResults": qa_results,
             "diffSummary": diff_summary,
         }

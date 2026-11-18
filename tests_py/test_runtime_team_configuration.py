@@ -1,0 +1,608 @@
+"""Equipo de runtimes guardado en el hilo: validación, estrechamiento, sellado y readiness.
+
+@author AIDO contributors
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from local_control_center.agents.model_execution_health import record_model_execution
+from local_control_center.agents.provider_accounts import ProviderAccountStore
+from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.runtime_team.configuration import (
+    GLOBAL_RUNTIME_TEAM_METADATA_KEY,
+    RUNTIME_TEAM_DISCARDED_METADATA_KEY,
+    RUNTIME_TEAM_METADATA_KEY,
+    RuntimeTeamNotReadyError,
+    assess_runtime_team,
+    assigned_runtime,
+    discarded_role_runtime,
+    ensure_thread_runtime_team_ready,
+    global_role_order,
+    global_team_of,
+    read_thread_runtime_team,
+    restrict_to_allowlist,
+    role_allowlist,
+    role_model_pins,
+    role_routing_preferences,
+    runtime_team_of,
+    seal_thread_runtime_team,
+    write_thread_runtime_team,
+)
+from local_control_center.runtime_team.validation import RUNTIME_TEAM_FRESHNESS_SECONDS
+from local_control_center.settings.repository import SettingsRepository
+from local_control_center.shared.db import open_sqlite_connection
+from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.shared.serialization import json_dumps, json_loads
+from local_control_center.threads.coordinator import ThreadCoordinator
+from local_control_center.threads.repository import ThreadsRepository
+
+RUNTIME_UNAVAILABLE = {
+    "runtimeStatus": {
+        "providers": [{"id": "codex_cli", "executable": False, "available": False, "canEditWorkspace": False}]
+    }
+}
+ROLES = {"developer": "codex_cli", "product_owner": "ollama", "architect": "ollama", "security": "ollama"}
+
+
+def grant_review_capability(connection, runtime_id: str) -> None:
+    """Ollama solo es elegible para Seguridad si anuncia una capacidad de revisión (rol ``review``)."""
+    now = datetime.now(UTC).isoformat()
+    connection.execute(
+        """INSERT INTO runtime_capabilities (id, runtime, capability, enabled, metadata, created_at, updated_at)
+           VALUES (?, ?, 'code_review', 1, '{}', ?, ?)
+           ON CONFLICT(runtime, capability) DO UPDATE SET enabled = 1""",
+        (f"{runtime_id}:code_review", runtime_id, now, now),
+    )
+
+
+@pytest.fixture
+def lane(tmp_path: Path):
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Runtime team", path=tmp_path / "project", template_id="other"
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"], owner_type="workspace", owner_id=project["id"], title="Team"
+        )
+        store = ProviderAccountStore(connection)
+        store.patch_provider_account("codex_cli", {"enabled": True})
+        store.patch_provider_account("ollama", {"enabled": True})
+        grant_review_capability(connection, "ollama")
+        yield connection, project, thread
+
+
+def _save(connection, project, thread, roles=ROLES):
+    return write_thread_runtime_team(
+        connection,
+        thread_id=thread["id"],
+        project_id=project["id"],
+        allowed_runtimes=["codex_cli", "ollama"],
+        role_runtimes=roles,
+    )
+
+
+def _validate(connection, provider_id: str, model: str, minutes_ago: int = 1) -> None:
+    started = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat(timespec="microseconds")
+    record_model_execution(connection, provider_id, model, True, "test_prompt", started_at=started)
+
+
+def test_a_saved_team_is_read_back_and_keeps_the_remembered_team_mode(lane):
+    connection, project, thread = lane
+    connection.execute(
+        "UPDATE project_threads SET metadata = ? WHERE id = ?",
+        (json_dumps({"runConfiguration": {"teamMode": "critical"}}), thread["id"]),
+    )
+    saved = _save(connection, project, thread)
+    assert saved == {"allowedRuntimes": ["codex_cli", "ollama"], "roleRuntimes": ROLES}
+    assert read_thread_runtime_team(connection, thread["id"]) == saved
+    row = connection.execute("SELECT metadata FROM project_threads WHERE id = ?", (thread["id"],)).fetchone()
+    assert json_loads(row["metadata"], {})["runConfiguration"]["teamMode"] == "critical"
+
+
+def test_an_empty_selection_clears_the_team(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    cleared = write_thread_runtime_team(
+        connection, thread_id=thread["id"], project_id=project["id"], allowed_runtimes=[], role_runtimes={}
+    )
+    assert cleared is None
+    assert read_thread_runtime_team(connection, thread["id"]) is None
+
+
+@pytest.mark.parametrize(
+    ("allowed", "roles", "message"),
+    [
+        (["claude_code_cli"], {}, "claude_code_cli"),
+        (["codex_cli"], {"product_owner": "ollama"}, "not selected"),
+        (["codex_cli", "ollama"], {"security": "codex_cli"}, "not eligible"),
+        ([], {"developer": "codex_cli"}, "require allowedRuntimes"),
+    ],
+)
+def test_an_invalid_team_is_rejected(lane, allowed, roles, message):
+    connection, project, thread = lane
+    with pytest.raises(ValueError, match=message):
+        write_thread_runtime_team(
+            connection,
+            thread_id=thread["id"],
+            project_id=project["id"],
+            allowed_runtimes=allowed,
+            role_runtimes=roles,
+        )
+
+
+def test_an_unknown_thread_is_a_key_error(lane):
+    connection, project, _thread = lane
+    with pytest.raises(KeyError):
+        write_thread_runtime_team(
+            connection,
+            thread_id="thread-missing",
+            project_id=project["id"],
+            allowed_runtimes=[],
+            role_runtimes={},
+        )
+
+
+def test_the_project_allowlist_can_only_narrow_the_sealed_team(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default")
+    SettingsRepository(connection).set_value(
+        "project.runtime.allowedProviders", "project", project["id"], ["codex_cli"]
+    )
+    sealed = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={RUNTIME_TEAM_METADATA_KEY: {"allowedRuntimes": ["claude_code_cli"]}},
+    )
+    assert sealed[RUNTIME_TEAM_METADATA_KEY] == {
+        "allowedRuntimes": ["codex_cli"],
+        "roleRuntimes": {"developer": "codex_cli"},
+    }
+    assert [(item["providerId"], item["status"]) for item in sealed[RUNTIME_TEAM_DISCARDED_METADATA_KEY]] == [
+        ("ollama", "policy_denied")
+    ]
+
+
+def test_sealing_without_a_team_drops_any_forged_value(lane):
+    connection, project, thread = lane
+    sealed = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={
+            RUNTIME_TEAM_METADATA_KEY: {"allowedRuntimes": ["claude_code_cli"]},
+            RUNTIME_TEAM_DISCARDED_METADATA_KEY: [{"providerId": "codex_cli"}],
+            GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"roleRuntimeOrder": {"developer": ["claude_code_cli"]}},
+            "teamMode": "economy",
+        },
+    )
+    # Sin equipo en el hilo el servidor sella el equipo global; el valor forjado nunca sobrevive.
+    snapshot = sealed.pop(GLOBAL_RUNTIME_TEAM_METADATA_KEY)
+    assert sealed == {"teamMode": "economy"}
+    assert "claude_code_cli" not in snapshot["roleRuntimeOrder"]["developer"]
+
+
+def test_the_send_gate_requires_a_fresh_runtime_for_po_and_developer(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    with pytest.raises(RuntimeTeamNotReadyError, match="codex_cli"):
+        ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default", minutes_ago=31)
+    with pytest.raises(RuntimeTeamNotReadyError, match=r"product_owner.*ollama"):
+        ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    _validate(connection, "ollama", "local_default")
+    ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+
+
+def test_an_answer_to_a_pending_decision_is_not_held_by_the_send_gate(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default")
+    coordinator = ThreadCoordinator(connection, root=project["path"])
+    blocked = coordinator.post_message(
+        thread_id=thread["id"],
+        content="Implement the onboarding dashboard.",
+        project_assessment=RUNTIME_UNAVAILABLE,
+    )
+    assert blocked["thread"]["status"] == "waiting_decision"
+    option = blocked["decision"]["options"][0]
+    connection.execute(
+        "UPDATE model_execution_health SET started_at = ?",
+        ((datetime.now(UTC) - timedelta(minutes=31)).isoformat(timespec="microseconds"),),
+    )
+    with pytest.raises(RuntimeTeamNotReadyError):
+        ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    coordinator.post_message(
+        thread_id=thread["id"], content=f"{option}.", project_assessment=RUNTIME_UNAVAILABLE
+    )
+    decisions = ThreadsRepository(connection).list_decisions(thread["id"])
+    assert [decision["status"] for decision in decisions] == ["resolved"]
+
+
+def test_a_stale_optional_runtime_is_dropped_from_the_sealed_team_instead_of_blocking(lane):
+    connection, project, thread = lane
+    _save(
+        connection,
+        project,
+        thread,
+        roles={"developer": "codex_cli", "product_owner": "codex_cli", "security": "ollama"},
+    )
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default", minutes_ago=31)
+    ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    sealed = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}
+    )
+    assert sealed[RUNTIME_TEAM_METADATA_KEY] == {
+        "allowedRuntimes": ["codex_cli"],
+        "roleRuntimes": {"product_owner": "codex_cli", "developer": "codex_cli"},
+    }
+    assert sealed[RUNTIME_TEAM_DISCARDED_METADATA_KEY] == [
+        {
+            "providerId": "ollama",
+            "status": "stale",
+            "reason": "runtime_validation_expired",
+            "roles": ["security"],
+        }
+    ]
+    assert discarded_role_runtime(sealed, "security")["providerId"] == "ollama"
+    assert discarded_role_runtime(sealed, "architect") is None
+
+
+def test_a_reseal_that_would_leave_po_or_developer_uncovered_keeps_the_assigned_runtimes(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5", minutes_ago=31)
+    _validate(connection, "ollama", "local_default", minutes_ago=31)
+    sealed = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}
+    )
+    assert sealed[RUNTIME_TEAM_METADATA_KEY] == {
+        "allowedRuntimes": ["codex_cli", "ollama"],
+        "roleRuntimes": ROLES,
+    }
+    assert RUNTIME_TEAM_DISCARDED_METADATA_KEY not in sealed
+
+
+def test_a_team_narrowed_to_nothing_by_the_project_cannot_send(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default")
+    SettingsRepository(connection).set_value(
+        "project.runtime.allowedProviders", "project", project["id"], ["claude_code_cli"]
+    )
+    with pytest.raises(RuntimeTeamNotReadyError, match="product_owner, developer"):
+        ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+    sealed = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}
+    )
+    assert sealed[RUNTIME_TEAM_METADATA_KEY] == {"allowedRuntimes": [], "roleRuntimes": {}}
+
+
+def test_a_missing_required_role_blocks_even_with_fresh_runtimes(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread, roles={"developer": "codex_cli"})
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "local_default")
+    readiness = assess_runtime_team(
+        connection,
+        read_thread_runtime_team(connection, thread["id"]),
+        max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS,
+    )
+    assert readiness.missing_roles == ("product_owner",)
+    assert readiness.ready is False
+    assert readiness.details()["runtimeIds"] == []
+
+
+def test_a_single_runtime_covering_po_and_developer_can_send(lane):
+    connection, project, thread = lane
+    write_thread_runtime_team(
+        connection,
+        thread_id=thread["id"],
+        project_id=project["id"],
+        allowed_runtimes=["codex_cli"],
+        role_runtimes={"developer": "codex_cli", "product_owner": "codex_cli"},
+    )
+    _validate(connection, "codex_cli", "gpt-5.5")
+    readiness = assess_runtime_team(
+        connection,
+        read_thread_runtime_team(connection, thread["id"]),
+        max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS,
+    )
+    assert readiness.missing_roles == ()
+    assert readiness.ready is True
+    ensure_thread_runtime_team_ready(connection, project_id=project["id"], thread_id=thread["id"])
+
+
+def test_a_runtime_denied_by_the_project_policy_cannot_be_selected(lane):
+    connection, project, thread = lane
+    SettingsRepository(connection).set_value(
+        "project.runtime.allowedProviders", "project", project["id"], ["ollama"]
+    )
+    with pytest.raises(ValueError, match="denied by the project runtime policy: codex_cli"):
+        _save(connection, project, thread)
+    assert read_thread_runtime_team(connection, thread["id"]) is None
+
+
+def test_the_execution_scope_only_checks_runtimes_with_a_role(lane):
+    connection, _project, _thread = lane
+    team = {
+        "allowedRuntimes": ["codex_cli", "ollama"],
+        "roleRuntimes": dict.fromkeys(("product_owner", "developer", "architect", "security"), "codex_cli"),
+    }
+    _validate(connection, "codex_cli", "gpt-5.5")
+    selected = assess_runtime_team(connection, team, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS)
+    assigned = assess_runtime_team(
+        connection, team, max_age_seconds=RUNTIME_TEAM_FRESHNESS_SECONDS, only_assigned=True
+    )
+    assert selected.details()["runtimeIds"] == ["ollama"]
+    assert assigned.ready is True
+
+
+def test_request_meta_helpers_scope_each_role():
+    meta = {
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["codex_cli", "ollama"],
+            "roleRuntimes": {"developer": "codex_cli"},
+        }
+    }
+    assert runtime_team_of({}) is None
+    assert role_allowlist({}, "developer") is None
+    assert role_allowlist(meta, "developer") == ["codex_cli"]
+    assert role_allowlist(meta, "architect") == ["codex_cli", "ollama"]
+    assert role_allowlist(meta, None) == ["codex_cli", "ollama"]
+    assert assigned_runtime(meta, "security") is None
+    assert restrict_to_allowlist(["claude_code_cli", "codex_cli", "ollama"], ["ollama"]) == ["ollama"]
+    assert restrict_to_allowlist(["codex_cli"], None) == ["codex_cli"]
+    narrowed_to_nothing = {RUNTIME_TEAM_METADATA_KEY: {"allowedRuntimes": [], "roleRuntimes": {}}}
+    assert role_allowlist(narrowed_to_nothing, "developer") == []
+
+
+def test_unassigned_roles_follow_the_product_owner_runtime_so_selection_has_one_candidate():
+    """Con 2+ runtimes, aido_lead/technical_lead no deben competir entre todo el conjunto.
+
+    Jev bloquea con ``confidence_below_threshold`` cuando elige entre dos candidatos (visto en vivo
+    2026-09-23); el reparto del operador debe decidir, así que heredan el runtime del PO.
+    """
+    meta = {
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["claude_code_cli", "codex_cli"],
+            "roleRuntimes": {"product_owner": "codex_cli", "developer": "claude_code_cli"},
+        }
+    }
+    assert role_allowlist(meta, None) == ["codex_cli"]
+    assert role_allowlist(meta, "architect") == ["codex_cli"]
+    assert role_allowlist(meta, "developer") == ["claude_code_cli"]
+
+
+def test_threads_without_a_team_inherit_the_product_owners_runtime():
+    """Hilo creado por API (p. ej. plugin OpenClaw) sin equipo de runtimes: cada rol se confina al
+    proveedor donde corrió el PO del loop, para que Jev no deba desempatar candidatos remotos que el
+    operador nunca eligió (visto en vivo: ``aido_lead`` bloqueado con confidence 0.48/0.84/0.38 entre
+    ``gemini`` y ``llama_cpp``).
+    """
+    assert role_allowlist({}, "aido_lead", product_owner_provider_id="llama_cpp") == ["llama_cpp"]
+    assert role_allowlist({}, None, product_owner_provider_id="llama_cpp") == ["llama_cpp"]
+    # Compatibilidad: sin selección del PO disponible, el comportamiento previo se conserva.
+    assert role_allowlist({}, "developer") is None
+    assert role_allowlist({}, "developer", product_owner_provider_id=None) is None
+
+
+def test_threads_with_a_team_ignore_the_product_owner_inheritance_override():
+    """Hilo CON equipo: la herencia por-ausencia-de-equipo nunca debe alterar la asignación real."""
+    meta = {
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["claude_code_cli", "codex_cli"],
+            "roleRuntimes": {"product_owner": "codex_cli", "developer": "claude_code_cli"},
+        }
+    }
+    assert role_allowlist(meta, "architect", product_owner_provider_id="llama_cpp") == ["codex_cli"]
+    assert role_allowlist(meta, "developer", product_owner_provider_id="llama_cpp") == ["claude_code_cli"]
+
+
+GLOBAL = {
+    GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+        "roleRuntimeOrder": {
+            "product_owner": ["codex_cli", "ollama"],
+            "developer": ["codex_cli"],
+            "architect": [],
+            "security": ["ollama"],
+            "technical_lead": ["codex_cli", "ollama"],
+            "researcher": ["codex_cli", "ollama"],
+        },
+        "roleRuntimes": {
+            "product_owner": "codex_cli",
+            "developer": "codex_cli",
+            "architect": None,
+            "security": "ollama",
+            "technical_lead": "codex_cli",
+            "researcher": "codex_cli",
+        },
+        "source": {
+            "product_owner": "general",
+            "developer": "project",
+            "architect": "automatic",
+            "security": "automatic",
+            "technical_lead": "inherited",
+            "researcher": "inherited",
+        },
+        "allowedRuntimes": ["codex_cli", "ollama"],
+    }
+}
+
+
+def test_the_global_team_gives_each_role_its_order_with_fallbacks():
+    assert role_allowlist(GLOBAL, "developer") == ["codex_cli"]
+    assert role_allowlist(GLOBAL, "product_owner") == ["codex_cli", "ollama"]
+    assert role_allowlist(GLOBAL, "security") == ["ollama"]
+    # Sin candidatos propios (arquitecto vacío) el rol puede usar cualquier runtime del equipo.
+    assert role_allowlist(GLOBAL, "architect") == ["codex_cli", "ollama"]
+    # Roles sin asignación propia (aido_lead, qa_engineer) siguen el orden del PO.
+    assert role_allowlist(GLOBAL, None) == ["codex_cli", "ollama"]
+    # La herencia del proveedor del PO del loop ya no confina al rol cuando hay equipo global.
+    assert role_allowlist(GLOBAL, "developer", product_owner_provider_id="ollama") == ["codex_cli"]
+    assert global_role_order(GLOBAL, "technical_lead") == ["codex_cli", "ollama"]
+
+
+def test_the_thread_team_keeps_priority_over_the_global_snapshot():
+    meta = {
+        **GLOBAL,
+        RUNTIME_TEAM_METADATA_KEY: {
+            "allowedRuntimes": ["ollama"],
+            "roleRuntimes": {"product_owner": "ollama", "developer": "ollama"},
+        },
+    }
+    assert role_allowlist(meta, "developer") == ["ollama"]
+    assert role_routing_preferences(meta, "developer") == ([], [])
+
+
+def test_routing_preferences_follow_the_global_order_as_provider_wildcards():
+    order, wildcards = role_routing_preferences(GLOBAL, "product_owner")
+    assert order == ["codex_cli", "ollama"]
+    assert wildcards == [{"provider": "codex_cli", "model": ""}, {"provider": "ollama", "model": ""}]
+    assert role_routing_preferences({}, "developer") == ([], [])
+
+
+def test_a_malformed_global_snapshot_is_ignored():
+    assert global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"roleRuntimeOrder": "nope"}}) is None
+    assert global_team_of({GLOBAL_RUNTIME_TEAM_METADATA_KEY: []}) is None
+    assert global_team_of(
+        {
+            GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+                "roleRuntimeOrder": {"developer": "codex_cli"},
+                "allowedRuntimes": "x",
+            }
+        }
+    ) == {"roleRuntimeOrder": {}, "source": {}, "allowedRuntimes": [], "roleModels": {}}
+    assert role_allowlist(
+        {GLOBAL_RUNTIME_TEAM_METADATA_KEY: {}}, "developer", product_owner_provider_id="ollama"
+    ) == ["ollama"]
+
+
+def test_sealing_a_thread_without_override_snapshots_the_global_team(lane):
+    connection, project, thread = lane
+    SettingsRepository(connection).set_value("team.role.developer", "general", None, ["codex_cli"])
+    stamped = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"forged": True}},
+    )
+    snapshot = stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    assert "forged" not in snapshot
+    assert snapshot["roleRuntimeOrder"]["developer"] == ["codex_cli"]
+    assert snapshot["source"]["developer"] == "general"
+    assert RUNTIME_TEAM_METADATA_KEY not in stamped
+
+
+def test_sealing_a_thread_with_override_drops_the_global_snapshot(lane):
+    connection, project, thread = lane
+    _save(connection, project, thread)
+    _validate(connection, "codex_cli", "gpt-5.5")
+    _validate(connection, "ollama", "llama3")
+    stamped = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata={GLOBAL_RUNTIME_TEAM_METADATA_KEY: {"stale": True}},
+    )
+    assert GLOBAL_RUNTIME_TEAM_METADATA_KEY not in stamped
+    assert stamped[RUNTIME_TEAM_METADATA_KEY]["roleRuntimes"]["developer"] == "codex_cli"
+
+
+def test_an_order_is_explicit_only_when_the_operator_wrote_it():
+    from local_control_center.runtime_team.configuration import global_role_order_is_explicit
+
+    assert global_role_order_is_explicit(GLOBAL, "developer") is True  # project
+    assert global_role_order_is_explicit(GLOBAL, "product_owner") is True  # general
+    assert global_role_order_is_explicit(GLOBAL, "security") is False  # automatic
+    assert global_role_order_is_explicit(GLOBAL, "architect") is False  # sin candidatos
+    assert global_role_order_is_explicit(GLOBAL, "technical_lead") is True  # hereda un PO general
+    assert global_role_order_is_explicit(GLOBAL, None) is True  # sigue el orden del PO
+    assert global_role_order_is_explicit({}, "developer") is False
+
+
+def test_an_empty_global_order_fails_closed_instead_of_opening_the_catalog():
+    """Proveedores explícitos apagados o fuera de la política dejan el orden vacío: bloquear, no ampliar."""
+    team = GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    empty = {
+        GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+            **team,
+            "roleRuntimeOrder": {role: [] for role in team["roleRuntimeOrder"]},
+            "allowedRuntimes": [],
+        }
+    }
+    assert role_allowlist(empty, "developer", product_owner_provider_id="ollama") == []
+    assert role_allowlist(empty, "product_owner") == []
+    assert role_allowlist(empty, None) == []
+    assert restrict_to_allowlist(["codex_cli", "ollama"], role_allowlist(empty, "product_owner")) == []
+
+
+def test_only_an_automatic_optional_role_borrows_the_team_runtimes():
+    team = GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    explicit_empty = {
+        GLOBAL_RUNTIME_TEAM_METADATA_KEY: {
+            **team,
+            "roleRuntimeOrder": {**team["roleRuntimeOrder"], "developer": [], "security": []},
+            "source": {**team["source"], "developer": "general", "security": "project"},
+        }
+    }
+    # Obligatorio con orden explícito inválido: bloquea, no toma los proveedores del PO.
+    assert role_allowlist(explicit_empty, "developer") == []
+    # Opcional con orden explícito inválido: tampoco.
+    assert role_allowlist(explicit_empty, "security") == []
+    # Opcional automático sin candidatos: puede usar cualquier runtime del equipo.
+    assert role_allowlist(explicit_empty, "architect") == ["codex_cli", "ollama"]
+
+
+def test_internal_reseals_keep_the_run_snapshot_and_sends_recompute_it(lane):
+    """La revisión de riesgo firma la metadata re-sellada: un re-sellado interno no puede cambiarla."""
+    connection, project, thread = lane
+    previous = {GLOBAL_RUNTIME_TEAM_METADATA_KEY: GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]}
+    kept = seal_thread_runtime_team(
+        connection,
+        project_id=project["id"],
+        thread_id=thread["id"],
+        metadata=previous,
+        refresh_global_team=False,
+    )
+    assert kept[GLOBAL_RUNTIME_TEAM_METADATA_KEY] == GLOBAL[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    # Sin snapshot previo, un re-sellado interno no lo inventa (ni lee el inventario de runtimes).
+    assert GLOBAL_RUNTIME_TEAM_METADATA_KEY not in seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}, refresh_global_team=False
+    )
+    # El envío y el retry recalculan: un valor con forma válida que llegue igual se reemplaza.
+    SettingsRepository(connection).set_value("team.role.product_owner", "general", None, ["ollama"])
+    fresh = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata=previous
+    )
+    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["source"]["product_owner"] == "general"
+    assert fresh[GLOBAL_RUNTIME_TEAM_METADATA_KEY]["roleRuntimes"]["product_owner"] == "ollama"
+
+
+def test_the_global_team_seals_the_validated_local_model_of_each_assigned_role(lane):
+    """Como el equipo por hilo: un rol asignado a un runtime local sella su modelo validado y lo fija."""
+    connection, project, thread = lane
+    SettingsRepository(connection).set_value("team.role.product_owner", "general", None, ["ollama"])
+    _validate(connection, "ollama", "local_default")
+    stamped = seal_thread_runtime_team(
+        connection, project_id=project["id"], thread_id=thread["id"], metadata={}
+    )
+    snapshot = stamped[GLOBAL_RUNTIME_TEAM_METADATA_KEY]
+    assert snapshot["roleRuntimes"]["product_owner"] == "ollama"
+    assert snapshot["roleModels"]["product_owner"] == "local_default"
+    assert role_model_pins(stamped, "product_owner") == {"ollama": "local_default"}
+    # Un rol sin modelo sellado (runtime no local) no se fija.
+    assert role_model_pins(stamped, "developer") == {}

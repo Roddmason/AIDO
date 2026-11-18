@@ -4,7 +4,7 @@ Centraliza el contrato de datos del slice de agentes: roles, perfiles, runs, too
 modelo y los DTO de cada agente (developer/qa/devops/security/architect). Define los Literal de estados
 permitidos y los alias camelCase con que viajan hacia/desde la API; no contiene lógica de negocio.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -13,24 +13,38 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from local_control_center.local_runtimes.contracts import LocalEndpointView
+
 AgentRole = Literal[
     "analyst",
     "assessor",
+    "aido_lead",
     "product_owner",
+    "project_manager",
+    "scrum_master",
+    "architect",
     "technical_lead",
     "technical_lead_shadow",
     "developer",
     "backend_engineer",
     "frontend_engineer",
+    "mobile_engineer",
+    "database_engineer",
+    "data_engineer",
     "implementer",
     "devops",
+    "devops_engineer",
     "qa",
+    "qa_engineer",
     "qa_reviewer",
+    "security_engineer",
     "security_reviewer",
+    "pentester",
+    "researcher",
     "release_manager",
 ]
 PermissionProfile = Literal["plan", "dev_safe", "qa", "release"]
-RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual"]
+RuntimeMode = Literal["api", "cli", "ollama", "hybrid", "manual", "local"]
 PolicyStatus = Literal["active", "disabled"]
 RuntimeProviderKind = Literal["api", "gateway", "local", "cli", "manual"]
 RuntimeProviderNetworkPolicy = Literal[
@@ -47,6 +61,8 @@ AgentRunStatus = Literal[
     "failed",
     "blocked",
     "runtime_unavailable",
+    "runtime_failed",
+    "timed_out",
     "qa_failed",
     "evidence_ready",
     "approval_required",
@@ -90,6 +106,7 @@ class AgentProfileUpsertRequest(BaseModel):
     allowed_runtimes: list[str] = Field(default_factory=list, alias="allowedRuntimes")
     allowed_skills: list[str] = Field(default_factory=list, alias="allowedSkills")
     allowed_tools: list[str] = Field(default_factory=list, alias="allowedTools")
+    default_runtime_policy: dict[str, Any] = Field(default_factory=dict, alias="defaultRuntimePolicy")
     permission_profile: PermissionProfile = Field(default="plan", alias="permissionProfile")
     memory_scope: str = Field(default="project", alias="memoryScope")
     max_cost_per_run: float = Field(default=0, alias="maxCostPerRun")
@@ -101,7 +118,30 @@ class AgentProfileUpsertRequest(BaseModel):
     requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(default_factory=dict, alias="outputSchema")
     quality_gates: list[Any] = Field(default_factory=list, alias="qualityGates")
+    reviewer_policy: dict[str, Any] = Field(default_factory=dict, alias="reviewerPolicy")
     status: PolicyStatus = "active"
+
+
+class AgentRuntimeAvailability(BaseModel):
+    """Readiness efectivo de un perfil contra los runtimes reales detectados."""
+
+    status: Literal["available", "blocked", "disabled", "configuration_required", "unknown"] = "unknown"
+    available: bool = False
+    selected_provider_id: str | None = Field(default=None, alias="selectedProviderId")
+    candidate_provider_ids: list[str] = Field(default_factory=list, alias="candidateProviderIds")
+    blocked_reason: str = Field(default="", alias="blockedReason")
+    required_capabilities: list[str] = Field(default_factory=list, alias="requiredCapabilities")
+
+
+class AgentProfileProjectOverrideRecord(BaseModel):
+    """Override de perfil aplicado a un proyecto especifico."""
+
+    project_id: str = Field(alias="projectId")
+    agent_profile_id: str = Field(alias="agentProfileId")
+    reason: str
+    status: PolicyStatus
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
 
 
 class AgentProfileRecord(BaseModel):
@@ -119,6 +159,7 @@ class AgentProfileRecord(BaseModel):
     allowed_runtimes: list[str] = Field(alias="allowedRuntimes")
     allowed_skills: list[str] = Field(alias="allowedSkills")
     allowed_tools: list[str] = Field(alias="allowedTools")
+    default_runtime_policy: dict[str, Any] = Field(alias="defaultRuntimePolicy")
     permission_profile: PermissionProfile = Field(alias="permissionProfile")
     memory_scope: str = Field(alias="memoryScope")
     max_cost_per_run: float = Field(alias="maxCostPerRun")
@@ -130,6 +171,12 @@ class AgentProfileRecord(BaseModel):
     requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
     output_schema: dict[str, Any] = Field(alias="outputSchema")
     quality_gates: list[Any] = Field(alias="qualityGates")
+    reviewer_policy: dict[str, Any] = Field(alias="reviewerPolicy")
+    cost_limits: dict[str, Any] = Field(alias="costLimits")
+    runtime_availability: AgentRuntimeAvailability = Field(
+        default_factory=AgentRuntimeAvailability, alias="runtimeAvailability"
+    )
+    project_override: AgentProfileProjectOverrideRecord | None = Field(default=None, alias="projectOverride")
     status: PolicyStatus
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
@@ -145,6 +192,25 @@ class AgentProfilesListResponse(BaseModel):
     """Respuesta con el listado de perfiles de agente."""
 
     agent_profiles: list[AgentProfileRecord] = Field(alias="agentProfiles")
+
+
+class AgentProfileProjectOverrideRequest(BaseModel):
+    """Payload para sobreescribir runtime/politicas de un perfil en un proyecto."""
+
+    runtime_mode: RuntimeMode | None = Field(default=None, alias="runtimeMode")
+    allowed_providers: list[str] | None = Field(default=None, alias="allowedProviders")
+    allowed_runtimes: list[str] | None = Field(default=None, alias="allowedRuntimes")
+    allowed_skills: list[str] | None = Field(default=None, alias="allowedSkills")
+    allowed_tools: list[str] | None = Field(default=None, alias="allowedTools")
+    default_runtime_policy: dict[str, Any] | None = Field(default=None, alias="defaultRuntimePolicy")
+    reviewer_policy: dict[str, Any] | None = Field(default=None, alias="reviewerPolicy")
+    max_cost_per_run: float | None = Field(default=None, alias="maxCostPerRun")
+    max_tokens_per_run: int | None = Field(default=None, alias="maxTokensPerRun")
+    max_runtime_seconds: int | None = Field(default=None, alias="maxRuntimeSeconds")
+    requires_approval_over_usd: float | None = Field(default=None, alias="requiresApprovalOverUsd")
+    quality_gates: list[Any] | None = Field(default=None, alias="qualityGates")
+    reason: str
+    status: PolicyStatus = "active"
 
 
 class AgentRunCreateRequest(BaseModel):
@@ -273,18 +339,21 @@ class ModelCallRecord(BaseModel):
     provider: str
     model: str
     status: ModelCallStatus
-    prompt_tokens: int = Field(alias="promptTokens")
-    completion_tokens: int = Field(alias="completionTokens")
-    cost_usd: float = Field(alias="costUsd")
+    prompt_tokens: int | None = Field(alias="promptTokens")
+    completion_tokens: int | None = Field(alias="completionTokens")
+    cost_usd: float | None = Field(default=None, alias="costUsd")
     metadata: dict[str, Any]
     created_at: str = Field(alias="createdAt")
 
 
 class CostUsageRecord(BaseModel):
-    """Registro de costo acumulado por ámbito (proyecto/agente/etc.)."""
+    """Registro de costo acumulado por ámbito (proyecto/agente/etc.).
+
+    `projectId` es nulo cuando el costo se registró sin un proyecto conocido.
+    """
 
     id: str
-    project_id: str = Field(alias="projectId")
+    project_id: str | None = Field(alias="projectId")
     scope: str
     amount_usd: float = Field(alias="amountUsd")
     metadata: dict[str, Any]
@@ -338,19 +407,55 @@ class RuntimeProviderStatus(BaseModel):
     id: str
     kind: RuntimeProviderKind
     display_name: str = Field(alias="displayName")
+    installed: bool = False
     detected: bool = False
     configured: bool
+    authenticated: bool = False
     available: bool
     executable: bool
+    enabled: bool = False
+    """Switch del operador (`provider_accounts.enabled`): apagado ⇒ ningún hilo lo usa, aunque esté sano.
+    Distinto de ``globallyEnabled``, que refleja los flags por tipo (CLI/local/remoto).
+    """
+    in_use: bool = Field(default=False, alias="inUse")
+    """Hay una llamada en curso con este proveedor (reserva ``active``/``dispatched`` vigente en
+    ``provider_execution_leases``): la UI no deja apagar el switch hasta que termine.
+    """
+    globally_enabled: bool = Field(default=False, alias="globallyEnabled")
+    project_enabled: bool = Field(default=False, alias="projectEnabled")
+    policy_allowed: bool = Field(default=False, alias="policyAllowed")
+    resource_admissible: bool = Field(default=False, alias="resourceAdmissible")
+    healthy: bool = False
+    effective_status: str = Field(default="configuration_required", alias="effectiveStatus")
+    blocking_reasons: list[str] = Field(default_factory=list, alias="blockingReasons")
+    last_checked_at: str | None = Field(default=None, alias="lastCheckedAt")
+    compatibility: dict[str, Any] | None = None
+    blocker_type: str | None = Field(default=None, alias="blockerType")
+    """Causa normalizada cuando el proveedor no es ejecutable (reusa el vocabulario de remediations:
+    ``runtime_auth_missing`` / ``runtime_not_executable``, más ``runtime_validation_expired`` para una
+    auth CLI que solo venció su TTL); ``None`` si está sano o no configurado. Deja que la UI muestre el
+    mismo chip accionable que un bloqueo de loop sin duplicar la causa.
+    """
+    login_command: str = Field(default="", alias="loginCommand")
+    """Comando exacto de login interactivo del runtime, vacio si no tiene uno. La UI lo ofrece copiable: el
+    login de Claude y ChatGPT lo hace el operador en su navegador, y un tercero no puede intermediar esos
+    tokens de sesion.
+    """
+    can_run_version_check: bool = Field(default=False, alias="canRunVersionCheck")
+    can_run_prompt: bool = Field(default=False, alias="canRunPrompt")
+    can_edit_workspace: bool = Field(default=False, alias="canEditWorkspace")
     requires_approval: bool = Field(default=True, alias="requiresApproval")
     reason: str
     version: str | None = None
+    version_verified: bool = Field(default=False, alias="versionVerified")
+    product_owner_executable: bool = Field(default=False, alias="productOwnerExecutable")
     detected_command: str | None = Field(default=None, alias="detectedCommand")
     health_status: str = Field(default="unknown", alias="healthStatus")
     health_checked_at: str | None = Field(default=None, alias="healthCheckedAt")
     last_error: str = Field(default="", alias="lastError")
     capabilities: list[str] = Field(default_factory=list)
     required_configuration: list[str] = Field(default_factory=list, alias="requiredConfiguration")
+    configuration_warnings: list[str] = Field(default_factory=list, alias="configurationWarnings")
     safety: RuntimeProviderSafety = Field(default_factory=RuntimeProviderSafety)
 
 
@@ -615,7 +720,7 @@ ResearchTrustLevel = Literal[
     "reputable_secondary",
     "untrusted",
 ]
-ResearchAgentVerdict = Literal["completed", "blocked", "needs_human_review"]
+ResearchAgentState = Literal["research_required", "research_running", "research_ready", "research_blocked"]
 
 
 class ResearchSourceRequest(BaseModel):
@@ -624,7 +729,9 @@ class ResearchSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str
+    title: str | None = None
     publisher: str
+    source_type: str | None = Field(default=None, alias="sourceType")
     content: str | None = None
     fetched_at: str | None = Field(default=None, alias="fetchedAt")
     trust_level: ResearchTrustLevel | None = Field(default=None, alias="trustLevel")
@@ -649,6 +756,16 @@ class ResearchClaimRequest(BaseModel):
     topic: str
     value: str
     source_url: str = Field(alias="sourceUrl")
+
+
+class ResearchTechnicalDecisionRequest(BaseModel):
+    """Decisión técnica que debe citar fuentes persistidas por URL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    decision: str
+    source_urls: list[str] = Field(default_factory=list, alias="sourceUrls")
 
 
 class ResearchAgentContract(BaseModel):
@@ -689,17 +806,22 @@ class ResearchAgentRunRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     workspace_id: str = Field(alias="workspaceId")
     task_id: str = Field(default="research_agent", alias="taskId")
-    sources: list[ResearchSourceRequest]
+    query: str | None = None
+    max_sources: int | None = Field(default=None, alias="maxSources")
+    sources: list[ResearchSourceRequest] = Field(default_factory=list)
     conclusions: list[ResearchConclusionRequest] = Field(default_factory=list)
     claims: list[ResearchClaimRequest] = Field(default_factory=list)
+    technical_decisions: list[ResearchTechnicalDecisionRequest] = Field(
+        default_factory=list, alias="technicalDecisions"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchAgentRunResponse(BaseModel):
     """Resultado del ResearchAgent: fuentes persistidas, citas, conflictos y evidencia."""
 
-    status: ResearchAgentVerdict
-    verdict: ResearchAgentVerdict
+    status: ResearchAgentState
+    verdict: ResearchAgentState
     reason: str
     contract: ResearchAgentContract
     workspace: dict[str, Any]
@@ -708,8 +830,11 @@ class ResearchAgentRunResponse(BaseModel):
     evidence_package: dict[str, Any] = Field(alias="evidencePackage")
     sources: list[dict[str, Any]]
     conclusions: list[dict[str, Any]]
+    technical_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="technicalDecisions")
+    recommendation: dict[str, Any] = Field(default_factory=dict)
     citation_check: dict[str, Any] = Field(alias="citationCheck")
     conflict_findings: list[dict[str, Any]] = Field(alias="conflictFindings")
+    discrepancies: list[dict[str, Any]] = Field(default_factory=list)
     report_artifact: dict[str, Any] = Field(alias="reportArtifact")
 
 
@@ -791,6 +916,7 @@ class ProductOwnerAgentStatus(BaseModel):
     selected_runtime_id: str | None = Field(default=None, alias="selectedRuntimeId")
     candidate_runtime_ids: list[str] = Field(default_factory=list, alias="candidateRuntimeIds")
     contract: dict[str, Any]
+    resolution: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProductOwnerAgentStatusResponse(BaseModel):
@@ -809,11 +935,13 @@ class ProductOwnerAgentRunRequest(BaseModel):
     task_id: str = Field(default="product_owner_agent", alias="taskId")
     idea: str | None = None
     initiative_id: str | None = Field(default=None, alias="initiativeId")
+    epic_id: str | None = Field(default=None, alias="epicId")
     completeness_threshold: float | None = Field(default=None, alias="completenessThreshold")
     autonomy: dict[str, Any] | None = None
     workflow_context: dict[str, Any] = Field(default_factory=dict, alias="workflowContext")
     preferred_runtime: str | None = Field(default=None, alias="preferredRuntime")
     approval_grant_id: str | None = Field(default=None, alias="approvalGrantId")
+    max_runtime_attempts: int = Field(default=2, alias="maxRuntimeAttempts", ge=1, le=2, strict=True)
     model: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -823,6 +951,8 @@ class ProductOwnerAgentRunResponse(BaseModel):
 
     status: str
     reason: str
+    summary: str = ""
+    confidence: str = "low"
     product_owner_agent: ProductOwnerAgentStatus = Field(alias="productOwnerAgent")
     workspace: dict[str, Any]
     job: dict[str, Any]
@@ -835,8 +965,14 @@ class ProductOwnerAgentRunResponse(BaseModel):
     initiative: dict[str, Any] | None = None
     questions: list[dict[str, Any]] = Field(default_factory=list)
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    decisions: list[dict[str, Any]] = Field(default_factory=list)
     brief: dict[str, Any] | None = None
+    product_brief_patch: dict[str, Any] | None = Field(default=None, alias="productBriefPatch")
     blocking_decisions: list[dict[str, Any]] = Field(default_factory=list, alias="blockingDecisions")
+    user_stories: list[dict[str, Any]] = Field(default_factory=list, alias="userStories")
+    risks: list[dict[str, Any]] = Field(default_factory=list)
+    recommended_next_action: str = Field(default="", alias="recommendedNextAction")
+    product_owner_output: dict[str, Any] | None = Field(default=None, alias="productOwnerOutput")
     epics: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -875,7 +1011,55 @@ class RuntimeProvidersResponse(BaseModel):
 
     runtime_modes: list[RuntimeMode] = Field(alias="runtimeModes")
     ollama: OllamaRuntimeProviderStatus
+    local: list[LocalEndpointView] = Field(default_factory=list)
     cli: CliRuntimeProviderStatus
     api: ApiRuntimeProviderStatus
     developer_agent: DeveloperAgentStatus = Field(alias="developerAgent")
+    configuration_warnings: list[str] = Field(default_factory=list, alias="configurationWarnings")
     providers: list[RuntimeProviderStatus]
+
+
+class ProviderUsageWindowRecord(BaseModel):
+    """Una ventana de uso observada (5 h, semanal, diaria, mensual) de un proveedor."""
+
+    provider_id: str = Field(alias="providerId")
+    window: str
+    label: str
+    used_percent: float | None = Field(default=None, alias="usedPercent")
+    resets_at: str | None = Field(default=None, alias="resetsAt")
+    source: str
+    status: str
+    observed_at: str = Field(alias="observedAt")
+
+
+class ProviderUsageRecord(BaseModel):
+    """Uso de cuota, umbral efectivo y suspensión automática de un proveedor."""
+
+    provider_id: str = Field(alias="providerId")
+    threshold_percent: float = Field(alias="thresholdPercent")
+    threshold_source: Literal["provider", "general"] = Field(alias="thresholdSource")
+    own_threshold_percent: float | None = Field(default=None, alias="ownThresholdPercent")
+    max_used_percent: float | None = Field(default=None, alias="maxUsedPercent")
+    windows: list[ProviderUsageWindowRecord] = Field(default_factory=list)
+    suspended: bool = False
+    suspended_until: str | None = Field(default=None, alias="suspendedUntil")
+    suspended_window: str | None = Field(default=None, alias="suspendedWindow")
+    ignore_until: str | None = Field(default=None, alias="ignoreUntil")
+    last_poll_at: str | None = Field(default=None, alias="lastPollAt")
+    last_poll_error: str | None = Field(default=None, alias="lastPollError")
+    has_remote_source: bool = Field(default=False, alias="hasRemoteSource")
+
+
+class ProviderUsageResponse(BaseModel):
+    """Umbral general y uso por proveedor (``GET /api/v1/runtime/provider-usage``)."""
+
+    general_threshold_percent: float = Field(alias="generalThresholdPercent")
+    providers: list[ProviderUsageRecord]
+
+
+class ProviderUsagePolicyRequest(BaseModel):
+    """Umbral propio del proveedor; ``null`` vuelve al umbral general."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    threshold_percent: float | None = Field(default=None, alias="thresholdPercent", ge=1, le=100)

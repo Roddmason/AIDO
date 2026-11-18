@@ -5,7 +5,7 @@
  * assignments, reviews, model/tool calls and artifacts) computed on demand by the backend, so it is
  * loaded only when `enabled` (the Team drawer is open) and re-polled on an interval while it stays
  * open. Re-fetches on project change and aborts the in-flight request on change/close/unmount.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -69,10 +69,18 @@ export function useTeamActivity(
 		};
 
 		load(true);
-		const timer = window.setInterval(() => load(false), POLL_INTERVAL_MS);
+		const timer = window.setInterval(() => {
+			if (document.visibilityState === 'hidden') return;
+			load(false);
+		}, POLL_INTERVAL_MS);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') load(false);
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			aborted = true;
 			window.clearInterval(timer);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			controller?.abort();
 		};
 	}, [projectId, enabled, reloadToken]);

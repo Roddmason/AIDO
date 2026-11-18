@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
 from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -49,12 +58,14 @@ def make_expired_artifact(tmp_path: Path, store: ControlPlaneFixture) -> tuple[d
 
 
 def test_retention_delete_removes_expired_physical_file_but_keeps_audit_record(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     _evidence, artifact = make_expired_artifact(tmp_path, store)
     assert Path(artifact["path"]).exists()
@@ -85,11 +96,15 @@ def test_retention_delete_removes_expired_physical_file_but_keeps_audit_record(
     )
 
 
-def test_retention_export_records_manifest_without_deleting_file(tmp_path: Path, monkeypatch) -> None:
+def test_retention_export_records_manifest_without_deleting_file(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     _evidence, artifact = make_expired_artifact(tmp_path, store)
 
@@ -112,11 +127,15 @@ def test_retention_export_records_manifest_without_deleting_file(tmp_path: Path,
     assert Path(artifact["path"]).exists()
 
 
-def test_retention_action_rejects_unexpired_or_unauthenticated_requests(tmp_path: Path, monkeypatch) -> None:
+def test_retention_action_rejects_unexpired_or_unauthenticated_requests(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
     _evidence, artifact = make_expired_artifact(tmp_path, store)
 

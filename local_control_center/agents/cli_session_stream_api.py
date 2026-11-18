@@ -5,7 +5,7 @@ una lectura incremental devuelve los eventos nuevos desde un ``seq`` dado para q
 real sin spinner indefinido, y una mutación la cancela. Arranque y cancelación exigen el token de
 escritura; la lectura es libre. No contiene lógica de negocio: delega en el ejecutor y el recorder.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15,8 +15,16 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from local_control_center.executions.router import ExecutionRouter, queued_operation
+from local_control_center.process_supervision.repository import ManagedProcessRepository
+
 from .cli_session_events import CliSessionEventStore
-from .cli_session_stream import cancel_cli_session, is_running, start_cli_session
+from .cli_session_stream import (
+    DEFAULT_SESSION_TIMEOUT_SECONDS,
+    MAX_SESSION_TIMEOUT_SECONDS,
+    cancel_cli_session,
+    start_cli_session,
+)
 from .cli_session_stream_models import (
     CliSessionCancelResponse,
     CliSessionEventsResponse,
@@ -27,14 +35,24 @@ from .cli_session_stream_models import (
 
 def create_router(*, platform: Any, require_write: Callable[[Request], None]) -> APIRouter:
     """Arma el router de streaming de sesiones CLI: arrancar (token), leer eventos incrementales y cancelar (token)."""
-    router = APIRouter()
+    router = ExecutionRouter(
+        platform=platform,
+        require_write=require_write,
+    )
 
     @router.post("/api/v1/cli-sessions", status_code=202, response_model=CliSessionStartResponse)
+    @queued_operation("cli.start_session", workload_class="agent_cli")
     async def start_session(body: CliSessionStartRequest, request: Request) -> dict[str, Any]:
         require_write(request)
         argv = list(body.argv)
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise HTTPException(status_code=422, detail="argv must be a non-empty list of non-empty strings.")
+        timeout_seconds = body.timeout_seconds or DEFAULT_SESSION_TIMEOUT_SECONDS
+        if timeout_seconds < 1 or timeout_seconds > MAX_SESSION_TIMEOUT_SECONDS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"timeoutSeconds must be between 1 and {MAX_SESSION_TIMEOUT_SECONDS}.",
+            )
         workspace = platform.connection.execute(
             "SELECT project_id, path FROM workspaces WHERE id = ?", (body.workspace_id,)
         ).fetchone()
@@ -51,20 +69,35 @@ def create_router(*, platform: Any, require_write: Callable[[Request], None]) ->
             argv=argv,
             env_policy=body.env_policy,
             agent_id=body.agent_id,
+            timeout_seconds=timeout_seconds,
+            branch_name=body.branch_name,
+            worktree_id=body.worktree_id,
         )
 
     @router.get("/api/v1/cli-sessions/{session_id}/events", response_model=CliSessionEventsResponse)
     async def session_events(session_id: str, afterSeq: int = 0) -> dict[str, Any]:
         store = CliSessionEventStore(platform.connection)
+        session = platform.connection.execute(
+            "SELECT status FROM cli_sessions WHERE id=?", (session_id,)
+        ).fetchone()
         return {
             "events": store.list_events(session_id, after_seq=afterSeq),
             "latestSeq": store.latest_seq(session_id),
-            "running": is_running(session_id),
+            "running": bool(session and session["status"] == "running"),
         }
 
     @router.post("/api/v1/cli-sessions/{session_id}/cancel", response_model=CliSessionCancelResponse)
     async def cancel_session(session_id: str, request: Request) -> dict[str, Any]:
         require_write(request)
-        return {"cancelled": cancel_cli_session(session_id)}
+        row = platform.connection.execute(
+            "SELECT status FROM cli_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None or row[0] != "running":
+            return {"cancelled": False}
+        ManagedProcessRepository(platform.connection).request_execution_cancel(
+            session_id, reason="cancelled_by_operator"
+        )
+        cancel_cli_session(session_id)
+        return {"cancelled": True}
 
     return router

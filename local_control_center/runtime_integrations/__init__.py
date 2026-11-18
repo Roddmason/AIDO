@@ -6,7 +6,7 @@ aplica las variables de entorno únicamente como override sobre la configuració
 config normal vive en la base; el CLI queda como runtime predeterminado. No exporta símbolos: cada
 consumidor importa de los submódulos `repository` o `config`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 __all__: list[str] = []

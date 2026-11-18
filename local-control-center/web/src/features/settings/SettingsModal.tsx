@@ -1,12 +1,14 @@
 /**
- * Two-pane Settings modal: a section navigator on the left (search + General/Project
- * groups) and the active section's content on the right. Built on the Dialog primitive.
+ * Body of the two-pane Settings modal: a section navigator on the left (search + General/Project
+ * groups) and the active section's content on the right. `SettingsDialog` renders it inside the
+ * Dialog and code-splits this module, so the body and every section panel load on the first open.
  * Sections are sourced from the GENERAL_SECTIONS and PROJECT_SECTIONS registry;
  * each section's render(ctx) produces its own content — no switch needed here.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
-import { useEffect, useState } from 'react';
+import { FolderPlus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import type {
 	Overview,
@@ -14,12 +16,13 @@ import type {
 	RuntimeProviderConfiguration,
 	RuntimeProviders,
 } from '../../api/types';
-import { Dialog } from '../../components/ui/Dialog';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useI18n } from '../../i18n/I18nProvider';
 import {
+	GENERAL_GROUPS,
 	GENERAL_SECTIONS,
+	labeledEnumOptions,
 	PROJECT_SECTIONS,
 	SECTION_TO_SETTING_SECTION,
 	type SectionContext,
@@ -33,6 +36,8 @@ export interface SettingsModalProps {
 	projectId: string | undefined;
 	/** Section id to navigate to on open. */
 	initialSection?: string;
+	/** Provider id the runtime setup section should preselect when opened from a remediation. */
+	initialProviderId?: string | null;
 	overview: Overview;
 	selectedProject: Project | null;
 	runtimeProviders: RuntimeProviders | null;
@@ -60,12 +65,13 @@ function settingsForSection(
 	);
 }
 
-/** Two-pane settings modal backed by the resolved settings hook. */
-export function SettingsModal({
+/** Two-pane settings body backed by the resolved settings hook. */
+export function SettingsModalBody({
 	open,
 	onClose,
 	projectId,
 	initialSection,
+	initialProviderId,
 	overview,
 	selectedProject,
 	runtimeProviders,
@@ -80,6 +86,9 @@ export function SettingsModal({
 	const { t } = useI18n();
 	const [activeSection, setActiveSection] = useState(initialSection ?? DEFAULT_SECTION);
 	const [searchQuery, setSearchQuery] = useState('');
+	const titleRef = useRef<HTMLHeadingElement>(null);
+	const navRef = useRef<HTMLElement>(null);
+	const previousSectionRef = useRef(activeSection);
 
 	useEffect(() => {
 		if (open) {
@@ -88,7 +97,26 @@ export function SettingsModal({
 		}
 	}, [open, initialSection]);
 
-	const { general, project, loading, error, setValue, clearValue } = useSettings(projectId, open);
+	useEffect(() => {
+		if (previousSectionRef.current !== activeSection) {
+			previousSectionRef.current = activeSection;
+			titleRef.current?.focus();
+		}
+	}, [activeSection]);
+
+	useEffect(() => {
+		if (!open) return;
+		const active = navRef.current?.querySelector<HTMLElement>(
+			`[data-section="${CSS.escape(activeSection)}"]`,
+		);
+		active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+	}, [open, activeSection]);
+
+	const { general, project, loading, error, setValue, clearValue } = useSettings(
+		projectId,
+		open,
+		token,
+	);
 
 	const allSections = [...GENERAL_SECTIONS, ...PROJECT_SECTIONS];
 	const filteredGeneral = searchQuery
@@ -105,6 +133,7 @@ export function SettingsModal({
 	const currentSection = allSections.find((s) => s.id === activeSection) ?? GENERAL_SECTIONS[0];
 
 	const isProjectSection = PROJECT_SECTIONS.some((s) => s.id === activeSection);
+	const activeProjects = overview.projects.filter((p) => p.status === 'active');
 	const scope: 'general' | 'project' = isProjectSection ? 'project' : 'general';
 	const scopeId = isProjectSection ? (projectId ?? null) : null;
 	const resolvedForSection = settingsForSection(
@@ -113,7 +142,8 @@ export function SettingsModal({
 		isProjectSection,
 	);
 
-	/** Builds the enum options for a given setting key (sandbox picker needs live data). */
+	/** Builds the enum options for a given setting key: the sandbox picker needs live
+	 *  data; every other known enum gets translated human labels over its raw members. */
 	function enumOptionsFor(key: string): Array<{ value: string; label: string }> | undefined {
 		if (key === 'security.sandboxProfileId') {
 			return [
@@ -123,11 +153,13 @@ export function SettingsModal({
 					.map((p) => ({ value: p.id, label: p.name })),
 			];
 		}
-		return undefined;
+		const setting = (isProjectSection ? project : general).find((entry) => entry.key === key);
+		return setting ? labeledEnumOptions(setting, t) : undefined;
 	}
 
 	function renderSectionContent() {
-		if (loading) {
+		const hasSettings = general.length > 0 || project.length > 0;
+		if (loading && !hasSettings) {
 			return (
 				<>
 					<Skeleton
@@ -139,7 +171,7 @@ export function SettingsModal({
 				</>
 			);
 		}
-		if (error) {
+		if (error && !hasSettings) {
 			return (
 				<ErrorState title={t('app.settings.error.title', 'Failed to load settings')} body={error} />
 			);
@@ -163,91 +195,141 @@ export function SettingsModal({
 			enumOptionsFor,
 			scope,
 			scopeId,
+			initialProviderId: initialProviderId ?? null,
+			closeSettings: onClose,
 		};
 
-		return currentSection.render(ctx);
+		return (
+			<>
+				{error ? (
+					<ErrorState
+						title={t('app.settings.error.title', 'Failed to load settings')}
+						body={error}
+					/>
+				) : null}
+				{currentSection.render(ctx)}
+			</>
+		);
 	}
 
 	return (
-		<Dialog
-			open={open}
-			onClose={onClose}
-			label={t('app.settings.title', 'Settings')}
-			className="settings-modal"
-		>
-			<div className="settings-modal-body">
-				{/* Left: section navigator */}
-				<nav className="settings-nav" aria-label={t('app.settings.nav.label', 'Settings sections')}>
-					<div className="settings-nav-search">
-						<input
-							type="search"
-							className="settings-nav-search-input"
-							placeholder={t('app.settings.nav.searchPlaceholder', 'Search sections...')}
-							value={searchQuery}
-							aria-label={t('app.settings.nav.searchLabel', 'Search settings sections')}
-							onChange={(e) => setSearchQuery(e.target.value)}
-						/>
-					</div>
+		<div className="settings-modal-body">
+			<nav
+				ref={navRef}
+				className="settings-nav"
+				aria-label={t('app.settings.nav.label', 'Settings sections')}
+			>
+				<div className="settings-nav-search">
+					<input
+						type="search"
+						className="settings-nav-search-input"
+						placeholder={t('app.settings.nav.searchPlaceholder', 'Search sections...')}
+						value={searchQuery}
+						aria-label={t('app.settings.nav.searchLabel', 'Search settings sections')}
+						onChange={(e) => setSearchQuery(e.target.value)}
+					/>
+				</div>
 
-					{filteredGeneral.length > 0 && (
-						<>
-							<p className="settings-nav-group-label" aria-hidden="true">
-								{t('app.settings.nav.groupGeneral', 'General')}
-							</p>
-							{filteredGeneral.map((section) => (
-								<button
-									key={section.id}
-									type="button"
-									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'page' : undefined}
-									onClick={() => {
-										setActiveSection(section.id);
-										setSearchQuery('');
-									}}
-								>
-									{t(section.titleKey, section.titleFallback)}
-								</button>
-							))}
-						</>
-					)}
+				{GENERAL_GROUPS.map((group) => {
+					const groupSections = filteredGeneral.filter((section) => section.group === group.id);
+					if (!groupSections.length) return null;
+					return (
+						<div key={group.id} className="settings-nav-group">
+							<p className="settings-nav-group-label">{t(group.titleKey, group.titleFallback)}</p>
+							<ul className="settings-nav-list">
+								{groupSections.map((section) => (
+									<li key={section.id}>
+										<button
+											type="button"
+											className="settings-nav-item"
+											data-section={section.id}
+											aria-current={activeSection === section.id ? 'true' : undefined}
+											onClick={() => {
+												setActiveSection(section.id);
+												setSearchQuery('');
+											}}
+										>
+											<section.icon aria-hidden="true" size={15} />
+											{t(section.titleKey, section.titleFallback)}
+										</button>
+									</li>
+								))}
+							</ul>
+						</div>
+					);
+				})}
 
-					{filteredProject.length > 0 && (
-						<>
-							<p className="settings-nav-group-label" aria-hidden="true">
-								{t('app.settings.nav.groupProject', 'Project')}
-							</p>
-							{filteredProject.map((section) => (
-								<button
-									key={section.id}
-									type="button"
-									className="settings-nav-item"
-									aria-current={activeSection === section.id ? 'page' : undefined}
-									onClick={() => {
-										setActiveSection(section.id);
-										setSearchQuery('');
-									}}
-								>
-									{t(section.titleKey, section.titleFallback)}
-								</button>
-							))}
-						</>
-					)}
-
-					{filteredGeneral.length === 0 && filteredProject.length === 0 && (
-						<p className="settings-nav-no-results">
-							{t('app.settings.nav.noResults', 'No sections match your search.')}
+				{filteredProject.length > 0 && (
+					<div className="settings-nav-group">
+						<p className="settings-nav-group-label">
+							{t('app.settings.nav.groupProject', 'Project')}
 						</p>
-					)}
-				</nav>
+						<ul className="settings-nav-list">
+							{filteredProject.map((section) => (
+								<li key={section.id}>
+									<button
+										type="button"
+										className="settings-nav-item"
+										data-section={section.id}
+										aria-current={activeSection === section.id ? 'true' : undefined}
+										onClick={() => {
+											setActiveSection(section.id);
+											setSearchQuery('');
+										}}
+									>
+										<section.icon aria-hidden="true" size={15} />
+										{t(section.titleKey, section.titleFallback)}
+									</button>
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
 
-				{/* Right: content */}
-				<div className="settings-content">
-					<h3 className="settings-content-title">
+				{filteredGeneral.length === 0 && filteredProject.length === 0 && (
+					<p className="settings-nav-no-results" role="status">
+						{t('app.settings.nav.noResults', 'No sections match your search.')}
+					</p>
+				)}
+			</nav>
+
+			<div className="settings-content">
+				{isProjectSection ? (
+					<div className="settings-context-bar">
+						<span className="settings-context-label">
+							{t('app.settings.context.editing', 'Editing project')}
+						</span>
+						<select
+							className="select settings-context-select"
+							aria-label={t('ui.static.operational.project.8c3b31f6', 'Operational project')}
+							value={selectedProject?.id ?? ''}
+							disabled={!activeProjects.length}
+							onChange={(event) => onSelectProject(event.target.value)}
+						>
+							{activeProjects.length ? null : (
+								<option value="">
+									{t('ui.static.no.active.projects.e6823ecd', 'No active projects')}
+								</option>
+							)}
+							{activeProjects.map((activeProject) => (
+								<option key={activeProject.id} value={activeProject.id}>
+									{activeProject.name}
+								</option>
+							))}
+						</select>
+						<button type="button" className="button settings-context-new" onClick={onCreateProject}>
+							<FolderPlus aria-hidden="true" size={15} />
+							{t('app.copy.features.settings.SettingsPage.12', 'New project')}
+						</button>
+					</div>
+				) : null}
+				<header className="settings-content-head">
+					<h3 className="settings-content-title" ref={titleRef} tabIndex={-1}>
 						{t(currentSection.titleKey, currentSection.titleFallback)}
 					</h3>
-					{renderSectionContent()}
-				</div>
+				</header>
+				{renderSectionContent()}
 			</div>
-		</Dialog>
+		</div>
 	);
 }

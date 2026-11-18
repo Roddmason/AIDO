@@ -1,9 +1,9 @@
 /**
  * Column chooser for the Model Gateway tables: keeps the primary view narrow (a handful of
  * columns) while letting operators reveal advanced columns on demand. The chosen set persists
- * per table in localStorage (best-effort, like ExplorerPanel) so a workspace keeps its layout.
+ * per table in localStorage (best-effort) so a workspace keeps its layout.
  * Advanced columns default to hidden.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useState } from 'react';
 
@@ -67,10 +67,10 @@ export function ColumnChooser({
 	return (
 		<details className="column-chooser">
 			<summary>{t('app.modelGateway.columns.chooser', 'Columns')}</summary>
-			<div
+			<fieldset
 				className="column-chooser-options"
-				role="group"
 				aria-label={t('app.modelGateway.columns.chooser', 'Columns')}
+				style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
 			>
 				{advanced.map((column) => {
 					const id = `col-${column.key}`;
@@ -86,7 +86,7 @@ export function ColumnChooser({
 						</label>
 					);
 				})}
-			</div>
+			</fieldset>
 		</details>
 	);
 }

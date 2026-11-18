@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
+import local_control_center.agents.assessment_runner as assessment_runner_module
 from local_control_center.agents.assessment_runner import ProjectAssessmentRunner
 from local_control_center.agents.repository import AgentsRepository
 from local_control_center.projects.repository import ProjectsRepository
@@ -20,7 +22,7 @@ def test_runner_produces_policy_gated_assessment_and_artifact(tmp_path: Path) ->
     project_root = tmp_path / "sample"
     build_sample_project(project_root)
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, project_root)
 
@@ -65,7 +67,7 @@ def test_runner_redacts_secrets_in_persisted_findings(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = _project(connection, project_root)
 
@@ -79,6 +81,34 @@ def test_runner_redacts_secrets_in_persisted_findings(tmp_path: Path) -> None:
         assert "[redacted]" in serialized
         # The artifact file is built from the same redacted findings.
         assert leaked not in Path(result["artifact"]["path"]).read_text(encoding="utf-8")
+
+
+def test_runner_releases_sqlite_transaction_during_filesystem_inspection(tmp_path: Path, monkeypatch) -> None:
+    project_root = tmp_path / "sample"
+    build_sample_project(project_root)
+
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        project = _project(connection, project_root)
+        observed_transaction_states: list[bool] = []
+        original_assessment = assessment_runner_module.run_project_assessment
+        original_artifact_write = assessment_runner_module.write_text_artifact
+
+        def observed_assessment(*args, **kwargs):
+            observed_transaction_states.append(connection.in_transaction)
+            return original_assessment(*args, **kwargs)
+
+        def observed_artifact_write(*args, **kwargs):
+            observed_transaction_states.append(connection.in_transaction)
+            return original_artifact_write(*args, **kwargs)
+
+        monkeypatch.setattr(assessment_runner_module, "run_project_assessment", observed_assessment)
+        monkeypatch.setattr(assessment_runner_module, "write_text_artifact", observed_artifact_write)
+
+        result = ProjectAssessmentRunner(connection, root=tmp_path).run(project["id"])
+
+    assert result["status"] == "completed"
+    assert observed_transaction_states == [False, False]
 
 
 def _assessment_policy_input(**overrides) -> dict:

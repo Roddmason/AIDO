@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack, closing
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from local_control_center.app import create_app
+from local_control_center.shared.migrations import init_phase41_schema
 from tests_py.control_plane_fixture import ControlPlaneFixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,12 +18,20 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def make_client(tmp_path: Path) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    app = create_app(runtime=store)
-    client = TestClient(app)
-    token = client.get("/api/v1/security/handshake").json()["token"]
-    return store, client, {"X-Local-Control-Token": token}
+@pytest.fixture
+def make_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(tmp_path: Path) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            app = create_app(runtime=store)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            token = client.get("/api/v1/security/handshake").json()["token"]
+            return store, client, {"X-Local-Control-Token": token}
+
+        yield create_owned
 
 
 def test_removed_backend_and_frontend_contracts_are_absent() -> None:
@@ -42,12 +53,28 @@ def test_removed_backend_and_frontend_contracts_are_absent() -> None:
             *Path(ROOT / "tests_py").rglob("*.py"),
             *Path(ROOT / "tests_web").rglob("*.*"),
         ]
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     )
     assert removed_state_route not in active_sources
     assert removed_workspace_key not in active_sources
     assert removed_package not in active_sources
     assert removed_workspace_file not in active_sources
+
+
+def test_contract_inventory_ignores_bytecode_but_still_inspects_web_python(tmp_path, monkeypatch):
+    import sys
+
+    fixtures = tmp_path / "tests_web" / "fixtures"
+    cache = fixtures / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "operation.cpython-313.pyc").write_bytes(b"\xff\x00binary cache")
+    source = fixtures / "operation.py"
+    source.write_text("# Real web fixture source\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    test_removed_backend_and_frontend_contracts_are_absent()
+    source.write_text('route = "/api/' + 'state"\n', encoding="utf-8")
+    with pytest.raises(AssertionError):
+        test_removed_backend_and_frontend_contracts_are_absent()
 
 
 def test_frontend_is_vite_typescript_and_dependency_surface_is_pruned() -> None:
@@ -81,49 +108,122 @@ def test_frontend_is_vite_typescript_and_dependency_surface_is_pruned() -> None:
     assert not list((ROOT / "local-control-center" / "web").rglob("*.jsx"))
 
 
-def test_v1_sessions_chats_pipelines_replace_workspace_state(tmp_path: Path) -> None:
-    _store, client, headers = make_client(tmp_path)
+def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store, client, headers = make_client(tmp_path)
     project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
 
-    session_response = client.post(
-        "/api/v1/sessions",
-        headers=headers,
-        json={"projectId": project_id, "name": "Cutover session"},
+    session = store.sessions_chats.create_session(project_id=project_id, name="Cutover session")
+    chat = store.sessions_chats.create_chat(
+        project_id=project_id,
+        session_id=session["id"],
+        prompt="Plan the hard cutover",
+        title="Cutover chat",
     )
-    assert session_response.status_code == 201
-    session = session_response.json()["session"]
+    pipeline = store.pipelines.create_pipeline(
+        project_id=project_id,
+        session_id=session["id"],
+        chat_id=chat["id"],
+        title="Cutover pipeline",
+    )
+    # These fixtures intentionally insert pre-cutover rows after normal bootstrap.
+    # Run their specific reentrant migration, not the version-gated startup path.
+    init_phase41_schema(store.connection)
 
-    chat_response = client.post(
-        "/api/v1/chats",
-        headers=headers,
-        json={"projectId": project_id, "sessionId": session["id"], "prompt": "Plan the hard cutover"},
+    assert (
+        client.post(
+            "/api/v1/sessions",
+            headers=headers,
+            json={"projectId": project_id, "name": "blocked"},
+        ).status_code
+        == 404
     )
-    assert chat_response.status_code == 201
-    chat = chat_response.json()["chat"]
-
-    pipeline_response = client.post(
-        "/api/v1/pipelines",
-        headers=headers,
-        json={
-            "projectId": project_id,
-            "sessionId": session["id"],
-            "chatId": chat["id"],
-            "title": "Cutover pipeline",
-        },
+    assert (
+        client.post(
+            "/api/v1/chats",
+            headers=headers,
+            json={"projectId": project_id, "prompt": "blocked"},
+        ).status_code
+        == 404
     )
-    assert pipeline_response.status_code == 201
+    assert (
+        client.post(
+            "/api/v1/pipelines",
+            headers=headers,
+            json={"projectId": project_id, "title": "blocked"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/legacy/sessions",
+            headers=headers,
+            json={"projectId": project_id, "name": "blocked"},
+        ).status_code
+        == 405
+    )
 
     overview = client.get("/api/v1/overview").json()
     removed_workspace_key = "workspace" + "State"
     assert removed_workspace_key not in overview
-    assert any(item["id"] == session["id"] for item in overview["sessions"])
-    assert any(item["id"] == chat["id"] for item in overview["chats"])
-    assert any(item["id"] == pipeline_response.json()["pipeline"]["id"] for item in overview["pipelines"])
+    assert "sessions" not in overview
+    assert "chats" not in overview
+    assert "pipelines" not in overview
+
+    legacy_sessions = client.get("/api/v1/legacy/sessions").json()["sessions"]
+    legacy_chats = client.get("/api/v1/legacy/chats").json()["chats"]
+    legacy_pipelines = client.get("/api/v1/legacy/pipelines").json()["pipelines"]
+    assert next(item for item in legacy_sessions if item["id"] == session["id"])["metadata"]["legacyReadOnly"]
+    assert next(item for item in legacy_chats if item["id"] == chat["id"])["metadata"]["legacy"][
+        "migratedToThreadId"
+    ].startswith("thread-legacy-")
+    assert next(item for item in legacy_pipelines if item["id"] == pipeline["id"])["metadata"]["legacy"][
+        "migratedToMessageId"
+    ].startswith("thread-msg-legacy-")
+
+    threads = client.get(f"/api/v1/threads?projectId={project_id}").json()["threads"]
+    migrated_thread = next(item for item in threads if item["id"] == f"thread-legacy-{session['id']}")
+    detail = client.get(f"/api/v1/threads/{migrated_thread['id']}").json()
+    assert [message["content"] for message in detail["messages"]] == [
+        "Plan the hard cutover",
+        "Legacy pipeline imported: Cutover pipeline (queued)",
+    ]
     removed_state_route = "/api/" + "state"
     assert client.get(removed_state_route).status_code == 404
 
 
-def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
+def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(make_client, tmp_path: Path) -> None:
+    store, client, headers = make_client(tmp_path)
+    project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
+
+    created = client.post(
+        "/api/v1/threads",
+        headers=headers,
+        json={
+            "projectId": project_id,
+            "ownerType": "workspace",
+            "ownerId": project_id,
+            "title": "No legacy writes",
+        },
+    )
+    assert created.status_code == 201
+    thread_id = created.json()["thread"]["id"]
+
+    posted = client.post(
+        f"/api/v1/threads/{thread_id}/messages",
+        headers=headers,
+        json={"content": "Use thread messages only."},
+    )
+    assert posted.status_code == 200
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM sessions").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM chats").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM pipelines").fetchone()["total"] == 0
+    assert store.connection.execute("SELECT COUNT(*) AS total FROM thread_messages").fetchone()["total"] >= 1
+
+
+def test_removed_compatibility_routes_are_not_mounted(make_client, tmp_path: Path) -> None:
     _store, _client, _headers = make_client(tmp_path)
     app = _client.app
     mounted_paths = {getattr(route, "path", "") for route in app.routes}
@@ -135,7 +235,14 @@ def test_removed_compatibility_routes_are_not_mounted(tmp_path: Path) -> None:
     }
 
     assert mounted_paths.isdisjoint(removed_routes)
-    assert not any(("legacy" in path.lower() or "compat" in path.lower()) for path in mounted_paths)
+    assert {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"} <= mounted_paths
+    non_cutover_legacy = {
+        path
+        for path in mounted_paths
+        if any(segment in {"legacy", "compat", "legacy-compat"} for segment in path.lower().split("/"))
+        and path not in {"/api/v1/legacy/sessions", "/api/v1/legacy/chats", "/api/v1/legacy/pipelines"}
+    }
+    assert non_cutover_legacy == set()
 
 
 def test_frontend_source_does_not_call_removed_legacy_endpoints() -> None:
@@ -162,7 +269,7 @@ def test_frontend_source_does_not_call_removed_legacy_endpoints() -> None:
     assert offenders == []
 
 
-def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(tmp_path: Path) -> None:
+def test_hybrid_runtime_catalog_exposes_ollama_and_cli_api_modes(make_client, tmp_path: Path) -> None:
     _store, client, headers = make_client(tmp_path)
     assert client.get("/api/v1/model-providers").status_code == 404
     assert client.get("/api/v1/model-policies").status_code == 404

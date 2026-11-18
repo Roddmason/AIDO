@@ -5,16 +5,17 @@ URLs, models) and reads the current process environment into typed configuration
 objects. Secret values are never returned to clients: presence is reported as a
 truncated SHA-256 fingerprint instead of the raw value.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from local_control_center.shared.user_environment import process_environment
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,18 @@ class RuntimeConfigVariableSpec:
     name: str
     secret: bool
     required: bool = True
+    aliases: tuple[str, ...] = ()
+
+
+class AmbiguousRuntimeProviderCredentialError(ValueError):
+    """Raised when multiple credential variables contain different secret values."""
+
+    code = "ambiguous_runtime_provider_credential"
+
+    def __init__(self, *, provider_id: str, names: tuple[str, ...]):
+        self.provider_id = provider_id
+        self.names = names
+        super().__init__(f"{self.code}:{provider_id}:{','.join(names)}")
 
 
 @dataclass(frozen=True)
@@ -43,6 +56,7 @@ class RuntimeConfigVariable:
 
     spec: RuntimeConfigVariableSpec
     value: str | None
+    resolved_name: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -75,6 +89,7 @@ class RuntimeProviderConfiguration:
 
     spec: RuntimeProviderConfigSpec
     variables: tuple[RuntimeConfigVariable, ...]
+    resolution_error: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -83,6 +98,8 @@ class RuntimeProviderConfiguration:
         CLI command env vars are deprecated overrides, so they are configured only when the override
         itself is present; normal CLI readiness comes from runtime_installations/runtime_accounts.
         """
+        if self.resolution_error:
+            return False
         if self.spec.kind == "cli":
             return bool(self.value("command"))
         return not self.missing
@@ -106,15 +123,14 @@ class RuntimeProviderConfiguration:
     @property
     def reason(self) -> str:
         """Human-readable explanation naming the missing variables when not configured."""
+        if self.resolution_error:
+            return self.resolution_error
         if self.configured:
             if self.spec.kind == "cli":
-                return "Deprecated CLI command environment override is present."
+                return "CLI command set by environment override."
             return "Required runtime provider configuration is present."
         if self.spec.kind == "cli":
-            return (
-                "No deprecated CLI command environment override is set; normal CLI configuration lives "
-                "in runtime_installations and runtime_accounts."
-            )
+            return "CLI command is not configured."
         return "Missing required runtime provider configuration or credential: " + ", ".join(self.missing)
 
     def value(self, key: str) -> str | None:
@@ -128,7 +144,7 @@ class RuntimeProviderConfiguration:
         """Return an `env:NAME` reference for a configured variable, never the value itself."""
         for variable in self.variables:
             if variable.spec.key == key and variable.configured:
-                return f"env:{variable.spec.name}"
+                return f"env:{variable.resolved_name or variable.spec.name}"
         return None
 
     def required_configuration(self) -> list[str]:
@@ -170,12 +186,55 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         ),
     ),
     RuntimeProviderConfigSpec(
+        provider_id="gemini",
+        display_name="Google Gemini",
+        kind="api",
+        variables=(
+            RuntimeConfigVariableSpec(
+                "apiKey",
+                "AIDO_GEMINI_API_KEY",
+                secret=True,
+                aliases=("GEMINI_API_KEY",),
+            ),
+            RuntimeConfigVariableSpec("model", "AIDO_GEMINI_MODEL", secret=False),
+        ),
+    ),
+    RuntimeProviderConfigSpec(
+        provider_id="litellm",
+        display_name="LiteLLM Proxy",
+        kind="gateway",
+        variables=(
+            RuntimeConfigVariableSpec(
+                "baseUrl",
+                "AIDO_LITELLM_BASE_URL",
+                secret=False,
+                aliases=("LITELLM_BASE_URL",),
+            ),
+            RuntimeConfigVariableSpec(
+                "apiKey",
+                "AIDO_LITELLM_API_KEY",
+                secret=True,
+                required=False,
+                aliases=("LITELLM_API_KEY",),
+            ),
+            RuntimeConfigVariableSpec(
+                "model",
+                "AIDO_LITELLM_MODEL",
+                secret=False,
+                required=False,
+                aliases=("LITELLM_MODEL",),
+            ),
+        ),
+    ),
+    RuntimeProviderConfigSpec(
         provider_id="nvidia_nim",
         display_name="NVIDIA NIM / Build",
         kind="api",
         variables=(
-            RuntimeConfigVariableSpec("apiKey", "AIDO_NVIDIA_API_KEY", secret=True),
-            RuntimeConfigVariableSpec("baseUrl", "AIDO_NVIDIA_BASE_URL", secret=False),
+            RuntimeConfigVariableSpec(
+                "apiKey", "AIDO_NVIDIA_API_KEY", secret=True, aliases=("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY")
+            ),
+            RuntimeConfigVariableSpec("baseUrl", "AIDO_NVIDIA_BASE_URL", secret=False, required=False),
             RuntimeConfigVariableSpec("model", "AIDO_NVIDIA_MODEL", secret=False),
         ),
     ),
@@ -185,12 +244,13 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
         kind="api",
         variables=(
             RuntimeConfigVariableSpec("apiKey", "AIDO_ANTHROPIC_API_KEY", secret=True),
+            RuntimeConfigVariableSpec("baseUrl", "AIDO_ANTHROPIC_BASE_URL", secret=False, required=False),
             RuntimeConfigVariableSpec("model", "AIDO_ANTHROPIC_MODEL", secret=False),
         ),
     ),
     RuntimeProviderConfigSpec(
         provider_id="ollama",
-        display_name="Ollama Local",
+        display_name="Ollama Local/Remote",
         kind="local",
         variables=(RuntimeConfigVariableSpec("baseUrl", "AIDO_OLLAMA_BASE_URL", secret=False),),
     ),
@@ -241,6 +301,26 @@ RUNTIME_PROVIDER_CONFIG_SPECS: tuple[RuntimeProviderConfigSpec, ...] = (
 
 _CONFIG_SPECS_BY_PROVIDER = {spec.provider_id: spec for spec in RUNTIME_PROVIDER_CONFIG_SPECS}
 
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+
+KNOWN_PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
+    "anthropic_api": "https://api.anthropic.com/v1",
+    "deepseek": "https://api.deepseek.com",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "groq": "https://api.groq.com/openai/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "nvidia_nim": "https://integrate.api.nvidia.com/v1",
+    "openai": "https://api.openai.com/v1",
+    "openai_api": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
+
+def known_provider_default_base_url(provider_id: str) -> str | None:
+    """Return the official default endpoint for known API providers, if AIDO owns one."""
+    return KNOWN_PROVIDER_DEFAULT_BASE_URLS.get(str(provider_id or "").strip())
+
 
 def _env_value(environ: Mapping[str, str], name: str) -> str | None:
     value = environ.get(name)
@@ -250,10 +330,39 @@ def _env_value(environ: Mapping[str, str], name: str) -> str | None:
     return stripped or None
 
 
+def _resolve_runtime_variable(
+    *,
+    provider_id: str,
+    variable_spec: RuntimeConfigVariableSpec,
+    environ: Mapping[str, str],
+) -> RuntimeConfigVariable:
+    """Resolve one variable with deterministic aliases and secret-safe conflict detection.
+
+    Alias order is precedence order. Gemini can prefer ``AIDO_GEMINI_API_KEY`` and then
+    ``GEMINI_API_KEY`` without inspecting or inheriting the broader ``GOOGLE_API_KEY`` variable.
+    """
+    selectable_names = (variable_spec.name, *variable_spec.aliases)
+    observed = {name: value for name in selectable_names if (value := _env_value(environ, name)) is not None}
+    if variable_spec.secret and len(set(observed.values())) > 1:
+        raise AmbiguousRuntimeProviderCredentialError(
+            provider_id=provider_id,
+            names=tuple(observed),
+        )
+    for name in selectable_names:
+        if value := observed.get(name):
+            return RuntimeConfigVariable(
+                spec=variable_spec,
+                value=value,
+                resolved_name=name,
+            )
+    return RuntimeConfigVariable(spec=variable_spec, value=None)
+
+
 def runtime_provider_configuration(
     provider_id: str,
     *,
     environ: Mapping[str, str] | None = None,
+    raise_on_ambiguity: bool = False,
 ) -> RuntimeProviderConfiguration | None:
     """Resolve one provider's configuration from `environ` (default: `os.environ`).
 
@@ -262,12 +371,48 @@ def runtime_provider_configuration(
     spec = _CONFIG_SPECS_BY_PROVIDER.get(provider_id)
     if spec is None:
         return None
-    source = environ or os.environ
-    variables = tuple(
-        RuntimeConfigVariable(spec=variable_spec, value=_env_value(source, variable_spec.name))
-        for variable_spec in spec.variables
-    )
+    source = process_environment() if environ is None else environ
+    try:
+        variables = tuple(
+            _resolve_runtime_variable(
+                provider_id=provider_id,
+                variable_spec=variable_spec,
+                environ=source,
+            )
+            for variable_spec in spec.variables
+        )
+    except AmbiguousRuntimeProviderCredentialError as error:
+        if raise_on_ambiguity:
+            raise
+        names = ", ".join(error.names)
+        return RuntimeProviderConfiguration(
+            spec=spec,
+            variables=tuple(
+                RuntimeConfigVariable(spec=variable_spec, value=None) for variable_spec in spec.variables
+            ),
+            resolution_error=(
+                f"Conflicting credential environment variables are set for {spec.display_name}: "
+                f"{names}. Keep one value or make them identical."
+            ),
+        )
     return RuntimeProviderConfiguration(spec=spec, variables=variables)
+
+
+def runtime_provider_configuration_for_account(
+    account: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> RuntimeProviderConfiguration | None:
+    """Resolve legacy env configuration only for the canonical provider account.
+
+    Endpoint-scoped accounts carry their own persisted base URL and credential reference;
+    they must not inherit a provider family's process-global configuration.
+    """
+    provider_id = str(account.get("providerId") or "").strip()
+    provider_family = str(account.get("providerFamily") or "").strip()
+    if not provider_id or provider_id != provider_family:
+        return None
+    return runtime_provider_configuration(provider_id, environ=environ)
 
 
 def list_runtime_provider_configurations(
@@ -275,14 +420,10 @@ def list_runtime_provider_configurations(
     environ: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve and serialize every known provider's configuration to client-safe dicts."""
-    source = environ or os.environ
-    return [
-        RuntimeProviderConfiguration(
-            spec=spec,
-            variables=tuple(
-                RuntimeConfigVariable(spec=variable_spec, value=_env_value(source, variable_spec.name))
-                for variable_spec in spec.variables
-            ),
-        ).public_dict()
-        for spec in RUNTIME_PROVIDER_CONFIG_SPECS
-    ]
+    source = process_environment() if environ is None else environ
+    configurations: list[dict[str, Any]] = []
+    for spec in RUNTIME_PROVIDER_CONFIG_SPECS:
+        configuration = runtime_provider_configuration(spec.provider_id, environ=source)
+        if configuration is not None:
+            configurations.append(configuration.public_dict())
+    return configurations

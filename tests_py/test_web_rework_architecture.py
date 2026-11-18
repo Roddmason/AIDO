@@ -34,7 +34,6 @@ def test_dashboard_entrypoint_uses_vite_typescript_app() -> None:
         SRC / "app" / "App.tsx",
         SRC / "api" / "client.ts",
         SRC / "api" / "types.ts",
-        SRC / "components" / "primitives.tsx",
         SRC / "motion" / "useControlMotion.ts",
         SRC / "design-system" / "tokens.css",
         SRC / "design-system" / "base.css",
@@ -91,12 +90,136 @@ def test_frontend_domain_types_are_generated_openapi_aliases() -> None:
         assert stale_manual_type not in source
 
 
+#: Every settings section renders a purpose-built panel; none may fall back to a
+#: placeholder or to a body borrowed from an unrelated section.
+SETTINGS_PANELS = (
+    "GeneralSettingsPanel",
+    "AppearanceSettingsPanel",
+    "WorkerSettingsPanel",
+    "DefaultTeamSettingsPanel",
+    "ProjectGoalSettingsPanel",
+    "ProjectRoutingSettingsPanel",
+    "ProjectQualitySettingsPanel",
+    "ResearchSettingsPanel",
+    "InternetSettingsPanel",
+)
+
+#: Panels whose whole surface is driven by the section context.
+CTX_DRIVEN_PANELS = (
+    "GeneralSettingsPanel",
+    "ProjectGoalSettingsPanel",
+    "ProjectRoutingSettingsPanel",
+    "ProjectQualitySettingsPanel",
+    "ResearchSettingsPanel",
+    "InternetSettingsPanel",
+)
+
+
+def test_settings_team_section_renders_full_available_agent_profile_roster() -> None:
+    settings_dir = SRC / "features" / "settings"
+    default_team = read(settings_dir / "DefaultTeamSettingsPanel.tsx")
+    sections = read(settings_dir / "sections.tsx")
+    project_team = read(settings_dir / "ProjectTeamPanel.tsx")
+
+    # Default Team (general) renders the full roster from the overview; the project Team
+    # section fetches with the project id so per-project overrides are applied. Neither
+    # surface may hardcode roles or reuse a generic shared body for Team/Routing/Quality.
+    assert "id: 'team'" in sections
+    assert "<ProjectTeamPanel projectId={ctx.scopeId}" in sections
+    assert "<DefaultTeamSettingsPanel overview={ctx.overview}" in sections
+    assert "AgentsBody" not in sections
+    assert "overview.agentProfiles" in default_team
+    assert "runtimeAvailability" in default_team
+    assert "allowedProviders" in default_team
+    assert "mobile_engineer" not in default_team
+    assert "getAgentProfiles(projectId" in project_team
+    assert "showOverride" in project_team
+
+
+def test_settings_registry_has_no_placeholder_sections() -> None:
+    settings_dir = SRC / "features" / "settings"
+    sections = read(settings_dir / "sections.tsx")
+
+    assert "SectionPlaceholder" not in sections
+    assert "kind: 'placeholder'" not in sections
+    assert not (settings_dir / "SectionPlaceholder.tsx").exists()
+
+    # Every named panel exists as its own module and is the one the registry renders,
+    # so no section can quietly fall back to another section's body.
+    for panel in SETTINGS_PANELS:
+        assert (settings_dir / f"{panel}.tsx").exists(), panel
+    assert "<AppearanceSettingsPanel />" in sections
+    assert "<DefaultTeamSettingsPanel overview={ctx.overview}" in sections
+    for panel in CTX_DRIVEN_PANELS:
+        assert f"<{panel} ctx={{ctx}}" in sections, panel
+
+    # WorkerSettingsPanel is composed by General, not registered as its own section.
+    assert "WorkerSettingsPanel" in read(settings_dir / "GeneralSettingsPanel.tsx")
+
+    # AdvancedBody backs the Advanced section only: Appearance must never borrow it.
+    assert sections.count("<AdvancedBody") == 1
+
+
+def test_settings_target_sections_render_dedicated_card_bodies() -> None:
+    settings_dir = SRC / "features" / "settings"
+
+    # The headline enum of each policy panel is an accessible radio-card grid, not a
+    # bare dropdown; the shared selector renders the radiogroup semantics.
+    choice_cards = read(settings_dir / "SettingsChoiceCards.tsx")
+    assert 'role="radiogroup"' in choice_cards
+    assert 'role="radio"' in choice_cards
+    for panel in (
+        "ResearchSettingsPanel",
+        "ProjectGoalSettingsPanel",
+        "InternetSettingsPanel",
+        "ProjectRoutingSettingsPanel",
+    ):
+        assert "SettingChoiceCards" in read(settings_dir / f"{panel}.tsx"), panel
+
+
+def test_settings_panels_use_cards_and_chips_instead_of_default_tables() -> None:
+    settings_dir = SRC / "features" / "settings"
+
+    # No section panel may open on a data table: dense catalogs belong behind a
+    # Disclosure (Advanced, Workspaces), and rosters render as cards.
+    for panel in SETTINGS_PANELS:
+        assert "DataTable" not in read(settings_dir / f"{panel}.tsx"), panel
+
+    # Progressive disclosure keeps the worker tuning knobs out of the opening view.
+    assert "Disclosure" in read(settings_dir / "WorkerSettingsPanel.tsx")
+    assert "settings-team-grid" in read(settings_dir / "DefaultTeamSettingsPanel.tsx")
+
+    # Wired panels carry the source chip through SettingRow/SettingChoiceCards; the
+    # browser-local preferences carry their own chip with an explicit source.
+    appearance = read(settings_dir / "AppearanceSettingsPanel.tsx")
+    assert 'className="setting-chip"' in appearance
+    assert 'className="setting-chip-source"' in appearance
+    setting_row = read(settings_dir / "SettingRow.tsx")
+    assert 'data-origin="inherited"' in setting_row
+    assert "setting-chip-source" in setting_row
+
+
+def test_settings_hash_aliases_resolve_to_existing_section_ids() -> None:
+    routing = read(SRC / "app" / "routing.ts")
+    sections = read(SRC / "features" / "settings" / "sections.tsx")
+
+    # Every legacy `#settings-*` hash must land on a real section id; renaming or
+    # removing a section without updating settingsHashToSection silently redirects
+    # deep-links to the fallback section.
+    map_block = routing.split("settingsHashToSection", 1)[1].split("};", 1)[0]
+    targets = set(re.findall(r":\s*'([a-z-]+)'", map_block))
+    section_ids = set(re.findall(r"\bid: '([a-z-]+)'", sections))
+
+    assert targets, "settings hash alias map must not be empty"
+    assert sorted(targets - section_ids) == []
+
+
 def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_typed() -> None:
     types_source = read(SRC / "api" / "types.ts")
     client_source = read(SRC / "api" / "client.ts")
     hook_source = read(SRC / "hooks" / "useControlPlane.ts")
     artifacts_source = read(SRC / "lib" / "artifacts.ts")
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "evidence" / "EvidencePage.tsx")
     # The workflow artifact preview now lives in the run-detail Inspector body, not the launcher page.
     run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
     # MemoryPage was extracted out of the pages barrel into its own feature module.
@@ -113,15 +236,16 @@ def test_stable_frontend_artifact_and_retrieval_surfaces_are_not_dictionary_type
     assert "retrievalStatus: Dictionary | null" not in hook_source
     assert "artifact: Artifact" in artifacts_source
     assert "retrievalStatus: RetrievalStatus | null" in memory_source
-    assert "useState<Artifact | null>" in pages_source
-    assert "useState<Artifact | null>" in run_detail_source
-    assert "const openPreview = async (artifact: Artifact)" in pages_source
-    assert "const openPreview = async (artifact: Artifact)" in run_detail_source
+    preview_hook_source = read(SRC / "features" / "review" / "useArtifactPreview.ts")
+    assert "useState<Artifact | null>" in preview_hook_source
+    assert "openPreview: (artifact: Artifact) => Promise<void>" in preview_hook_source
+    assert "useArtifactPreview(token)" in pages_source
+    assert "useArtifactPreview(token)" in run_detail_source
 
 
 def test_stable_frontend_policy_revision_surface_is_not_dictionary_typed() -> None:
     types_source = read(SRC / "api" / "types.ts")
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "policy" / "PolicySecurityPage.tsx")
 
     assert "PolicyRevisionRecord" in types_source
     assert "export type PolicyRevision = PolicyRevisionRecord" in types_source
@@ -156,6 +280,28 @@ def test_frontend_mutation_helpers_use_generated_request_response_types() -> Non
     assert "body: MutationBody<'update_risk_api_v1_risks__risk_id__patch'>" in client_source
 
 
+def test_thread_remediation_answer_question_uses_option_payload() -> None:
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    hook_source = read(SRC / "features" / "shell" / "useThreadRemediations.ts")
+
+    assert "function answerOptions(action: BlockerActionModel): string[]" in card_source
+    assert "action.remediation?.actionType === 'answer_question' && options.length" in card_source
+    assert "<SelectField" in card_source
+    assert "runExecute(action, { answer: selectedAnswer })" in card_source
+    assert "payload?: JsonObject" in hook_source
+    assert "executeRemediation(token, action.remediation?.id ?? '', payload)" in hook_source
+
+
+def test_thread_remediation_continue_plan_only_is_visible_and_executable() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    hook_source = read(SRC / "features" / "shell" / "useThreadRemediations.ts")
+
+    assert "continue_plan_only: {" in presentation_source
+    assert "labelFallback: 'Continue plan-only'" in presentation_source
+    assert "kind: 'execute'" in presentation_source
+    assert "executeRemediation(token, action.remediation?.id ?? '', payload)" in hook_source
+
+
 def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -> None:
     # The runtime provider status table was extracted from the gateway container into its own
     # read-surface panel; the healthcheck/redaction assertions follow it there.
@@ -173,6 +319,186 @@ def test_runtime_provider_ui_exposes_healthcheck_state_and_sanitized_reasons() -
     assert "row.healthCheckedAt" in panel_source
 
 
+def test_runtime_setup_wizard_uses_preconfigured_base_url_for_known_providers() -> None:
+    setup_source = read(SRC / "features" / "runtime-setup" / "runtimeSetup.ts")
+    wizard_source = read(SRC / "features" / "runtime-setup" / "AddProviderWizard.tsx")
+
+    assert "id: 'nvidia_nim'" in setup_source
+    assert "defaultBaseUrl: 'https://integrate.api.nvidia.com/v1'" in setup_source
+    assert "needsBaseUrl: false" in setup_source
+    assert "entry.needsBaseUrl ? (" in wizard_source
+    assert "Preconfigured — no URL needed." in wizard_source
+    assert "createProviderAccountFromCatalog" in wizard_source
+    assert "...(entry.needsBaseUrl ? { baseUrl: baseUrl.trim() } : {})" in wizard_source
+
+
+def test_provider_credentials_remediation_opens_specific_runtime_setup_provider() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    app_source = read(SRC / "app" / "App.tsx")
+    modal_source = read(SRC / "features" / "settings" / "SettingsModal.tsx")
+    sections_source = read(SRC / "features" / "settings" / "sections.tsx")
+    settings_source = read(SRC / "features" / "settings" / "SettingsPage.tsx")
+    runtime_setup_source = read(SRC / "features" / "runtime-setup" / "RuntimeSetupPanel.tsx")
+
+    assert "contextualSettingsRecord" in presentation_source
+    assert "remediation: contextualSettingsRecord" in presentation_source
+    assert "function settingsProviderId(action: BlockerActionModel): string | undefined" in card_source
+    assert "onOpenSettings(action.section, settingsProviderId(action))" in card_source
+    assert "const [settingsProviderId, setSettingsProviderId]" in app_source
+    assert "openSettings = useCallback((section?: string, providerId?: string)" in app_source
+    assert "initialProviderId={settingsProviderId}" in app_source
+    assert "initialProviderId?: string | null" in modal_source
+    assert "initialProviderId: initialProviderId ?? null" in modal_source
+    assert "initialProviderId={ctx.initialProviderId}" in sections_source
+    assert "initialProviderId={initialProviderId}" in settings_source
+    assert "initialProviderId?: string | null" in runtime_setup_source
+    assert "setWizardProviderId(providerId)" in runtime_setup_source
+
+
+def test_new_thread_composer_checks_similarity_and_records_operator_choice() -> None:
+    source = read(SRC / "features" / "shell" / "ThreadConversation.tsx")
+
+    assert "findSimilarThreads(project.id, query, 1, controller.signal)" in source
+    assert "top && top.score >= SIMILARITY_THRESHOLD ? top : null" in source
+    assert "const dismissedCandidate = pending?.dismissedCandidate ?? candidate" in source
+    assert "const created = await createThread(token, {" in source
+    assert "await postThreadMessage(token, pendingThreadId, {" in source
+    assert "mode: 'create_new_anyway'" in source
+    assert "similarThreadId: dismissedCandidate.threadId" in source
+    assert "markSimilarThread(token, pendingThreadId, dismissedCandidate.threadId" in source
+    assert "await postThreadMessage(token, target, { content, metadata: { mode } })" in source
+
+
+def test_thread_remediation_presentation_has_specific_copy_for_product_loop_blockers() -> None:
+    source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+
+    for blocker_type in (
+        "resource_manager_unconfigured",
+        "resource_manager_privacy_blocked",
+        "resource_manager_approval_required",
+        "team_scheduler_failed",
+        "technical_lead_planning_failed",
+        "product_owner_output_invalid",
+        "research_required",
+        "workspace_root_missing",
+        "workspace_allocation_failed",
+        "review_diff_unavailable",
+        "approval_unavailable",
+        "resource_learning_failed",
+        "git_status_failed",
+        "project_assessment_failed",
+        "functionality_memory_decision_required",
+        "thread_similarity_decision_required",
+        "thread_intake_decision_required",
+    ):
+        assert f"{blocker_type}:" in source
+
+
+def test_resource_manager_privacy_remediation_keeps_distinct_settings_repairs() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    catalog = json.loads(
+        (ROOT / "local_control_center" / "i18n" / "default_catalog.json").read_text(encoding="utf-8")
+    )["translations"]
+
+    assert "settingsLabelKey: 'app.threads.remediation.action.configureLocalRuntime'" in (presentation_source)
+    assert "function actionDedupeKey(" in presentation_source
+    assert "return `${record.actionType}:${section}`;" in presentation_source
+
+    privacy_title = catalog["app.threads.remediation.blocker.resource_manager_privacy_blocked.title"]
+    local_runtime_label = catalog["app.threads.remediation.action.configureLocalRuntime"]
+    assert privacy_title == {
+        "en": "Project privacy policy requires a local AI resource",
+        "es": "La política de privacidad del proyecto exige un recurso de IA local",
+    }
+    assert local_runtime_label == {
+        "en": "Configure local runtime",
+        "es": "Configurar runtime local",
+    }
+
+
+def test_thread_blocker_card_explains_cause_impact_and_one_primary_repair() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+
+    assert "impactKey: string;" in presentation_source
+    assert "cause: first.technicalReason || reason || first.description," in presentation_source
+    assert "function withPrimaryFirst(actions: DraftAction[]): BlockerActionModel[]" in presentation_source
+    assert (
+        "actions.find((action) => action.remediation?.primary === true)?.id ?? actions[0]?.id"
+        in presentation_source
+    )
+
+    assert "const [primaryAction, ...secondaryActions] = card.actions;" in card_source
+    assert "const variant = action.primary ? 'primary' : 'secondary';" in card_source
+    assert "app.threads.remediation.factStage" in card_source
+    assert "app.threads.remediation.factCause" in card_source
+    assert "app.threads.remediation.factImpact" in card_source
+    assert "app.threads.remediation.technicalDetail" in card_source
+
+
+def test_thread_blocker_card_confirms_destructive_remediations_before_executing() -> None:
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+
+    assert "if (action.confirmationRequired) {" in card_source
+    assert "setPendingConfirmation(action);" in card_source
+    assert "runExecute(action, { confirmed: true })" in card_source
+
+
+def test_blocked_thread_without_remediations_falls_back_to_diagnostic_and_settings() -> None:
+    presentation_source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+    card_source = read(SRC / "features" / "shell" / "ThreadBlockerCard.tsx")
+    panel_source = read(SRC / "features" / "shell" / "ThreadExecutionPanel.tsx")
+
+    assert (
+        "export function buildFallbackCard(stage: string, reason: string): BlockerCardModel"
+        in presentation_source
+    )
+    assert "buildFallbackCard(fallback.stage, fallback.reason)" in card_source
+    assert "app.threads.remediation.action.openConfiguration" in card_source
+    assert "app.threads.remediation.copyDiagnostic" in card_source
+    assert "blocked: isBlocked," in panel_source
+    assert "const remediationFallback = pipeline.blocked" in panel_source
+    assert "fallback={remediationFallback}" in panel_source
+
+
+def test_thread_remediation_presentation_is_typed_against_backend_contract() -> None:
+    source = read(SRC / "features" / "shell" / "remediationPresentation.ts")
+
+    assert "type BlockerType = RemediationActionRecord['blockerType'];" in source
+    assert "type ActionType = RemediationActionRecord['actionType'];" in source
+    assert "export const BLOCKER_COPY: Record<BlockerType, BlockerCopy>" in source
+    assert "export const ACTION_COPY: Record<ActionType, ActionCopy>" in source
+
+
+def test_workbench_review_panel_wires_traceable_product_loop_delivery_feedback() -> None:
+    client_source = read(SRC / "api" / "client.ts")
+    page_source = read(SRC / "features" / "workbench" / "WorkbenchPage.tsx")
+    panel_source = read(SRC / "features" / "workbench" / "panels" / "WorkbenchEvidencePanel.tsx")
+
+    assert "export type ProductLoopFeedbackRequest" in client_source
+    assert "export function applyProductLoopFeedback" in client_source
+    assert "applyProductLoopFeedback(token, project.id, activeProductLoop.id" in page_source
+    assert "handleAcceptDelivery" in page_source
+    assert "handleRequestDeliveryChanges" in page_source
+    assert "handleContinueDelivery" in page_source
+    assert "onAcceptDelivery={handleAcceptDelivery}" in page_source
+    assert "onRequestChanges={handleRequestDeliveryChanges}" in page_source
+    assert "onContinueDelivery={handleContinueDelivery}" in page_source
+    assert "action: 'continue'" in page_source
+    assert "targetType: 'task'" in page_source
+    assert "targetId: taskId" in page_source
+    assert "selectedTaskId" in panel_source
+    assert "SelectField" in panel_source
+    assert "onRequestChanges?.(selectedTaskId" in panel_source
+    assert "onContinueDelivery?.(" in panel_source
+    assert "disabled={!canContinueDelivery" in panel_source
+    assert "app.workbench.evidence.continueDelivery" in panel_source
+    assert "disabled={!canRequestChanges" in panel_source
+    assert "activeProductLoop?.state === 'awaiting_feedback'" in panel_source
+    assert "activeProductLoop?.state === 'awaiting_approval' &&" in panel_source
+
+
 def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None:
     source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
 
@@ -180,6 +506,24 @@ def test_agents_page_does_not_fallback_to_unverified_provider_catalogs() -> None
     assert "fallbackRuntimes" not in source
     assert "catalogAvailable" in source
     assert "configuration_required" in source
+
+
+def test_agents_page_exposes_team_panel_runtime_blockers_and_project_overrides() -> None:
+    source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
+    api_client = read(SRC / "api" / "client.ts")
+    generated = read(SRC / "api" / "generated" / "openapi.ts")
+
+    assert "Team panel" in source
+    assert "runtimeAvailability" in source
+    assert "blockedReason" in source
+    assert "projectOverride" in source
+    assert "selectedProjectId" in source
+    assert "upsertAgentProfileProjectOverride" in source
+    assert (
+        "agent_profile_override_api_v1_projects__project_id__agent_profile_overrides__profile_id__put"
+        in generated
+    )
+    assert "upsertAgentProfileProjectOverride" in api_client
 
 
 def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() -> None:
@@ -192,7 +536,14 @@ def test_control_plane_optional_state_does_not_reuse_stale_health_snapshots() ->
 
 
 def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> None:
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = "\n".join(
+        read(path)
+        for path in (
+            SRC / "features" / "policy" / "PolicySecurityPage.tsx",
+            SRC / "features" / "evidence" / "EvidencePage.tsx",
+            SRC / "features" / "governance" / "GovernancePage.tsx",
+        )
+    )
     agents_source = read(SRC / "features" / "agents" / "AgentsPage.tsx")
     # Model-call cost/token rendering moved with the run detail into the Inspector body.
     run_detail_source = read(SRC / "features" / "workflows" / "RunDetail.tsx")
@@ -214,7 +565,7 @@ def test_frontend_does_not_invent_cost_or_token_limits_from_null_values() -> Non
 
 
 def test_governance_surface_has_filtering_and_risk_update_controls() -> None:
-    pages_source = read(SRC / "features" / "pages.tsx")
+    pages_source = read(SRC / "features" / "governance" / "GovernancePage.tsx")
 
     assert 'id="governance-filter"' in pages_source
     assert 'id="risk-status-filter"' in pages_source
@@ -266,7 +617,15 @@ def test_web_tooling_has_motion_and_visual_smoke_scripts() -> None:
     web_test_runner = ROOT / "scripts" / "run-web-tests.mjs"
     assert web_test_runner.exists()
     web_test_runner_source = read(web_test_runner)
-    assert "cleanup-playwright-webserver.mjs" in web_test_runner_source
+    assert "cleanup-playwright-webserver.mjs" not in web_test_runner_source
+    assert "await stopDashboardServer(dashboardProcess)" in web_test_runner_source
+    assert (
+        "processTreeCommand('stop', childProcess.pid, childProcess.aidoCreatedAt)" in web_test_runner_source
+    )
+    assert "local_control_center.quality.owned_tree" in web_test_runner_source
+    assert "childProcess.kill(" not in web_test_runner_source
+    assert "Stop-Process -Id" not in web_test_runner_source
+    assert "...selectedTestFiles" in web_test_runner_source
     assert "../node_modules/vite/bin/vite.js" in web_test_runner_source
     assert "../node_modules/@playwright/test/cli.js" in web_test_runner_source
     assert "'test'" in web_test_runner_source

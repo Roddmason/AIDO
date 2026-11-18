@@ -1,11 +1,11 @@
 /**
  * Home gallery card for a recent run, surfacing its title and live status so the
  * user can jump back into in-flight work. One of the four masonry card kinds.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ArrowRight, Workflow as WorkflowIcon } from 'lucide-react';
 
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { CardHead, HomeCard } from './HomeCardShell';

@@ -5,6 +5,13 @@ unknownCostPolicy:
   requireApprovalForUnknownCost: true
 
 modes:
+  free_tier:
+    objective: operator_declared_zero_cost_only
+    allowPaidFallback: false
+    requireExplicitFreeAccount: true
+    requireOperatorAttestation: true
+    sensitiveDataPolicy: local_only
+
   free_first:
     objective: minimize_paid_usage
     paidEscalationRequiresApproval: true
@@ -54,13 +61,16 @@ roles:
     maxCostPerTaskUsd: 0.10
 
   product_owner:
-    mode: balanced_best_value
+    mode: free_tier
     preferred:
-      - provider: nvidia_nim
-        model: auto_best_available
-      - provider: openai_compatible
-        model: configured_model
-    maxCostPerTaskUsd: 0.75
+      - provider: gemini
+        model: gemini-3.5-flash
+      - provider: gemini
+        model: gemini-3.1-flash-lite
+    fallback:
+      - provider: ollama
+        model: local_default
+    maxCostPerTaskUsd: 0
 
   technical_lead:
     mode: balanced_best_value

@@ -6,5 +6,5 @@ which role and runtime, on what assignment, why they are blocked, what artifact 
 delivered, who reviewed it, for how long and at what cost. This package only reads
 platform state; it never mutates it.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """

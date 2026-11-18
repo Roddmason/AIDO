@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ BACKLOG_TABLES = {
 
 
 def test_backlog_schema_adds_all_entities_as_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -40,7 +41,7 @@ def test_backlog_schema_adds_all_entities_as_tables(tmp_path: Path) -> None:
 
 
 def test_backlog_schema_is_idempotent(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         initialize_platform_schema(connection)
         phase17_rows = connection.execute(
@@ -51,7 +52,7 @@ def test_backlog_schema_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)
@@ -73,6 +74,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
                 "soThat": "I can buy faster",
                 "businessValue": "high",
                 "storyPoints": 5,
+                "acceptanceCriteria": ["Order completes without login."],
             }
         )
         # The story expresses USER VALUE and carries no technical role: it must not be split per role.
@@ -81,9 +83,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
         assert story["version"] == 1
 
         # Acceptance criteria are an ordered, story-scoped checklist.
-        first_ac = repo.create_acceptance_criterion(
-            {"projectId": project_id, "storyId": story["id"], "criterion": "Order completes without login."}
-        )
+        first_ac = repo.list_acceptance_criteria(story["id"])[0]
         second_ac = repo.create_acceptance_criterion(
             {"projectId": project_id, "storyId": story["id"], "criterion": "Email receipt is sent."}
         )
@@ -113,6 +113,34 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
         assert {task["storyId"] for task in story_tasks} == {story["id"]}
         assert len(repo.list_user_stories(epic_id=epic["id"])) == 1  # no HU duplicated per role
         assert len(repo.list_agent_tasks(project_id=project_id, role="backend")) == 1
+
+        with pytest.raises(ValueError, match="User stories must describe user value"):
+            repo.create_user_story(
+                {
+                    "projectId": project_id,
+                    "epicId": epic["id"],
+                    "title": "Backend story",
+                    "role": "backend_engineer",
+                    "acceptanceCriteria": ["A technical role is rejected."],
+                }
+            )
+        with pytest.raises(ValueError, match="requires at least one acceptance criterion"):
+            repo.create_user_story(
+                {
+                    "projectId": project_id,
+                    "epicId": epic["id"],
+                    "title": "Underspecified story",
+                }
+            )
+        with pytest.raises(KeyError, match="User story not found"):
+            repo.create_agent_task(
+                {
+                    "projectId": project_id,
+                    "storyId": "user-story-missing",
+                    "title": "Orphan task",
+                    "role": "backend_engineer",
+                }
+            )
 
         # Agent tasks are versionable work items.
         assert repo.update_agent_task(tasks[0]["id"], {"status": "in_progress"})["version"] == 2
@@ -156,7 +184,12 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
 
         # Story dependency graph + project scoping.
         sibling = repo.create_user_story(
-            {"projectId": project_id, "epicId": epic["id"], "title": "Saved payment methods"}
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Saved payment methods",
+                "acceptanceCriteria": ["Saved payment methods are visible to returning shoppers."],
+            }
         )
         repo.create_story_dependency(
             {"projectId": project_id, "storyId": sibling["id"], "dependsOnStoryId": story["id"]}
@@ -177,7 +210,7 @@ def test_user_story_is_role_agnostic_and_work_decomposes_into_agent_tasks(tmp_pa
 def test_agent_assignment_creates_structured_artifact_handoff_and_review_contract(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)
@@ -186,7 +219,14 @@ def test_agent_assignment_creates_structured_artifact_handoff_and_review_contrac
         project = projects.create_project(name="Collab", path=tmp_path / "collab", template_id="other")
         project_id = project["id"]
         epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
-        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
         task = repo.create_agent_task(
             {
                 "projectId": project_id,
@@ -252,10 +292,76 @@ def test_agent_assignment_creates_structured_artifact_handoff_and_review_contrac
             )
 
 
+def test_list_agent_assignment_summaries_omits_metadata_but_keeps_the_rest(tmp_path: Path) -> None:
+    """El resumen (usado por el agregado del product loop) no trae ``metadata`` —puede pesar cientos
+    de KB: el snapshot de decisión de recursos, medido hasta ~554 KB por asignación en producción—,
+    pero conserva el resto de las columnas de ``list_agent_assignments``."""
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
+        initialize_platform_schema(connection)
+        projects = ProjectsRepository(connection)
+        repo = BacklogRepository(connection)
+
+        project = projects.create_project(name="Summary", path=tmp_path / "summary", template_id="other")
+        project_id = project["id"]
+        epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
+        task = repo.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "Backend work",
+                "role": "backend_engineer",
+            }
+        )
+        full = repo.create_agent_assignment(
+            {
+                "projectId": project_id,
+                "taskId": task["id"],
+                "agentId": "agent-backend",
+                "role": "backend_engineer",
+                "assignedBy": "iteration_planner",
+                "metadata": {"resourceDecision": {"rejected": list(range(500))}},
+            }
+        )
+        assert full["metadata"]["resourceDecision"]["rejected"] == list(range(500))
+
+        summaries = repo.list_agent_assignment_summaries(project_id=project_id)
+
+        assert len(summaries) == 1
+        summary = summaries[0]
+        assert summary["metadata"] == {}
+        for key in (
+            "id",
+            "projectId",
+            "taskId",
+            "agentId",
+            "role",
+            "status",
+            "assignedBy",
+            "assignedAt",
+            "releasedAt",
+            "inputSchema",
+            "outputSchema",
+            "canonicalArtifactId",
+            "handoffId",
+            "reviewRequired",
+            "createdAt",
+            "updatedAt",
+        ):
+            assert summary[key] == full[key]
+
+
 def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_resolved(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         projects = ProjectsRepository(connection)
         repo = BacklogRepository(connection)
@@ -263,7 +369,14 @@ def test_downstream_assignment_cannot_begin_until_upstream_collaboration_is_reso
         project = projects.create_project(name="Gate", path=tmp_path / "gate", template_id="other")
         project_id = project["id"]
         epic = repo.create_epic({"projectId": project_id, "title": "Checkout"})
-        story = repo.create_user_story({"projectId": project_id, "epicId": epic["id"], "title": "Pay"})
+        story = repo.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Pay",
+                "acceptanceCriteria": ["The payment flow can be completed."],
+            }
+        )
         backend_task = repo.create_agent_task(
             {
                 "projectId": project_id,

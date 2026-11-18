@@ -9,16 +9,19 @@
  * Owns the panes' collapse state, the activity-rail / header toggles and the
  * Ctrl/Cmd+B (explorer), Ctrl/Cmd+Shift+B (inspector) and Ctrl/Cmd+J (bottom dock)
  * shortcuts. Everything else (routing, data, selection) arrives via props.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutStorage } from 'react-resizable-panels';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 
 import type { Overview, Project, RuntimeProviders } from '../api/types';
 import { ShellSidebar } from '../features/shell/ShellSidebar';
+import { ShellInspectorContext } from '../features/shell/useShellInspector';
+import { ThreadRefreshContext } from '../features/shell/useThreadRefresh';
+import { NEW_SESSION_ID } from '../features/workbench/useWorkbenchData';
 import type { WorkspaceMode } from '../features/workspace/useProjectDiscovery';
 import { useIsDesktopLayout } from '../hooks/useIsDesktopLayout';
 import { BottomPanel } from './BottomPanel';
@@ -82,6 +85,7 @@ export function AppShell({
 	onOpenEvents,
 	onRefresh,
 	onOpenSettings,
+	onOpenRuntimeHealth,
 	children,
 }: {
 	area: AreaId;
@@ -111,9 +115,24 @@ export function AppShell({
 	onRefresh: () => void;
 	/** Opens the Settings modal at an optional section. */
 	onOpenSettings: (section?: string) => void;
+	/** Opens the AI-health modal listing runtimes that need attention. */
+	onOpenRuntimeHealth: () => void;
 	children: ReactNode;
 }) {
 	const isDesktop = useIsDesktopLayout();
+	const [threadRefresh, setThreadRefresh] = useState<{ threadId: string | null; revision: number }>(
+		{
+			threadId: null,
+			revision: 0,
+		},
+	);
+	const invalidateThread = useCallback((threadId: string) => {
+		setThreadRefresh((current) => ({ threadId, revision: current.revision + 1 }));
+	}, []);
+	const threadRefreshContext = useMemo(
+		() => ({ ...threadRefresh, invalidate: invalidateThread }),
+		[threadRefresh, invalidateThread],
+	);
 
 	const explorerPanelRef = usePanelRef();
 	const inspectorPanelRef = usePanelRef();
@@ -168,9 +187,27 @@ export function AppShell({
 		}
 	}, [inspectorPanelRef]);
 
+	const collapseInspector = useCallback(() => {
+		if (!isDesktop) return;
+		const handle = inspectorPanelRef.current;
+		if (handle) {
+			if (!handle.isCollapsed()) handle.collapse();
+		} else {
+			setInspectorCollapsed(true);
+		}
+	}, [inspectorPanelRef, isDesktop]);
+	const shellInspectorContext = useMemo(() => ({ collapseInspector }), [collapseInspector]);
+
 	useEffect(() => {
 		if (selectedRunId) expandInspector();
 	}, [selectedRunId, expandInspector]);
+
+	useEffect(() => {
+		if (!isDesktop) return;
+		if (area === 'threads' && selectedSessionId && selectedSessionId !== NEW_SESSION_ID) {
+			expandInspector();
+		}
+	}, [area, isDesktop, selectedSessionId, expandInspector]);
 
 	const toggleBottom = useCallback(() => {
 		const handle = bottomPanelRef.current;
@@ -213,6 +250,7 @@ export function AppShell({
 			overview={overview}
 			selectedProjectId={selectedProject?.id ?? ''}
 			selectedSessionId={selectedSessionId}
+			mutate={mutate}
 			onSelectProject={onSelectProject}
 			onSelectSession={(sessionId) => {
 				onSelectSession(sessionId);
@@ -224,27 +262,49 @@ export function AppShell({
 	);
 
 	const workbench = (
-		<main className="workbench main-area">
-			<section className="content-frame" aria-live="polite">
-				{children}
+		<main className="workbench main-area" id="main-content" tabIndex={-1}>
+			<section
+				className={area === 'threads' ? 'content-frame content-frame--full-bleed' : 'content-frame'}
+			>
+				<ThreadRefreshContext.Provider value={threadRefreshContext}>
+					<ShellInspectorContext.Provider value={shellInspectorContext}>
+						{children}
+					</ShellInspectorContext.Provider>
+				</ThreadRefreshContext.Provider>
 			</section>
 		</main>
 	);
 
 	const inspector = (
-		<InspectorPanel
-			overview={overview}
-			selectedProject={selectedProject}
-			selectedRunId={selectedRunId}
-			token={token}
-			mutate={mutate}
-			onClose={toggleInspector}
-			onClearRun={onClearRun}
-			showLoops={area === 'threads'}
-		/>
+		<ThreadRefreshContext.Provider value={threadRefreshContext}>
+			<InspectorPanel
+				overview={overview}
+				selectedProject={selectedProject}
+				selectedRunId={selectedRunId}
+				token={token}
+				mutate={mutate}
+				onClose={toggleInspector}
+				onClearRun={onClearRun}
+				onOpenSettings={onOpenSettings}
+				showLoops={area === 'threads'}
+				selectedThreadId={selectedSessionId}
+			/>
+		</ThreadRefreshContext.Provider>
 	);
 
-	const bottomDock = <BottomPanel onClose={toggleBottom} />;
+	const bottomDock = (
+		<BottomPanel
+			onClose={toggleBottom}
+			collapsed={bottomCollapsed}
+			threadId={
+				area === 'threads' && selectedSessionId && selectedSessionId !== NEW_SESSION_ID
+					? selectedSessionId
+					: null
+			}
+			projectId={selectedProject?.id ?? null}
+			overview={overview}
+		/>
+	);
 
 	const statusBar = (
 		<StatusBar
@@ -255,8 +315,16 @@ export function AppShell({
 			language={language}
 			languages={languages}
 			onChangeLanguage={onChangeLanguage}
+			onOpenRuntimeHealth={onOpenRuntimeHealth}
+			token={token}
 			t={t}
 		/>
+	);
+
+	const skipLink = (
+		<a className="skip-link" href="#main-content">
+			{t('ui.static.skip.to.main.content.be504f61', 'Skip to main content')}
+		</a>
 	);
 
 	const menuBar = (
@@ -277,6 +345,7 @@ export function AppShell({
 	if (!isDesktop) {
 		return (
 			<div className="app-shell-ide app-shell-ide--stacked">
+				{skipLink}
 				{menuBar}
 				{explorerCollapsed ? null : explorer}
 				{workbench}
@@ -289,6 +358,7 @@ export function AppShell({
 
 	return (
 		<div className="app-shell-ide">
+			{skipLink}
 			{menuBar}
 			<div className="ide-body">
 				<Group

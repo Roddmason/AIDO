@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,13 @@ from starlette.requests import ClientDisconnect
 from local_control_center.app import create_app
 from local_control_center.security_policy.api import read_json_body
 from tests_py.control_plane_fixture import ControlPlaneFixture
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -30,11 +38,15 @@ def test_security_policy_json_reader_handles_client_disconnect() -> None:
     assert error.value.detail == "Client disconnected while sending request body."
 
 
-def test_sandbox_profile_edit_is_validated_and_audited(tmp_path: Path, monkeypatch) -> None:
+def test_sandbox_profile_edit_is_validated_and_audited(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.patch(
@@ -61,11 +73,15 @@ def test_sandbox_profile_edit_is_validated_and_audited(tmp_path: Path, monkeypat
     assert any(event["action"] == "sandbox.profile.update" for event in store.events.list_audit_events())
 
 
-def test_sandbox_profile_edit_records_policy_revision_diff(tmp_path: Path, monkeypatch) -> None:
+def test_sandbox_profile_edit_records_policy_revision_diff(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     response = client.patch(
@@ -98,11 +114,15 @@ def test_sandbox_profile_edit_records_policy_revision_diff(tmp_path: Path, monke
     assert any(item["id"] == revision["id"] for item in overview["policyRevisions"])
 
 
-def test_sandbox_profile_edit_rejects_network_escape_and_missing_reason(tmp_path: Path, monkeypatch) -> None:
+def test_sandbox_profile_edit_rejects_network_escape_and_missing_reason(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
-    client = TestClient(create_app(runtime=store, static_dir=None))
+    client = owned_runtime_resources.enter_context(TestClient(create_app(runtime=store, static_dir=None)))
     headers = auth_headers(client)
 
     missing_reason = client.patch(

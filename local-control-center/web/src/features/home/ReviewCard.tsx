@@ -1,11 +1,11 @@
 /**
  * Home gallery card for a review awaiting a human decision, with risk-driven
  * badge tone so urgency reads at a glance. One of the four masonry card kinds.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ArrowRight, ClipboardCheck } from 'lucide-react';
 
-import { Badge } from '../../components/primitives';
+import { StatusChip as Badge } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { CardHead, HomeCard } from './HomeCardShell';
 import type { HomeReview } from './homeModel';
@@ -36,7 +36,7 @@ export function ReviewCard({ request, onOpen }: { request: HomeReview; onOpen: (
 				badge={<Badge tone={riskTone(request.riskLevel)}>{request.riskLevel}</Badge>}
 			/>
 			<span className="home-card-title">{t('app.home.reviewNeeded', 'Pending review')}</span>
-			<span className="home-card-meta">
+			<span className="home-card-names">
 				<span className="home-chip mono">{request.actionType}</span>
 			</span>
 			{request.command ? <span className="home-card-path mono">{request.command}</span> : null}

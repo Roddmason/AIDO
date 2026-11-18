@@ -1,9 +1,9 @@
 /**
  * Typed route table: maps every {@link AppRoute} to a render function plus an optional
- * chunk-preload hook. Heavy feature pages are declared with `React.lazy` at module scope
- * (never inside a component) so each becomes its own build chunk; Home, the projects views
- * and the shell stay eager. `preloadRoute` warms a lazy chunk on intent (Go-menu item hover).
- * @author Rodrigo Mason
+ * chunk-preload hook. Most heavy feature pages are declared with `React.lazy` at module scope
+ * (never inside a component) so each becomes its own build chunk; Home and the projects views
+ * stay eager. `preloadRoute` warms a lazy chunk on intent.
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 import { lazy } from 'react';
@@ -41,12 +41,14 @@ const ModelGatewayPage = lazy(() =>
 const importAgents = () => import('../features/agents/AgentsPage');
 const AgentsPage = lazy(() => importAgents().then((m) => ({ default: m.AgentsPage })));
 
-const importPages = () => import('../features/pages');
-const EvidencePage = lazy(() => importPages().then((m) => ({ default: m.EvidencePage })));
-const GovernancePage = lazy(() => importPages().then((m) => ({ default: m.GovernancePage })));
+const importPolicy = () => import('../features/policy/PolicySecurityPage');
 const PolicySecurityPage = lazy(() =>
-	importPages().then((m) => ({ default: m.PolicySecurityPage })),
+	importPolicy().then((m) => ({ default: m.PolicySecurityPage })),
 );
+const importEvidence = () => import('../features/evidence/EvidencePage');
+const EvidencePage = lazy(() => importEvidence().then((m) => ({ default: m.EvidencePage })));
+const importGovernance = () => import('../features/governance/GovernancePage');
+const GovernancePage = lazy(() => importGovernance().then((m) => ({ default: m.GovernancePage })));
 
 const importIntegrations = () => import('../features/integrations/IntegrationsPage');
 const IntegrationsPage = lazy(() =>
@@ -97,7 +99,7 @@ interface RouteEntry {
 }
 
 /** The single source of truth mapping each route to its (possibly lazy) page. */
-export const routeTable: Record<AppRoute, RouteEntry> = {
+const routeTable: Record<AppRoute, RouteEntry> = {
 	threads: {
 		render: (ctx) => <ShellPage ctx={ctx} />,
 		preload: importShell,
@@ -115,8 +117,8 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onOpenWorkbench={() => ctx.navigateTo('workbench')}
 				onOpenProjects={() => ctx.navigateTo('projects')}
 				onOpenReview={() => ctx.navigateTo('review-board')}
-				onOpenRuns={() => ctx.navigateTo('workflows')}
-				onOpenRuntimes={() => ctx.navigateTo('models')}
+				onOpenRuns={() => ctx.openSettings('advanced')}
+				onOpenRuntimes={() => ctx.openSettings('providers-cli')}
 			/>
 		),
 	},
@@ -133,7 +135,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 				onOpenJobs={() => ctx.navigateTo('review-board')}
 				onOpenEvidence={() => ctx.navigateTo('evidence')}
-				onOpenSettings={() => ctx.openSettings('project')}
+				onOpenSettings={() => ctx.openSettings('goal')}
 				onOpenRuntimeSetup={() => ctx.openSettings('providers-cli')}
 				onRefresh={() => ctx.refresh(true)}
 			/>
@@ -146,7 +148,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				overview={ctx.overview}
 				selectedProject={ctx.selectedProject}
 				onSelectProject={ctx.onSelectProject}
-				onOpenSettings={() => ctx.openSettings('project')}
+				onOpenSettings={() => ctx.openSettings('goal')}
 				onCreateProject={() => ctx.openWorkspaceDialog('open_folder')}
 			/>
 		),
@@ -177,20 +179,26 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 		preload: importAgents,
 	},
 	workspaces: {
-		render: (ctx) => <WorkspacesPage overview={ctx.overview} />,
+		render: (ctx) => <WorkspacesPage overview={ctx.overview} mutate={ctx.mutate} />,
 		preload: importWorkspaces,
 	},
 	policy: {
 		render: (ctx) => <PolicySecurityPage overview={ctx.overview} mutate={ctx.mutate} />,
-		preload: importPages,
+		preload: importPolicy,
 	},
 	memory: {
-		render: (ctx) => <MemoryPage overview={ctx.overview} retrievalStatus={ctx.retrievalStatus} />,
+		render: (ctx) => (
+			<MemoryPage
+				overview={ctx.overview}
+				retrievalStatus={ctx.retrievalStatus}
+				selectedProject={ctx.selectedProject}
+			/>
+		),
 		preload: importMemory,
 	},
 	evidence: {
 		render: (ctx) => <EvidencePage overview={ctx.overview} token={ctx.token} />,
-		preload: importPages,
+		preload: importEvidence,
 	},
 	models: {
 		render: (ctx) => (
@@ -211,7 +219,7 @@ export const routeTable: Record<AppRoute, RouteEntry> = {
 				mutate={ctx.mutate}
 			/>
 		),
-		preload: importPages,
+		preload: importGovernance,
 	},
 	assessment: {
 		render: (ctx) => (

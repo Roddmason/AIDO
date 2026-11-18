@@ -1,7 +1,7 @@
 /**
  * Danger-toned failure block (sibling of {@link EmptyState}) for failed loads or actions.
  * Renders as an `alert` so assistive tech announces it; pass a retry affordance via `action`.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { ReactNode } from 'react';
 

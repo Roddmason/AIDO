@@ -1,7 +1,7 @@
 /**
  * Single-select segmented control (WAI-ARIA radiogroup): one option is checked at a time,
  * with roving-tabindex Arrow/Home/End navigation. Generic over the option value type.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { KeyboardEvent, ReactNode } from 'react';
@@ -69,6 +69,7 @@ export function SegmentedControl<T extends string>({
 			{options.map((option) => {
 				const checked = option.value === value;
 				return (
+					// biome-ignore lint/a11y/useSemanticElements: WAI-ARIA radiogroup pattern needs button children for ReactNode labels (input is void) and aria-checked styling; roving tabindex keyboard nav is custom
 					<button
 						key={option.value}
 						ref={(node) => {

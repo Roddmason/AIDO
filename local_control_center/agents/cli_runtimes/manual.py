@@ -3,7 +3,7 @@
 Sirve como adaptador de respaldo cuando el trabajo lo realiza una persona; valida el workspace
 y los flags como el resto, pero su run no invoca el sandbox: solo deja constancia de la sesión.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ que el motor de politicas consume para decidir. Invariante: cualquier patron cri
 (borrado destructivo, force-push, deploy a prod, escalada de privilegios, escritura de
 secretos) gana sobre el resto y fuerza riskLevel critical; no ejecuta nada, solo etiqueta.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -15,17 +15,30 @@ from typing import Any
 
 from .permissions import (
     low_risk_shell_category,
+    node_script_category,
     package_manager_category,
     parse_command,
-    pnpm_script_category,
 )
+
+MAX_CLASSIFIED_COMMAND_CHARS = 8192
+"""Tope de longitud: por encima, el comando no se analiza con regex y se trata como crítico."""
 
 CRITICAL_RULES: list[tuple[str, re.Pattern[str]]] = [
     (
         "destructive_delete",
-        re.compile(r"\b(rm\s+-rf|Remove-Item\b.*(?<!\S)-Recurse\b.*(?<!\S)-Force\b)", re.I),
+        re.compile(
+            r"\b(rm\b(?=[^|;&\n]*\s-(?:[a-z]*r[a-z]*|-recursive)\b)(?=[^|;&\n]*\s-(?:[a-z]*f[a-z]*|-force)\b)"
+            r"|Remove-Item\b.*(?<!\S)-Recurse\b.*(?<!\S)-Force\b)",
+            re.I,
+        ),
     ),
-    ("force_push", re.compile(r"\bgit\s+push\b.*\b--force\b", re.I)),
+    (
+        "force_push",
+        re.compile(
+            r"\bgit\s+push\b[^|;&\n]*(?<!\S)(?:--force(?:-with-lease|-if-includes)?(?:=\S*)?|-[a-z]*f[a-z]*|\+\S+)(?!\S)",
+            re.I,
+        ),
+    ),
     ("prod_deploy", re.compile(r"\b(deploy|release)\b.*\b(prod|production)\b", re.I)),
     ("privilege_escalation", re.compile(r"\b(sudo|Start-Process\b.*\b-Verb\s+RunAs|runas)\b", re.I)),
     (
@@ -49,6 +62,8 @@ def classify_command(command: str | None) -> dict[str, Any]:
     categorias de bajo riesgo; un comando vacio es ``low``/``none`` y uno opaco es ``medium``.
     """
     text = command or ""
+    if len(text) > MAX_CLASSIFIED_COMMAND_CHARS:
+        return {"riskLevel": "critical", "categories": ["oversized_command"]}
     categories: list[str] = []
     for name, pattern in CRITICAL_RULES:
         if pattern.search(text):
@@ -60,9 +75,9 @@ def classify_command(command: str | None) -> dict[str, Any]:
         package_category = package_manager_category(parsed)
         if package_category:
             categories.append(package_category)
-        pnpm_category = pnpm_script_category(parsed)
-        if pnpm_category in {"package_script_hook", "package_script"}:
-            categories.append(pnpm_category)
+        node_category = node_script_category(parsed)
+        if node_category in {"package_script_hook", "package_script"}:
+            categories.append(node_category)
         if categories:
             return {"riskLevel": "medium", "categories": categories}
     for name, pattern in MEDIUM_RULES:

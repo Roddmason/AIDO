@@ -5,7 +5,7 @@ mutaciones usan la `connection` recibida del caller y NO hacen commit: el caller
 transacción (típicamente un INSERT de paquete + sus test_results + su qa_verdict deben confirmarse
 o revertirse juntos). Toda entrada se pasa por `redact_secrets` antes de serializarse a JSON.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -17,6 +17,42 @@ from typing import Any
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps, json_loads
 from local_control_center.shared.time import utc_now
+
+IMMUTABLE_EVIDENCE_JSON_COLUMNS = {
+    "test_results": "testResults",
+    "logs": "logs",
+    "diff_refs": "diffRefs",
+    "screenshot_refs": "screenshotRefs",
+}
+"""Columnas JSON de ``evidence_packages`` que se escriben al crear el paquete y nunca se actualizan."""
+
+_EVIDENCE_HEAD_COLUMNS = (
+    "id",
+    "project_id",
+    "workflow_run_id",
+    "workflow_step_id",
+    "agent_id",
+    "agent_run_id",
+    "job_id",
+    "workspace_id",
+    "runtime_id",
+    "task_id",
+    "test_plan",
+    "acceptance_checklist",
+    "risk_notes",
+    "artifact_ids",
+    "diff_summary",
+    "runtime_health",
+    "model_calls",
+    "tool_calls",
+    "policy_decisions",
+    "approvals",
+    "artifact_refs",
+    "hashes",
+    "evidence_source",
+    "qa_verdict",
+    "created_at",
+)
 
 
 def _redact_diff_refs(diff_refs: list[Any]) -> list[Any]:
@@ -266,6 +302,7 @@ class EvidenceRepository:
         artifacts: list[dict[str, Any]] | None = None,
         hashes: dict[str, str] | None = None,
         qa_verdict: str | None = None,
+        evidence_source: str | None = None,
         risk_notes: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Aplica un UPDATE parcial sobre un paquete: los argumentos None conservan el valor actual.
@@ -289,13 +326,14 @@ class EvidenceRepository:
         next_artifacts = artifacts if artifacts is not None else current.get("artifacts", [])
         next_hashes = hashes if hashes is not None else current.get("hashes", {})
         next_qa_verdict = qa_verdict if qa_verdict is not None else current.get("qaVerdict", "not_started")
+        next_evidence_source = evidence_source if evidence_source is not None else current["evidenceSource"]
         next_risk_notes = risk_notes if risk_notes is not None else current.get("riskNotes", [])
         self.connection.execute(
             """
             UPDATE evidence_packages
             SET agent_run_id = ?, artifact_ids = ?, diff_summary = ?, runtime_health = ?,
                 model_calls = ?, tool_calls = ?, policy_decisions = ?, approvals = ?,
-                artifact_refs = ?, hashes = ?, qa_verdict = ?, risk_notes = ?
+                artifact_refs = ?, hashes = ?, qa_verdict = ?, risk_notes = ?, evidence_source = ?
             WHERE id = ?
             """,
             (
@@ -317,6 +355,7 @@ class EvidenceRepository:
                 ),
                 next_qa_verdict,
                 json_dumps(redact_secrets(next_risk_notes or [])),
+                next_evidence_source,
                 evidence_id,
             ),
         )
@@ -374,9 +413,23 @@ class EvidenceRepository:
         ).fetchall()
         return [row_to_artifact(row) for row in rows]
 
-    def list_all_artifacts(self) -> list[dict[str, Any]]:
-        """Lista todos los artefactos del store, enlazados o no, en orden de creación."""
-        rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
+    def list_all_artifacts(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Lista todos los artefactos del store, enlazados o no, en orden de creación.
+
+        ``limit`` conserva los N más recientes manteniendo la presentación cronológica ASC.
+        """
+        if limit is None:
+            rows = self.connection.execute("SELECT * FROM artifacts ORDER BY created_at ASC").fetchall()
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM (
+                    SELECT *, rowid AS source_rowid FROM artifacts
+                    ORDER BY created_at DESC, rowid DESC LIMIT ?
+                ) ORDER BY created_at ASC, source_rowid ASC
+                """,
+                (limit,),
+            ).fetchall()
         return [row_to_artifact(row) for row in rows]
 
     def list_expired_referenced_artifacts(self, *, now_iso: str) -> list[dict[str, Any]]:
@@ -420,6 +473,32 @@ class EvidenceRepository:
             raise KeyError(f"Artifact not found: {artifact_id}")
         return row_to_artifact(row)
 
+    def get_artifacts_by_ids(self, artifact_ids: list[str]) -> list[dict[str, Any]]:
+        """Resuelve un lote de ids en un solo SELECT, omitiendo inexistentes.
+
+        Devuelve los artefactos en el orden ``sorted(set(ids))`` (mismo contrato que resolver
+        los ids uno a uno tras deduplicar).
+        """
+        ordered_ids = sorted({str(item) for item in artifact_ids if item})
+        if not ordered_ids:
+            return []
+        placeholders = ", ".join("?" for _ in ordered_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM artifacts WHERE id IN ({placeholders})", ordered_ids
+        ).fetchall()
+        by_id = {row["id"]: row_to_artifact(row) for row in rows}
+        return [by_id[artifact_id] for artifact_id in ordered_ids if artifact_id in by_id]
+
+    def get_project_artifact(self, *, project_id: str, artifact_id: str) -> dict[str, Any]:
+        """Read one artifact only when both its id and owning project match."""
+        row = self.connection.execute(
+            "SELECT * FROM artifacts WHERE id = ? AND project_id = ?",
+            (artifact_id, project_id),
+        ).fetchone()
+        if not row:
+            raise KeyError(f"Artifact not found for project: {artifact_id}")
+        return row_to_artifact(row)
+
     def update_artifact_metadata(self, *, artifact_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
         """Reemplaza la metadata de un artefacto (redactada) y devuelve la fila actualizada."""
         self.connection.execute(
@@ -435,29 +514,94 @@ class EvidenceRepository:
             (evidence_package_id, artifact_id),
         )
 
-    def list_all_test_results(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista resultados de test (todos o de un proyecto) del más reciente al más antiguo."""
+    def list_all_test_results(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista resultados de test (todos o de un proyecto) del más reciente al más antiguo.
+
+        ``limit`` acota el resultado a los N más recientes (para snapshots como el overview).
+        """
+        suffix = " LIMIT ?" if limit is not None else ""
         if project_id:
             rows = self.connection.execute(
-                "SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM test_results WHERE project_id = ? ORDER BY created_at DESC{suffix}",
+                (project_id, limit) if limit is not None else (project_id,),
             ).fetchall()
         else:
-            rows = self.connection.execute("SELECT * FROM test_results ORDER BY created_at DESC").fetchall()
+            rows = self.connection.execute(
+                f"SELECT * FROM test_results ORDER BY created_at DESC{suffix}",
+                (limit,) if limit is not None else (),
+            ).fetchall()
         return [row_to_test_result(row) for row in rows]
 
-    def list_evidence_packages(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Lista paquetes de evidencia (todos o de un proyecto) del más reciente al más antiguo."""
+    def list_evidence_packages(
+        self, project_id: str | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Lista paquetes de evidencia (todos o de un proyecto) del más reciente al más antiguo.
+
+        ``limit`` acota el resultado a los N más recientes (para snapshots como el overview).
+        """
+        suffix = " LIMIT ?" if limit is not None else ""
         if project_id:
             rows = self.connection.execute(
-                "SELECT * FROM evidence_packages WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,),
+                f"SELECT * FROM evidence_packages WHERE project_id = ? ORDER BY created_at DESC{suffix}",
+                (project_id, limit) if limit is not None else (project_id,),
             ).fetchall()
         else:
             rows = self.connection.execute(
-                "SELECT * FROM evidence_packages ORDER BY created_at DESC"
+                f"SELECT * FROM evidence_packages ORDER BY created_at DESC{suffix}",
+                (limit,) if limit is not None else (),
             ).fetchall()
         return [row_to_evidence_package(row) for row in rows]
+
+    def list_evidence_package_heads(self, *, limit: int) -> list[dict[str, Any]]:
+        """Lista los N paquetes más recientes sin leer sus columnas JSON inmutables y pesadas.
+
+        Esas columnas vuelven como listas vacías; quien las necesite las pide por id con
+        ``immutable_evidence_fields``. El orden es el mismo de ``list_evidence_packages``.
+        """
+        placeholders = ", ".join(f"'[]' AS {column}" for column in IMMUTABLE_EVIDENCE_JSON_COLUMNS)
+        rows = self.connection.execute(
+            f"SELECT {', '.join(_EVIDENCE_HEAD_COLUMNS)}, {placeholders} "
+            "FROM evidence_packages ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row_to_evidence_package(row) for row in rows]
+
+    def immutable_evidence_fields(self, package_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Decodifica las columnas inmutables de los paquetes pedidos, indexadas por id."""
+        if not package_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in package_ids)
+        columns = ", ".join(IMMUTABLE_EVIDENCE_JSON_COLUMNS)
+        rows = self.connection.execute(
+            f"SELECT id, {columns} FROM evidence_packages WHERE id IN ({placeholders})",
+            tuple(package_ids),
+        ).fetchall()
+        return {
+            row["id"]: {
+                field: json_loads(row[column], [])
+                for column, field in IMMUTABLE_EVIDENCE_JSON_COLUMNS.items()
+            }
+            for row in rows
+        }
+
+    def list_test_result_ids(self, *, limit: int) -> list[str]:
+        """Ids de los N resultados de test más recientes; sus filas no se modifican tras insertarse."""
+        rows = self.connection.execute(
+            "SELECT id FROM test_results ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    def load_test_results(self, result_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Decodifica los resultados de test pedidos, indexados por id."""
+        if not result_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in result_ids)
+        rows = self.connection.execute(
+            f"SELECT * FROM test_results WHERE id IN ({placeholders})", tuple(result_ids)
+        ).fetchall()
+        return {row["id"]: row_to_test_result(row) for row in rows}
 
     def list_evidence_for_workflow_runs(self, workflow_run_ids: list[str]) -> list[dict[str, Any]]:
         """Lista los paquetes asociados a un conjunto de workflow runs; vacío si no se pide ninguno."""

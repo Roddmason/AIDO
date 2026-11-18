@@ -2,9 +2,9 @@
  * One presentational lane of the review board — header, live count, and a stack
  * of cards or an empty state. Stateless: the page passes the grouped items and
  * the localized copy, and the column just renders and forwards open callbacks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
-import { Badge, EmptyState, StatusDot } from '../../components/primitives';
+import { StatusChip as Badge, EmptyState, StatusDot } from '../../components/ui';
 import type { ReviewColumn as ReviewColumnId, ReviewItem } from './model';
 import { COLUMN_TONE } from './model';
 import { ReviewCard } from './ReviewCard';
@@ -37,21 +37,20 @@ export function ReviewColumn({
 			className="review-column"
 			data-focal={column === 'needs_review' ? 'true' : undefined}
 			data-motion-item
-			role="group"
 			aria-labelledby={headerId}
 		>
 			<header className="review-column-header">
 				<StatusDot tone={COLUMN_TONE[column]} />
-				<span id={headerId} className="review-column-title">
+				<h2 id={headerId} className="review-column-title">
 					{meta.title}
-				</span>
+				</h2>
 				<span className="review-column-count">
 					<Badge tone={items.length ? COLUMN_TONE[column] : undefined}>{items.length}</Badge>
 				</span>
 			</header>
 			<div className="review-column-scroll">
 				{items.length === 0 ? (
-					<EmptyState title={meta.emptyTitle} body={meta.emptyBody} />
+					<EmptyState variant="compact" title={meta.emptyTitle} body={meta.emptyBody} />
 				) : (
 					items.map((item) => (
 						<ReviewCard

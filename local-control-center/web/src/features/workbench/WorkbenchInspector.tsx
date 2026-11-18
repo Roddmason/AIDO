@@ -1,12 +1,18 @@
 /**
  * Right rail of the Workbench: surfaces the at-a-glance governance state of the active workspace —
  * runtime health, pending approvals, QA verdict and recorded blockers — with deep-link buttons.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { ClipboardCheck, FileCheck2, SlidersHorizontal } from 'lucide-react';
 
 import type { Overview, RuntimeProviderConfiguration, RuntimeProviders } from '../../api/types';
-import { Badge, DataTable, EmptyState, StatusDot, Surface } from '../../components/primitives';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	StatusDot,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { toneForStatus } from '../../lib/format';
 import { RuntimeSetupInspectorCard } from '../runtime-setup/RuntimeSetupInspectorCard';
@@ -38,7 +44,7 @@ export function WorkbenchInspector({
 	onOpenEvidence: () => void;
 	onOpenSettings: () => void;
 	onOpenRuntimeSetup: () => void;
-	onRefresh: () => Promise<unknown> | void;
+	onRefresh: () => Promise<unknown> | undefined;
 }) {
 	const { t } = useI18n();
 	const passedTests = testResults.filter((result) => result.status === 'passed').length;

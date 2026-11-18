@@ -3,7 +3,7 @@
  * Concentra la carga de estado del gateway (overview, catálogos, ledger, decisiones) y las acciones de
  * mutación (toggle/health de proveedores, preview de ruta, alta de políticas y outcomes); cada panel
  * recibe sus datos por props y notifica de vuelta vía callbacks.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -29,14 +29,24 @@ import type {
 	RuntimeProviders,
 } from '../../api/types';
 import { resolveHashRoute, splitHash } from '../../app/routing';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
-import { ErrorState, Tabs } from '../../components/ui';
+import {
+	StatusChip as Badge,
+	DataTable,
+	EmptyState,
+	ErrorState,
+	PageHeader,
+	Surface,
+	Tabs,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { sumRecordedCostUsd, toneForStatus } from '../../lib/format';
 import { BenchmarksPanel } from './BenchmarksPanel';
 import { BudgetsPanel } from './BudgetsPanel';
 import { CliSessionsPanel } from './CliSessionsPanel';
 import { ModelCatalogPanel } from './ModelCatalogPanel';
+import { NvidiaNimConfigurationPanel } from './NvidiaNimConfigurationPanel';
+import { NvidiaNimModelManifestPanel } from './NvidiaNimModelManifestPanel';
+import { ParallelAIExecutionPanel } from './ParallelAIExecutionPanel';
 import { ProviderAccountsPanel } from './ProviderAccountsPanel';
 import { ProviderLimitsPanel } from './ProviderLimitsPanel';
 import { RoleAssignmentsPanel } from './RoleAssignmentsPanel';
@@ -182,7 +192,13 @@ export function ModelGatewayPage({
 	);
 
 	useEffect(() => {
-		setRuntimeProviderState(runtimeProviders);
+		if (!runtimeProviders) return;
+		setRuntimeProviderState((current) => {
+			const incomingCount = runtimeProviders.providers?.length ?? 0;
+			const currentCount = current?.providers?.length ?? 0;
+			if (incomingCount === 0 && currentCount > 0) return current;
+			return runtimeProviders;
+		});
 	}, [runtimeProviders]);
 
 	const [activeTab, setActiveTab] = useState<ModelGatewayTab>(initialModelGatewayTab);
@@ -435,11 +451,11 @@ export function ModelGatewayPage({
 			);
 			return;
 		}
-		if (!Number.isInteger(tokenLimit) || tokenLimit < 512 || tokenLimit > 200000) {
+		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 2000000) {
 			setPolicyError(
 				t(
-					'ui.static.maximum.tokens.must.be.an.integer.between.512.and.200000.c965c1ae',
-					'Maximum tokens must be an integer between 512 and 200000.',
+					'ui.static.maximum.tokens.must.be.an.integer.between.0.and.2000000.35ef8fbb',
+					'Maximum tokens must be an integer between 0 and 2000000.',
 				),
 			);
 			return;
@@ -600,7 +616,7 @@ export function ModelGatewayPage({
 					/>
 					<Metric
 						label={t('ui.static.tokens.today.6e3f00fd', 'tokens today')}
-						value={gateway.overview.totalTokensToday}
+						value={gateway.overview.totalTokensToday ?? t('app.runtime.card.unknown', 'unknown')}
 					/>
 					<Metric
 						label={t('ui.static.estimated.cost.today.bc1751b9', 'estimated cost today')}
@@ -651,6 +667,11 @@ export function ModelGatewayPage({
 				) : null}
 				{activeTab === 'providers' ? (
 					<>
+						<NvidiaNimConfigurationPanel
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('providers')}
+						/>
 						<RuntimeProvidersPanel
 							runtimeRows={runtimeRows}
 							runtimeConfigurationById={runtimeConfigurationById}
@@ -695,9 +716,24 @@ export function ModelGatewayPage({
 						</Surface>
 					</>
 				) : null}
-				{activeTab === 'catalog' ? <ModelCatalogPanel models={gateway.models} /> : null}
+				{activeTab === 'catalog' ? (
+					<>
+						<NvidiaNimModelManifestPanel
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('catalog')}
+						/>
+						<ModelCatalogPanel models={gateway.models} />
+					</>
+				) : null}
 				{activeTab === 'routing' ? (
 					<>
+						<ParallelAIExecutionPanel
+							projects={overview.projects}
+							providers={gateway.providers}
+							models={gateway.models}
+							token={token}
+						/>
 						<RoutePreviewPanel
 							form={{
 								role: previewRole,
@@ -846,8 +882,8 @@ export function ModelGatewayPage({
 											id="max-tokens"
 											className="input"
 											type="number"
-											min="512"
-											max="200000"
+											min="0"
+											max="2000000"
 											step="1"
 											value={policyMaxTokens}
 											onChange={(event) => setPolicyMaxTokens(event.target.value)}
@@ -928,7 +964,12 @@ export function ModelGatewayPage({
 				{activeTab === 'budgets' ? (
 					<>
 						<BudgetsPanel budgetRules={gateway.budgetRules} />
-						<ProviderLimitsPanel providerLimits={gateway.providerLimits} />
+						<ProviderLimitsPanel
+							providerLimits={gateway.providerLimits}
+							providers={gateway.providers}
+							token={token}
+							onSaved={() => tabs.refresh('budgets')}
+						/>
 					</>
 				) : null}
 				{activeTab === 'usage' ? (

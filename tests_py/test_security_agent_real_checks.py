@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
+from local_control_center.agents.security_agent_contract import security_agent_status
 from local_control_center.app import create_app
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -18,15 +20,23 @@ def auth_headers(client: TestClient) -> dict[str, str]:
     return {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
 
-def create_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
-    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
-    store.init()
-    app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
-    return store, client, auth_headers(client)
+@pytest.fixture
+def create_client():
+    with ExitStack() as _owned_fixture_resources:
+
+        def create_owned(
+            tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        ) -> tuple[ControlPlaneFixture, TestClient, dict[str, str]]:
+            monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+            store = _owned_fixture_resources.enter_context(
+                closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+            )
+            store.init()
+            app = create_app(runtime=store, static_dir=None)
+            client = _owned_fixture_resources.enter_context(TestClient(app))
+            return store, client, auth_headers(client)
+
+        yield create_owned
 
 
 def create_project_and_workspace(
@@ -63,6 +73,10 @@ def write_scanner_cli(bin_dir: Path, name: str, script: str) -> None:
     impl.write_text(script, encoding="utf-8")
     command = bin_dir / f"{name}.cmd"
     command.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
+    # POSIX no ejecuta .cmd: el mismo escáner falso como script con bit de ejecución.
+    posix = bin_dir / name
+    posix.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{impl}" "$@"\n', encoding="utf-8")
+    posix.chmod(0o755)
 
 
 def configure_external_scanners(
@@ -96,7 +110,61 @@ def evidence_test_result(body: dict[str, Any], command: str) -> dict[str, Any]:
     return next(result for result in body["evidencePackage"]["testResults"] if result["command"] == command)
 
 
+def test_security_agent_status_lists_configured_remote_model_runtimes() -> None:
+    statuses = [
+        {
+            "id": "openrouter",
+            "providerFamily": "openrouter",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "nvidia_nim",
+            "providerFamily": "nvidia_nim",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+        {
+            "id": "anthropic_api",
+            "providerFamily": "anthropic_api",
+            "executable": True,
+            "configured": True,
+            "capabilities": ["chat"],
+        },
+    ]
+
+    status = security_agent_status(statuses)
+
+    assert status["executable"] is True
+    assert status["selectedRuntimeId"] == "openrouter"
+    assert status["candidateRuntimeIds"] == ["openrouter", "nvidia_nim", "anthropic_api"]
+
+
+def test_model_analysis_prompt_carries_story_specs_alongside_findings() -> None:
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    prompt = SecurityAgentRunner._model_analysis_prompt(
+        {"storySpecs": "HU-1: el login exige MFA"},
+        {"findings": [{"id": "finding-1"}]},
+    )
+
+    assert "HU-1: el login exige MFA" in prompt
+    assert "finding-1" in prompt
+
+
+def test_model_analysis_prompt_without_story_specs_stays_findings_only() -> None:
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    prompt = SecurityAgentRunner._model_analysis_prompt({}, {"findings": [{"id": "finding-1"}]})
+
+    assert json.loads(prompt) == {"findings": [{"id": "finding-1"}]}
+    assert "Story specs" not in prompt
+
+
 def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -125,6 +193,7 @@ def test_security_agent_secret_like_key_in_workspace_blocks_with_evidence(
 
 
 def test_security_agent_clean_workspace_passes_with_file_hashes(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -153,7 +222,64 @@ def test_security_agent_clean_workspace_passes_with_file_hashes(
     assert body["agentRun"]["status"] == "completed"
 
 
+@pytest.mark.parametrize(
+    ("decision", "verdict", "qa_verdict"),
+    [
+        (None, "passed", "security_passed"),
+        ("requires_approval", "risk", "security_risk"),
+        ("deny", "blocked", "security_blocked"),
+    ],
+)
+def test_security_verdict_remains_readable_in_overview(
+    create_client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str | None,
+    verdict: str,
+    qa_verdict: str,
+) -> None:
+    from local_control_center.security_policy.repository import SecurityPolicyRepository
+
+    # Deterministic policy fixture; external scanners are explicitly unavailable, not passed.
+    monkeypatch.setenv("PATH", str(tmp_path / "no-external-scanners"))
+    store, client, headers = create_client(tmp_path, monkeypatch)
+    project, workspace = create_project_and_workspace(store, tmp_path, task_id="overview-security")
+    if decision:
+        SecurityPolicyRepository(store.connection).record_decision(
+            project_id=project["id"],
+            workspace_id=workspace["id"],
+            agent_id="qa_agent",
+            role="qa_reviewer",
+            tool="shell",
+            command="synthetic gated command",
+            path=workspace["path"],
+            decision=decision,
+            risk_level="medium",
+            reason="Test-only policy decision",
+            payload={},
+        )
+        store.connection.commit()
+    response = client.post(
+        "/api/v1/agents/security/runs",
+        headers=headers,
+        json=security_request(project, workspace, runModelAnalysis=False),
+    )
+    assert response.status_code == 202, response.text
+    result = response.json()
+    assert result["verdict"] == verdict
+    assert result["modelAnalysis"] is None
+    overview = client.get("/api/v1/overview")
+    assert overview.status_code == 200, overview.text
+    evidence = next(
+        e for e in overview.json()["evidencePackages"] if e["id"] == result["evidencePackage"]["id"]
+    )
+    assert evidence["qaVerdict"] == qa_verdict
+    records = [r for r in overview.json()["testResultRecords"] if r["evidencePackageId"] == evidence["id"]]
+    assert any(r["status"] == verdict for r in records)
+
+
 def test_security_agent_path_traversal_candidate_blocks(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -176,6 +302,7 @@ def test_security_agent_path_traversal_candidate_blocks(
 
 
 def test_security_agent_dangerous_docker_flags_block(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -210,6 +337,7 @@ def test_security_agent_dangerous_docker_flags_block(
 
 
 def test_security_agent_missing_external_scanners_records_skipped_results(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -237,6 +365,7 @@ def test_security_agent_missing_external_scanners_records_skipped_results(
 
 
 def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -298,6 +427,7 @@ def test_security_agent_runs_external_scanners_and_attaches_report_hashes(
 
 
 def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
+    create_client,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -348,3 +478,61 @@ def test_security_agent_gitleaks_secret_blocks_with_report_evidence(
         body["evidencePackage"]["hashes"][scanners["gitleaks"]["reportArtifactId"]]
         == scanners["gitleaks"]["reportHash"]
     )
+
+
+def test_analysis_prompt_view_compresses_findings_payload_without_touching_it() -> None:
+    """La vista solo-prompt reduce el payload de hallazgos y deja el original intacto.
+
+    El bloque filesScanned (un registro por archivo del workspace con hash y tamaño) era ~95% del
+    prompt del análisis opcional; el modelo solo necesita el conteo. El payload real sigue completo
+    para el artefacto, el response body y los hashes de evidencia.
+    """
+    from local_control_center.agents.security_agent import SecurityAgentRunner
+
+    payload = {
+        "status": "risk",
+        "verdict": "risk",
+        "reason": "1 medium finding.",
+        "findings": [
+            {
+                "id": f"finding-{index}",
+                "severity": "medium",
+                "message": "x",
+                "reportArtifactId": "artifact-9",
+                "reportHash": "hash-9",
+            }
+            for index in range(120)
+        ],
+        "filesScanned": [{"path": f"src/f{index}.py", "hash": "h", "sizeBytes": 10} for index in range(500)],
+        "dependencyFiles": [{"path": "package.json", "hash": "h", "sizeBytes": 20, "kind": "package.json"}],
+        "externalScanners": [
+            {
+                "name": "semgrep",
+                "status": "completed",
+                "reason": "ok",
+                "executable": True,
+                "configured": True,
+                "reportArtifactId": "artifact-7",
+                "reportHash": "hash-7",
+                "findingCount": 2,
+            }
+        ],
+    }
+
+    view = SecurityAgentRunner._analysis_prompt_view(payload)
+
+    assert view["filesScannedCount"] == 500
+    assert "filesScanned" not in view
+    assert view["dependencyFiles"] == ["package.json"]
+    assert view["externalScanners"] == [
+        {"name": "semgrep", "status": "completed", "reason": "ok", "findingCount": 2}
+    ]
+    assert len(view["findings"]) == 100
+    assert view["omittedFindingCount"] == 20
+    assert "reportArtifactId" not in view["findings"][0]
+    assert "status" not in view  # duplicado exacto de verdict, solo en la vista
+    assert view["verdict"] == "risk"
+    # El payload original no se toca: artefacto/response/evidencia lo necesitan completo.
+    assert len(payload["filesScanned"]) == 500
+    assert payload["findings"][0]["reportArtifactId"] == "artifact-9"
+    assert payload["status"] == "risk"

@@ -3,12 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from local_control_center.backlog.repository import BacklogRepository
+from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.product_discovery.repository import ProductDiscoveryRepository
 from local_control_center.product_loop.coordinator import ProductLoopCoordinator
 from local_control_center.projects.repository import ProjectsRepository
+from local_control_center.threads.repository import ThreadsRepository
+from tests_py.execution_client import CompletedExecutionClient as TestClient
 
 EMPTY_LOOP_STATE = {
     "loops": [],
@@ -20,12 +21,14 @@ EMPTY_LOOP_STATE = {
     "decisions": [],
     "epics": [],
     "stories": [],
+    "acceptanceCriteria": [],
+    "storyDependencies": [],
     "tasks": [],
+    "taskDependencies": [],
     "assignments": [],
     "assignmentHandoffs": [],
     "assignmentReviews": [],
     "assignmentConflicts": [],
-    "iterations": [],
 }
 
 
@@ -154,6 +157,23 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "soThat": "I can buy faster",
                 "businessValue": "high",
                 "storyPoints": 5,
+                "acceptanceCriteria": ["Guest checkout completes without an account."],
+            }
+        )
+        criterion = backlog.list_acceptance_criteria(story["id"])[0]
+        sibling_story = backlog.create_user_story(
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Guest email receipt",
+                "acceptanceCriteria": ["Receipt is sent after checkout."],
+            }
+        )
+        story_dependency = backlog.create_story_dependency(
+            {
+                "projectId": project_id,
+                "storyId": sibling_story["id"],
+                "dependsOnStoryId": story["id"],
             }
         )
         task = backlog.create_agent_task(
@@ -163,6 +183,22 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "title": "frontend work for guest checkout",
                 "role": "frontend",
                 "estimateHours": 4.0,
+            }
+        )
+        qa_task = backlog.create_agent_task(
+            {
+                "projectId": project_id,
+                "storyId": story["id"],
+                "title": "QA work for guest checkout",
+                "role": "qa",
+                "estimateHours": 2.0,
+            }
+        )
+        task_dependency = backlog.create_task_dependency(
+            {
+                "projectId": project_id,
+                "taskId": qa_task["id"],
+                "dependsOnTaskId": task["id"],
             }
         )
         assignment = backlog.create_agent_assignment(
@@ -176,16 +212,6 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
                 "reviewerAgentId": "agent-qa",
             }
         )
-        backlog.create_iteration(
-            {
-                "projectId": project_id,
-                "briefId": brief["id"],
-                "title": "Iteration 1",
-                "goal": "Ship the wizard",
-                "workspaceStrategy": "worktree_per_task",
-            }
-        )
-
         # A second project's loop must not leak into this project's view.
         other_loop = ProductLoopCoordinator(connection).start(project_id=other["id"], title="Unrelated")
 
@@ -206,11 +232,23 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert body["decisions"][0]["status"] == "accepted"
         assert body["decisions"][0]["linkedQuestionIds"] == [question["id"]]
         assert [item["id"] for item in body["epics"]] == [epic["id"]]
-        assert [item["id"] for item in body["stories"]] == [story["id"]]
-        assert body["stories"][0]["asA"] == "shopper"
-        assert body["stories"][0]["storyPoints"] == 5
-        assert len(body["tasks"]) == 1
-        assert body["tasks"][0]["role"] == "frontend"
+        assert {item["id"] for item in body["stories"]} == {story["id"], sibling_story["id"]}
+        guest_story = next(item for item in body["stories"] if item["id"] == story["id"])
+        assert guest_story["asA"] == "shopper"
+        assert guest_story["storyPoints"] == 5
+        assert {item["storyId"] for item in body["acceptanceCriteria"]} == {
+            story["id"],
+            sibling_story["id"],
+        }
+        guest_criterion = next(item for item in body["acceptanceCriteria"] if item["id"] == criterion["id"])
+        assert guest_criterion["storyId"] == story["id"]
+        assert guest_criterion["criterion"] == "Guest checkout completes without an account."
+        assert [item["id"] for item in body["storyDependencies"]] == [story_dependency["id"]]
+        assert body["storyDependencies"][0]["dependsOnStoryId"] == story["id"]
+        assert len(body["tasks"]) == 2
+        assert {item["role"] for item in body["tasks"]} == {"frontend", "qa"}
+        assert [item["id"] for item in body["taskDependencies"]] == [task_dependency["id"]]
+        assert body["taskDependencies"][0]["dependsOnTaskId"] == task["id"]
         assert [item["id"] for item in body["assignments"]] == [assignment["id"]]
         assert body["assignments"][0]["canonicalArtifactId"] == assignment["canonicalArtifactId"]
         assert body["assignments"][0]["inputSchema"]["type"] == "object"
@@ -219,8 +257,6 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert [item["assignmentId"] for item in body["assignmentReviews"]] == [assignment["id"]]
         assert body["assignmentReviews"][0]["status"] == "pending"
         assert body["assignmentConflicts"] == []
-        assert len(body["iterations"]) == 1
-        assert body["iterations"][0]["workspaceStrategy"] == "worktree_per_task"
 
         # Project scoping: the other project's loop is absent from this project's view.
         assert other_loop["id"] not in {item["id"] for item in body["loops"]}
@@ -230,11 +266,127 @@ def test_product_loop_endpoint_aggregates_real_loop_state_scoped_to_the_project(
         assert other_body["questions"] == []
         assert other_body["brief"] is None
         assert other_body["epics"] == []
+        assert other_body["acceptanceCriteria"] == []
+        assert other_body["storyDependencies"] == []
+        assert other_body["taskDependencies"] == []
         assert other_body["assignments"] == []
         assert other_body["assignmentHandoffs"] == []
         assert other_body["assignmentReviews"] == []
         assert other_body["assignmentConflicts"] == []
         assert [item["id"] for item in other_body["loops"]] == [other_loop["id"]]
+    finally:
+        runtime.close()
+
+
+def _seed_loop_with_context(runtime, project_id: str) -> dict:
+    from local_control_center.product_loop.repository import ProductLoopRepository
+
+    return ProductLoopRepository(runtime.connection).create_loop(
+        {
+            "projectId": project_id,
+            "title": "Context payload loop",
+            "state": "executing",
+            "status": "running",
+            "context": {"durableRun": {"message": "Reduce checkout friction"}},
+        }
+    )
+
+
+def test_list_loop_summaries_matches_list_loops_minus_context(tmp_path: Path) -> None:
+    """``list_loop_summaries`` es ``list_loops`` sin ``context``: mismo orden, mismas demás columnas."""
+    from local_control_center.product_loop.repository import ProductLoopRepository
+
+    runtime, _client_unused = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Summary repo", path=tmp_path / "summary-repo", template_id="other"
+        )
+        repo = ProductLoopRepository(runtime.connection)
+        older = repo.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Older",
+                "state": "delivered",
+                "status": "delivered",
+                "context": {"durableRun": {"message": "first"}},
+            }
+        )
+        newer = repo.create_loop(
+            {
+                "projectId": project["id"],
+                "title": "Newer",
+                "state": "executing",
+                "status": "running",
+                "context": {"durableRun": {"message": "second"}},
+            }
+        )
+
+        full = repo.list_loops(project["id"])
+        summaries = repo.list_loop_summaries(project["id"])
+
+        # Mismo orden que list_loops (no se afirma cuál de los dos va primero: ambos loops pueden
+        # compartir updated_at al milisegundo en un test rápido); lo que importa es que summaries y
+        # full lo resuelven idéntico.
+        assert {item["id"] for item in summaries} == {older["id"], newer["id"]}
+        assert [item["id"] for item in summaries] == [item["id"] for item in full]
+        for summary, complete in zip(summaries, full, strict=True):
+            assert "context" not in summary
+            for key in (
+                "id",
+                "projectId",
+                "initiativeId",
+                "title",
+                "state",
+                "previousState",
+                "status",
+                "version",
+                "createdAt",
+                "updatedAt",
+            ):
+                assert summary[key] == complete[key]
+    finally:
+        runtime.close()
+
+
+def test_product_loop_endpoint_omits_context_by_default(tmp_path: Path) -> None:
+    """El listado agregado no trae ``context`` salvo que se pida explícitamente (regresión medida:
+    hasta ~136 MB acumulados por proyecto bajo el lock global del API)."""
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Loop summary", path=tmp_path / "loop-summary", template_id="other"
+        )
+        loop = _seed_loop_with_context(runtime, project["id"])
+
+        response = client.get(f"/api/v1/projects/{project['id']}/product-loop")
+
+        assert response.status_code == 200
+        summary = response.json()["loops"][0]
+        assert summary["id"] == loop["id"]
+        assert summary["state"] == "executing"
+        assert summary["version"] == loop["version"]
+        assert summary["updatedAt"] == loop["updatedAt"]
+        assert summary.get("context") is None
+    finally:
+        runtime.close()
+
+
+def test_product_loop_endpoint_includes_context_when_requested(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        project = ProjectsRepository(runtime.connection).create_project(
+            name="Loop full", path=tmp_path / "loop-full", template_id="other"
+        )
+        loop = _seed_loop_with_context(runtime, project["id"])
+
+        response = client.get(
+            f"/api/v1/projects/{project['id']}/product-loop", params={"includeContext": True}
+        )
+
+        assert response.status_code == 200
+        summary = response.json()["loops"][0]
+        assert summary["id"] == loop["id"]
+        assert summary["context"] == {"durableRun": {"message": "Reduce checkout friction"}}
     finally:
         runtime.close()
 
@@ -316,7 +468,12 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
         backlog = BacklogRepository(connection)
         epic = backlog.create_epic({"projectId": project_id, "title": "Checkout"})
         story = backlog.create_user_story(
-            {"projectId": project_id, "epicId": epic["id"], "title": "Guest checkout"}
+            {
+                "projectId": project_id,
+                "epicId": epic["id"],
+                "title": "Guest checkout",
+                "acceptanceCriteria": ["Guest checkout validates payment fields."],
+            }
         )
         task = backlog.create_agent_task(
             {
@@ -336,6 +493,8 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
             "backlog_ready",
             "iteration_planning",
             "executing",
+            "qa_running",
+            "security_running",
             "quality_review",
             "awaiting_approval",
         ]:
@@ -363,6 +522,341 @@ def test_feedback_action_endpoint_is_guarded_classifies_and_exposes_trace(tmp_pa
         aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
         assert [item["id"] for item in aggregate["feedback"]] == [body["feedback"]["id"]]
         assert aggregate["transitions"][-1]["metadata"]["feedbackId"] == body["feedback"]["id"]
+    finally:
+        runtime.close()
+
+
+def test_review_action_approval_delivers_product_loop_feedback(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review approval", path=tmp_path / "review-approval", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review approval loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "qa_running",
+            "security_running",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id=project_id,
+            title="Review approval thread",
+        )
+        ThreadsRepository(connection).set_status(thread["id"], "awaiting_approval")
+        delivered_message = ThreadsRepository(connection).append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Deliver the review."
+        )
+        newer_message = ThreadsRepository(connection).append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Now add a changelog."
+        )
+        # Pregunta del PO de un run anterior del mismo pedido: tras aceptar la entrega ya no aplica.
+        stale_question = ThreadsRepository(connection).create_decision(
+            thread_id=thread["id"],
+            title="README template?",
+            prompt="Should the README section follow a template?",
+            options=["Standard Markdown documentation"],
+            metadata={"source": "product_owner_agent", "sourceMessageId": delivered_message["id"]},
+        )
+        # Pregunta vigente de OTRO pedido del mismo hilo: aceptar esta entrega no la puede tocar.
+        live_question = ThreadsRepository(connection).create_decision(
+            thread_id=thread["id"],
+            title="Changelog format?",
+            prompt="Which changelog format?",
+            options=["Keep a Changelog"],
+            metadata={"source": "product_owner_agent", "sourceMessageId": newer_message["id"]},
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"], "messageId": delivered_message["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        approved = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/approve",
+            json={"reason": "Evidence reviewed from Review inbox."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert approved.status_code == 202
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "delivered"
+        assert aggregate["feedback"][0]["action"] == "accept"
+        assert aggregate["feedback"][0]["targetId"] == loop["id"]
+        assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "resolved"
+        # Visto en vivo: la pregunta seguía en la barra de ejecución del hilo ya entregado; responderla
+        # habría reabierto trabajo sobre una entrega aceptada.
+        assert ThreadsRepository(connection).get_decision(stale_question["id"])["status"] == "dismissed"
+        assert ThreadsRepository(connection).get_decision(live_question["id"])["status"] == "pending"
+        # El job solo contiene la decisión: si quedaba "queued", el worker lo fallaba con
+        # "Unsupported job kind" justo después de una entrega aprobada (visto en vivo).
+        assert JobsRepository(connection).get_job(job["id"])["status"] == "completed"
+    finally:
+        runtime.close()
+
+
+def test_review_action_denial_requests_product_loop_delivery_feedback(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review denial", path=tmp_path / "review-denial", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review denial loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "qa_running",
+            "security_running",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project_id,
+            owner_type="workspace",
+            owner_id=project_id,
+            title="Review denial thread",
+        )
+        ThreadsRepository(connection).set_status(thread["id"], "awaiting_approval")
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        denied = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/deny",
+            json={"reason": "Evidence needs a targeted rework decision."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert denied.status_code == 202
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "awaiting_feedback"
+        assert aggregate["feedback"][0]["action"] == "request_changes"
+        assert aggregate["feedback"][0]["targetType"] == "loop"
+        assert aggregate["feedback"][0]["targetId"] == loop["id"]
+        assert JobsRepository(connection).get_action_request(action["id"])["status"] == "denied"
+        assert ThreadsRepository(connection).get_thread(thread["id"])["status"] == "open"
+    finally:
+        runtime.close()
+
+
+def test_review_denial_with_a_source_message_reworks_with_the_change_request(tmp_path: Path) -> None:
+    """Rechazar la entrega exige un motivo, que es el pedido de cambios: se trabaja de inmediato.
+
+    Visto en vivo: tras "pedir cambios" el loop quedaba en awaiting_feedback con el hilo en
+    "reworking" y nada en marcha, y aun continuando, el run repetía el mensaje original sin el
+    pedido (continueReason solo iba en metadatos que ningún agente lee).
+    """
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="Review rework", path=tmp_path / "review-rework", template_id="other"
+        )
+        project_id = project["id"]
+        coordinator = ProductLoopCoordinator(connection)
+        loop = coordinator.start(project_id=project_id, title="Review rework loop")
+        for state in [
+            "discovering",
+            "brief_ready",
+            "architecture_review",
+            "backlog_ready",
+            "iteration_planning",
+            "executing",
+            "qa_running",
+            "security_running",
+            "quality_review",
+            "awaiting_approval",
+        ]:
+            loop = coordinator.transition(loop["id"], to_state=state)
+        threads = ThreadsRepository(connection)
+        thread = threads.create_thread(
+            project_id=project_id, owner_type="workspace", owner_id=project_id, title="Review rework thread"
+        )
+        source = threads.append_message(
+            thread_id=thread["id"], kind="user", author="operator", content="Add top_words to textkit."
+        )
+        threads.set_status(thread["id"], "awaiting_approval")
+        control_root = tmp_path / "control-plane-root"
+        original_run = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="thread.product_loop.run",
+            status="completed",
+            payload={"threadId": thread["id"], "root": str(control_root)},
+        )["job"]
+        job = JobsRepository(connection).create_job(
+            project_id=project_id,
+            kind="product_loop_delivery_approval",
+            status="approval_required",
+            payload={"loopId": loop["id"]},
+        )["job"]
+        action = JobsRepository(connection).create_action_request(
+            job_id=job["id"],
+            project_id=project_id,
+            action_type="product_loop.approve_delivery",
+            risk_level="medium",
+            command="approve product loop delivery",
+            payload={"loopId": loop["id"]},
+            reason="Review Product Loop diff, QA, and gitleaks evidence before delivery.",
+        )
+        coordinator.repository.update_loop_context(
+            loop["id"],
+            context={
+                **loop["context"],
+                "durableRun": {
+                    **dict(loop["context"].get("durableRun") or {}),
+                    "approval": {"jobId": job["id"], "actionRequestId": action["id"]},
+                    "thread": {"projectThreadId": thread["id"], "messageId": source["id"]},
+                    "message": "Add top_words to textkit.",
+                    "requestMeta": {"messageId": source["id"], "jobId": original_run["id"]},
+                },
+            },
+        )
+
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        denied = client.post(
+            f"/api/v1/jobs/{job['id']}/actions/{action['id']}/deny",
+            json={"reason": "Restore the original README and delete the stray textkit/utils.py."},
+            headers={"X-Local-Control-Token": token},
+        )
+
+        assert denied.status_code == 202, denied.text
+        aggregate = client.get(f"/api/v1/projects/{project_id}/product-loop").json()
+        assert aggregate["loops"][0]["state"] == "reworking"
+        continuation = [
+            item
+            for item in JobsRepository(connection).list_jobs(project_id=project_id)
+            if item["kind"] == "thread.product_loop.run" and item["id"] != original_run["id"]
+        ]
+        assert len(continuation) == 1
+        # Same control-plane root as the continued run, never the project path: evidence written
+        # under the project root dirtied the user's repo and blocked the next run (seen live).
+        assert continuation[0]["payload"]["root"] == str(control_root)
+        assert continuation[0]["payload"]["root"] != str(project["path"])
+        message = continuation[0]["payload"]["message"]
+        assert message.startswith("Add top_words to textkit.")
+        assert "Restore the original README and delete the stray textkit/utils.py." in message
+        assert threads.get_thread(thread["id"])["status"] == "queued"
+    finally:
+        runtime.close()
+
+
+def test_aido_decide_answers_questions_and_records_product_decisions(tmp_path: Path) -> None:
+    runtime, client = _client(tmp_path)
+    try:
+        connection = runtime.connection
+        project = ProjectsRepository(connection).create_project(
+            name="AIDO decide", path=tmp_path / "aido-decide", template_id="other"
+        )
+        project_id = project["id"]
+        discovery = ProductDiscoveryRepository(connection)
+        initiative = discovery.create_initiative(
+            {"projectId": project_id, "title": "Creator payments", "summary": "Enable paid content."}
+        )
+        loop = ProductLoopCoordinator(connection).start(
+            project_id=project_id,
+            title="Creator payments",
+            initiative_id=initiative["id"],
+        )
+        question = discovery.create_clarification_question(
+            {
+                "projectId": project_id,
+                "initiativeId": initiative["id"],
+                "question": "Which creator segment launches first?",
+                "askedBy": "product_owner_agent",
+                "metadata": {
+                    "category": "users",
+                    "whyItMatters": "It changes onboarding and compliance scope.",
+                    "blocking": True,
+                    "options": ["Solo creators", "Teams"],
+                    "recommendation": "Solo creators",
+                    "defaultDecision": "Solo creators",
+                    "confidence": "medium",
+                },
+            }
+        )
+        token = client.get("/api/v1/security/handshake").json()["token"]
+        url = f"/api/v1/projects/{project_id}/product-loop/{loop['id']}/aido-decide"
+
+        assert client.post(url, json={"reason": "Use defaults."}).status_code == 403
+        response = client.post(
+            url, json={"reason": "Use high-confidence defaults."}, headers={"X-Local-Control-Token": token}
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["questions"][0]["status"] == "answered"
+        assert body["decisions"][0]["status"] == "accepted"
+        assert body["decisions"][0]["decision"] == "Solo creators"
+        assert body["decisions"][0]["metadata"]["sourceQuestionId"] == question["id"]
+        answers = discovery.list_clarification_answers(question["id"])
+        assert answers[0]["answer"] == "Solo creators"
+        assert answers[0]["answeredBy"] == "aido_decide"
     finally:
         runtime.close()
 

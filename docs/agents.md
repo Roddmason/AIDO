@@ -21,7 +21,11 @@ Agents are modeled as contracts, not personalities.
 - `api`: provider/API runtime mode; adapter execution is gated and not direct.
 - `cli`: CLI runtime mode; tool calls are brokered, policy-recorded, and not
   shell-executed directly by the agent API.
-- `ollama`: local model runtime mode; detection uses the local HTTP API.
+- `local`: any enabled local model runtime whose endpoint is loopback or a
+  declared WSL/Docker endpoint (Ollama, llama.cpp, LM Studio, vLLM or a generic
+  local OpenAI-compatible server); see `docs/runtime-providers.md#local-runtimes`.
+- `ollama`: backward-compatible sub-mode of `local` restricted to Ollama
+  endpoints.
 - `hybrid`: mixed mode for profiles that may use API, CLI, or local models.
 - `manual`: human/manual runtime mode.
 
@@ -56,7 +60,7 @@ recorded in the tool-call payload and fail the agent run.
 
 ## Runtime Adapter Contract
 
-`agents/runtime_adapters.py` defines the typed runtime adapter port:
+The `agents/runtime_adapters/` package defines the typed runtime adapter port:
 `RuntimeAdapter`, `RuntimeExecutionRequest`, `RuntimeExecutionResult`, and
 `RuntimeAdapterRegistry`.
 
@@ -85,8 +89,21 @@ Built-in adapters are deliberately narrow:
   workflow execution.
 - `OllamaAdapter`: uses the real Ollama HTTP API and fails closed when base URL,
   daemon health, model, or messages are missing.
-- `OpenAICompatibleAdapter`: uses real OpenAI-compatible HTTP calls only when
-  base URL, API key, model, and `AIDO_ENABLE_REAL_PROVIDER_CALLS=true` are set.
+- `ProviderFactoryAdapter` (`runtime_adapters/provider_factory.py`): the adapter
+  the broker registry binds to every model provider family. It resolves the
+  persisted provider account, runtime policy and `credentialRef` fail-closed
+  before calling the provider. Local OpenAI-compatible accounts (`llama_cpp`,
+  `lm_studio`, `vllm`, `local_openai_compatible`) need a base URL and a model;
+  a bearer token is optional and is never sent over `http://` to a remote host.
+- `OpenAICompatibleAdapter`: the environment-configured adapter
+  (`AIDO_OPENAI_COMPATIBLE_*`). It is not registered in the broker registry and
+  keeps requiring a base URL, a key and a model because it only targets
+  environment-configured remote endpoints.
+- For model adapters, `AIDO_ENABLE_REAL_PROVIDER_CALLS` is only an environment
+  override: the runtime policy reports it as a configuration warning and the
+  SQLite runtime settings stay authoritative, so no adapter above (and no local
+  runtime flow) requires it. Outside the adapters it only authorizes real Jev
+  decision-engine calls, which local model selection does not need.
 
 ## Model Gateway
 
@@ -95,7 +112,12 @@ usage recording and redaction before any provider adapter is allowed to run. The
 current implementation:
 
 - selects the first policy-allowed preferred/fallback provider;
-- honors `allowRemote` and `allowLocal`;
+- honors `allowRemote` and `allowLocal` through hardcoded name sets: only
+  `ollama` and `local_ollama` match the local policy; a legacy `model_policy`
+  that names another local provider (`llama_cpp`, `lm_studio`, `vllm`,
+  `local_openai_compatible`) yields no candidate and the plan is
+  `blocked_policy`, with no automatic delegation. Those runtimes are selected
+  by `ModelRouter`, which classifies locality with `agents/endpoint_locality.py`;
 - blocks calls that would exceed `maxCostUsd` or the explicit remaining budget;
 - returns `configuration_required`, `blocked` or `unavailable` instead of
   simulating execution when credentials, gates or endpoints are not ready;
@@ -364,6 +386,13 @@ The broker has executable adapter hooks for:
 - `swe_agent`: optional CLI/package detection; execution requires structured
   `argv` for a SWE-agent command and runs through the restricted subprocess
   sandbox.
+
+Model replies reach the agents through an in-process transient channel
+(`agents/runtime_adapters/transient_output.py`): the broker reserves the tool-call id before
+execution, the provider adapter stores the unredacted reply (reasoning already stripped) under
+that id, and DeveloperAgent, ProductOwnerAgent and ArchitectAgent take it once, falling back to
+the redacted output artifact for CLI runtimes or other processes. The channel never enters a
+returned dict, so the artifact, logs, `agent_tool_calls` and evidence stay redacted.
 
 Adapters are not exposed as public execution endpoints. The accepted path is:
 

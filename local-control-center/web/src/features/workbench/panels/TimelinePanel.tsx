@@ -1,23 +1,17 @@
 /**
  * Workbench Timeline panel: the run-progress view. Combines signal counters, the
  * detailed run timeline, the project delivery flow and recent runs/pipelines/events.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import type { Overview } from '../../../api/types';
-import { Badge, DataTable, EmptyState, Surface } from '../../../components/primitives';
+import { StatusChip as Badge, DataTable, EmptyState, Surface } from '../../../components/ui';
 import { useI18n } from '../../../i18n/I18nProvider';
-import { shortId, toneForStatus } from '../../../lib/format';
+import { formatTime, shortId, toneForStatus } from '../../../lib/format';
 import type { TimelineArtifactRef, WorkflowTimelineStage } from '../timelineModel';
 import { WorkflowTimeline } from '../WorkflowTimeline';
 import { sortByTimeDesc } from '../workbenchSelectors';
 
 type Signals = { workflows: number; evidence: number; approvals: number; workspaces: number };
-
-function formatTime(value: string | null | undefined, emptyLabel: string) {
-	if (!value) return emptyLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
 
 export function TimelinePanel({
 	runTimeline,
@@ -28,7 +22,6 @@ export function TimelinePanel({
 	workflows,
 	workflowRuns,
 	workflowEvents,
-	pipelines,
 	onOpenArtifact,
 }: {
 	runTimeline: WorkflowTimelineStage[];
@@ -39,7 +32,6 @@ export function TimelinePanel({
 	workflows: Overview['workflows'];
 	workflowRuns: Overview['workflowRuns'];
 	workflowEvents: Overview['workflowEvents'];
-	pipelines: Overview['pipelines'];
 	onOpenArtifact?: (artifact: TimelineArtifactRef) => void;
 }) {
 	const { t } = useI18n();
@@ -82,7 +74,7 @@ export function TimelinePanel({
 						title={t('app.workbench.timeline.runEmptyTitle', 'No run yet')}
 						body={t(
 							'app.workbench.timeline.runEmptyBody',
-							'Submit a governed task to see its run progress here.',
+							'Submit an autonomous intake to see its run progress here.',
 						)}
 					/>
 				)}
@@ -97,10 +89,10 @@ export function TimelinePanel({
 					/>
 				) : (
 					<EmptyState
-						title={t('app.workbench.timeline.deliveryEmptyTitle', 'No delivery pipeline yet')}
+						title={t('app.workbench.timeline.deliveryEmptyTitle', 'No delivery flow yet')}
 						body={t(
 							'app.workbench.timeline.deliveryEmptyBody',
-							'Start a conversation intake to create the delivery pipeline.',
+							'Start a thread intake to create the delivery flow.',
 						)}
 					/>
 				)}
@@ -114,7 +106,7 @@ export function TimelinePanel({
 							title={t('app.workbench.timeline.runsEmptyTitle', 'No workflow runs')}
 							body={t(
 								'app.workbench.timeline.runsEmptyBody',
-								'Runs are recorded once a governed task executes in this workspace.',
+								'Runs are recorded once autonomous workspace work executes.',
 							)}
 						/>
 					}
@@ -139,37 +131,6 @@ export function TimelinePanel({
 										t('app.workbenchEvidence.notRecorded', 'not recorded'),
 									)}
 								</span>
-							),
-						},
-					]}
-				/>
-			</Surface>
-
-			<Surface title={t('app.workbench.timeline.pipelinesTitle', 'Session pipelines')} flat>
-				<DataTable
-					rows={pipelines.slice(0, 5)}
-					empty={
-						<EmptyState
-							title={t('app.workbench.timeline.pipelinesEmptyTitle', 'No intake pipelines')}
-							body={t(
-								'app.workbench.timeline.pipelinesEmptyBody',
-								'Chat intake creates the first pipeline record for the selected work session.',
-							)}
-						/>
-					}
-					columns={[
-						{
-							key: 'title',
-							label: t('app.workbench.timeline.colPipeline', 'Pipeline'),
-							render: (row) => String(row.title ?? ''),
-						},
-						{
-							key: 'status',
-							label: t('app.workbench.timeline.colStatus', 'Status'),
-							render: (row) => (
-								<Badge tone={toneForStatus(String(row.status ?? ''))}>
-									{String(row.status ?? '')}
-								</Badge>
 							),
 						},
 					]}

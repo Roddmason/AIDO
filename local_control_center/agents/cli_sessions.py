@@ -4,7 +4,7 @@ Por cada ejecución de un runtime CLI graba la fila en cli_sessions, escribe art
 saneados con redact_secrets y registra el uso en el UsageLedger (real o estimado). Garantiza que ningún
 secreto del comando, entorno o salida quede en disco o en la base sin redactar.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 from local_control_center.agents.usage_ledger import UsageLedger
 from local_control_center.evidence.artifacts import write_text_artifact
 from local_control_center.evidence.repository import EvidenceRepository
+from local_control_center.process_supervision.service import safe_command_summary
 from local_control_center.shared.redaction import redact_secrets
 from local_control_center.shared.serialization import json_dumps
 from local_control_center.shared.time import utc_now
@@ -47,6 +48,7 @@ class CliSessionStore:
         stderr: str = "",
         error: str | None = None,
         usage: Any = None,
+        process_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Graba la sesión CLI completa (artefactos + uso, todo redactado) y devuelve la fila persistida.
 
@@ -54,6 +56,7 @@ class CliSessionStore:
         y enlaza el usage_ledger_id resultante en una única transacción de la conexión del caller.
         """
         session_id = f"cli-session-{uuid.uuid4()}"
+        command = safe_command_summary(command)
         now = utc_now()
         artifact_ids = self._write_artifacts(
             session_id=session_id,
@@ -66,6 +69,7 @@ class CliSessionStore:
             stdout=stdout,
             stderr=stderr,
             error=error,
+            process_evidence=process_evidence or {},
         )
         self.connection.execute(
             """
@@ -86,8 +90,8 @@ class CliSessionStore:
                 json_dumps(redact_secrets(command)),
                 json_dumps(redact_secrets(env_policy)),
                 status,
-                now,
-                now,
+                (process_evidence or {}).get("startedAt") or now,
+                (process_evidence or {}).get("finishedAt") or now,
                 artifact_ids.get("stdout"),
                 artifact_ids.get("stderr"),
                 artifact_ids.get("logs"),
@@ -128,10 +132,15 @@ class CliSessionStore:
         stdout: str,
         stderr: str,
         error: str | None,
+        process_evidence: dict[str, Any],
     ) -> dict[str, str | None]:
         project_id, root = self._artifact_context(workspace_id)
+        if env_policy.get("permissionProfile") == "plan":
+            root = self._database_root()
         artifacts: dict[str, str | None] = {"stdout": None, "stderr": None, "logs": None}
-        if stdout:
+        if process_evidence.get("stdoutArtifactId"):
+            artifacts["stdout"] = process_evidence["stdoutArtifactId"]
+        elif stdout:
             artifacts["stdout"] = self._create_text_artifact(
                 project_id=project_id,
                 root=root,
@@ -147,7 +156,9 @@ class CliSessionStore:
                     "workspaceId": workspace_id,
                 },
             )
-        if stderr:
+        if process_evidence.get("stderrArtifactId"):
+            artifacts["stderr"] = process_evidence["stderrArtifactId"]
+        elif stderr:
             artifacts["stderr"] = self._create_text_artifact(
                 project_id=project_id,
                 root=root,
@@ -174,6 +185,11 @@ class CliSessionStore:
             "error": error,
             "stdoutBytes": len(stdout.encode("utf-8")),
             "stderrBytes": len(stderr.encode("utf-8")),
+            "processEvidence": {
+                key: value
+                for key, value in process_evidence.items()
+                if key not in {"stdout", "stderr", "command"}
+            },
         }
         artifacts["logs"] = self._create_text_artifact(
             project_id=project_id,
@@ -273,10 +289,10 @@ class CliSessionStore:
                 output_tokens=int(getattr(usage, "output_tokens", 0)),
                 reasoning_tokens=int(getattr(usage, "reasoning_tokens", 0)),
                 tool_tokens=int(getattr(usage, "tool_tokens", 0)),
+                total_tokens=int(getattr(usage, "total_tokens", 0)),
                 raw_usage=getattr(usage, "raw_usage", None) or {"usage_source": "cli_output"},
                 usage_source="actual",
             )
-        estimated_input = max(1, len((stdout + stderr).split()))
         return UsageLedger(self.connection).record_usage(
             provider_id=runtime,
             model=model or "cli",
@@ -286,8 +302,6 @@ class CliSessionStore:
             workflow_run_id=workflow_run_id,
             workflow_step_id=workflow_step_id,
             session_id=session_id,
-            input_tokens=estimated_input,
-            output_tokens=0,
-            raw_usage={"usage_source": "estimated", "status": status},
-            usage_source="estimated",
+            raw_usage={"usage_source": "unavailable", "status": status},
+            usage_source="unavailable",
         )

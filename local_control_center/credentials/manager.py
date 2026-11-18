@@ -5,7 +5,7 @@ método lo devuelve. La base guarda solo la referencia al backend, un fingerprin
 por credencial) y la bitácora de auditoría. ``validate`` lee el secreto del backend internamente para
 comparar su fingerprint y lo descarta sin exponerlo. Toda operación queda registrada en la auditoría.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -22,6 +22,12 @@ from .repository import CredentialRepository
 
 FINGERPRINT_ALGO = "hmac-sha256"
 DEFAULT_BACKEND = "keyring"
+
+
+def public_credential_ref(source: str, locator: str) -> str:
+    """Construye la referencia pública que otros módulos pueden usar sin conocer columnas internas."""
+    public_source = "env" if source == "environment_override" else source
+    return f"{public_source}:{locator}"
 
 
 def new_salt() -> str:
@@ -67,18 +73,24 @@ class CredentialManager:
         backend_kind = record["backendKind"]
         if backend_kind == "env":
             backend_kind = "environment_override"
+        credential_ref = public_credential_ref(backend_kind, record["locator"])
         return {
             "id": record["id"],
             "name": record["name"],
+            "label": record["name"],
             "backendKind": backend_kind,
+            "source": backend_kind,
             "locator": record["locator"],
+            "credentialRef": credential_ref,
             "authMode": record["authMode"],
             "status": record["status"],
             "enabled": record["enabled"],
             "fingerprintAlgo": record["fingerprintAlgo"],
             "hasFingerprint": bool(record.get("fingerprint")),
             "rotatedAt": record["rotatedAt"],
+            "lastRotatedAt": record["rotatedAt"],
             "lastValidatedAt": record["lastValidatedAt"],
+            "providerUsages": [],
             "metadata": record["metadata"],
             "createdAt": record["createdAt"],
             "updatedAt": record["updatedAt"],

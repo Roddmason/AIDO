@@ -6,7 +6,7 @@
  * Legacy `#settings` and `#settings-*` hashes are remapped to `home`; the App
  * hashchange handler detects them first and opens the Settings modal at the
  * mapped section before falling back to the page.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { PageId } from './navigation';
@@ -58,13 +58,13 @@ const routeAliases: Record<string, AppRoute> = {
  */
 export function settingsHashToSection(token: string): string | undefined {
 	const map: Record<string, string> = {
-		settings: 'project',
-		'settings-project': 'project',
+		settings: 'general',
+		'settings-project': 'goal',
 		'settings-runtime': 'providers-cli',
-		'settings-agents': 'autonomy',
+		'settings-agents': 'default-team',
 		'settings-security': 'security',
 		'settings-workspaces': 'workspaces',
-		'settings-integrations': 'integrations',
+		'settings-integrations': 'plugins',
 		'settings-advanced': 'advanced',
 		'settings-cli': 'providers-cli',
 		'settings-api': 'providers-cli',
@@ -72,7 +72,7 @@ export function settingsHashToSection(token: string): string | undefined {
 		'settings-parameters': 'advanced',
 		'settings-maintainers': 'advanced',
 		'settings-defaults': 'advanced',
-		'settings-projects': 'project',
+		'settings-projects': 'goal',
 	};
 	return map[token];
 }
@@ -105,7 +105,7 @@ export type HashState = { page: AppRoute; runId: string | null };
 export function resolveHashState(): HashState {
 	const { params } = splitHash();
 	const runId = params.get('run');
-	return { page: resolveHashRoute(), runId: runId && runId.trim() ? runId : null };
+	return { page: resolveHashRoute(), runId: runId?.trim() ? runId : null };
 }
 
 /** Encodes a page (and optional selected run) into a URL hash value. */

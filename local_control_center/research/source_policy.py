@@ -9,7 +9,7 @@ fuente. Y detecta claims en conflicto sobre un mismo tópico: emite un hallazgo 
 recomendación basada en la fuente de mayor confianza, marcando para revisión manual cuando las fuentes
 de máxima confianza discrepan entre sí.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -76,11 +76,6 @@ def trust_rank(level: str) -> int:
     return TRUST_LEVELS.index(level) if level in TRUST_LEVELS else len(TRUST_LEVELS)
 
 
-def is_trusted(level: str) -> bool:
-    """Indica si el nivel pertenece a la jerarquía de confianza de la política (no ``untrusted``)."""
-    return level in TRUST_LEVELS
-
-
 def _host_and_path(url: str) -> tuple[str, str]:
     parsed = urlparse(url if "://" in url else f"https://{url}")
     host = (parsed.netloc or "").lower().split("@")[-1].split(":")[0]
@@ -125,7 +120,11 @@ def build_source_record(
     publisher: str,
     content: str,
     fetched_at: str,
+    title: str | None = None,
+    source_type: str | None = None,
     related_artifact: str | None = None,
+    related_thread_id: str | None = None,
+    related_task_id: str | None = None,
     trust_level: str | None = None,
 ) -> dict[str, Any]:
     """Construye el registro de procedencia de una fuente, con su hash y nivel de confianza.
@@ -147,11 +146,15 @@ def build_source_record(
     level = trust_level or classify_source(url)
     return {
         "url": redact_secrets(url),
+        "title": title.strip() if isinstance(title, str) and title.strip() else publisher,
         "publisher": publisher,
+        "sourceType": source_type.strip() if isinstance(source_type, str) and source_type.strip() else "web",
         "fetchedAt": fetched_at,
         "hash": content_hash(content),
         "trustLevel": level,
         "relatedArtifact": related_artifact,
+        "relatedThreadId": related_thread_id,
+        "relatedTaskId": related_task_id,
     }
 
 

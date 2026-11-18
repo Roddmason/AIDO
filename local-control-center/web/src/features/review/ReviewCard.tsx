@@ -3,15 +3,15 @@
  * Renders project, run health, QA verdict, risk and diff/evidence refs, and picks
  * one contextual primary action (Review / Promote / Create PR / View evidence)
  * from the item's lifecycle state.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import { AlertTriangle, FileCheck2, GitBranch, ShieldAlert } from 'lucide-react';
 import { m } from 'motion/react';
-import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { useRef } from 'react';
 
-import { Badge, StatusDot } from '../../components/primitives';
+import { StatusChip as Badge, StatusDot } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { shortId, toneForStatus } from '../../lib/format';
 import type { PatchWorkflowKind, ReviewItem } from './model';
@@ -99,15 +99,6 @@ export function ReviewCard({
 	const shipOp = shipOperationFor(item);
 	const open = () => onOpenReview(item, triggerRef.current);
 
-	const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-		if (!item.canDecide) return;
-		if (event.target !== event.currentTarget) return;
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			open();
-		}
-	};
-
 	const riskBadge = item.riskLevel ? (
 		<Badge tone={riskTone(item.riskLevel)}>
 			{item.riskLevel === 'critical' || item.riskLevel === 'high' ? (
@@ -124,9 +115,7 @@ export function ReviewCard({
 			className="card review-card"
 			data-risk={item.riskLevel ?? undefined}
 			data-selected={selected ? 'true' : undefined}
-			tabIndex={0}
 			aria-labelledby={titleId}
-			onKeyDown={handleCardKeyDown}
 		>
 			<ReviewSharedAccent itemKey={item.key} active={selected || activeDetail} />
 			<div className="card-header">

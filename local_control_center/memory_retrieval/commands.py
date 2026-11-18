@@ -4,7 +4,7 @@ Capa fina entre los handlers HTTP y la persistencia: arma los argumentos
 desde el body del contrato, registra los eventos de auditoría correspondientes
 y delega el ranking en el índice. No contiene SQL ni lógica de transporte.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -14,7 +14,10 @@ from typing import Any
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.time import add_millis
 
+from .briefing import DEFAULT_BRIEFING_BUDGET_CHARS, MemoryBriefingService
+from .conflicts import DEFAULT_MAD_MULTIPLIER, MemoryConflictDetector
 from .index import RetrievalIndex
+from .models import MEMORY_FORGET_JOB_KIND
 from .repository import MemoryRepository
 
 
@@ -61,6 +64,44 @@ def delete_memory(
         payload={"memoryItemId": memory_item["id"], "reason": body.get("reason") or ""},
     )
     return {"memoryItem": memory_item}
+
+
+def enqueue_memory_forget(jobs: Any, body: dict[str, Any]) -> dict[str, Any]:
+    """Encola el job que aplica la política de olvido y devuelve su identidad.
+
+    El trabajo real corre en el worker: este caso de uso sólo publica la intención.
+    """
+    created = jobs.create_job(
+        project_id=body["projectId"],
+        kind=MEMORY_FORGET_JOB_KIND,
+        payload={"projectId": body["projectId"]},
+    )
+    return {"job": created["job"]}
+
+
+def detect_memory_conflicts(detector: MemoryConflictDetector, body: dict[str, Any]) -> dict[str, Any]:
+    """Corre la detección de contradicciones del proyecto con los parámetros del contrato."""
+    return detector.detect(
+        project_id=body["projectId"],
+        multiplier=float(body.get("multiplier") or DEFAULT_MAD_MULTIPLIER),
+        threshold=body.get("threshold"),
+    )
+
+
+def list_memory_conflicts(memory: MemoryRepository, project_id: str | None = None) -> dict[str, Any]:
+    """Devuelve los conflictos registrados del proyecto bajo la clave de contrato."""
+    return {"conflicts": memory.list_memory_conflicts(project_id=project_id)}
+
+
+def build_memory_briefing(briefing: MemoryBriefingService, body: dict[str, Any]) -> dict[str, Any]:
+    """Ensambla el bloque de contexto del scope pedido con el presupuesto del contrato."""
+    return briefing.build(
+        project_id=body["projectId"],
+        scope=body.get("scope") or "project",
+        scope_id=body.get("scopeId"),
+        query=body.get("query", ""),
+        budget_chars=int(body.get("budgetChars") or DEFAULT_BRIEFING_BUDGET_CHARS),
+    )
 
 
 def retrieval_status(index: RetrievalIndex, project_id: str | None = None) -> dict[str, Any]:

@@ -1,23 +1,189 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
-const cleanupScript = fileURLToPath(new URL('./cleanup-playwright-webserver.mjs', import.meta.url));
 const viteCli = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
 const windowsPython = fileURLToPath(new URL('../.venv/Scripts/python.exe', import.meta.url));
 const posixPython = fileURLToPath(new URL('../.venv/bin/python', import.meta.url));
-// Low, non-ephemeral base: the 30000-49999 range can land on Windows reserved/ephemeral ports
-// (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
+/**
+ * Low, non-ephemeral base: the 30000-49999 range can land on Windows reserved/ephemeral ports
+ * (winerror 10013). 8600-9499 is safe, and per-chunk increments below stay well under 10000.
+ */
 const defaultDashboardPort = String(8600 + (process.pid % 900));
 const dashboardPort = process.env.PLAYWRIGHT_DASHBOARD_PORT || defaultDashboardPort;
-const dbPath = process.env.PLAYWRIGHT_DB_PATH || `.tmp/playwright-control-center-${process.pid}.sqlite`;
+/**
+ * The domain fixtures refuse any database whose isolation they cannot prove: they require
+ * AIDO_QUALITY_SCRATCH + AIDO_QUALITY_RETAINED and a PLAYWRIGHT_DB_PATH that resolves under that
+ * scratch root. `pnpm run quality` injects them from the supervised runner; a standalone run has
+ * to own an equivalent identity or those specs cannot execute at all. The proof is not weakened:
+ * the fixture still validates the scratch parent and the database location itself. Both halves are
+ * injected together or not at all: half an identity is not a supervised run.
+ */
+const supervised = Boolean(process.env.AIDO_QUALITY_SCRATCH && process.env.AIDO_QUALITY_RETAINED);
+const ownedQualityRoot = supervised ? null : path.join(os.tmpdir(), `aido-web-tests-${process.pid}`);
+const qualityScratch = supervised ? process.env.AIDO_QUALITY_SCRATCH : path.join(ownedQualityRoot, 'scratch');
+const qualityRetained = supervised ? process.env.AIDO_QUALITY_RETAINED : path.join(ownedQualityRoot, 'evidence');
+const removalAttempts = 5;
+const removalRetryDelayMs = 200;
+const removalPause = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * Provider credentials an E2E run must never inherit from the operator's machine (same list as
+ * PROVIDER_CREDENTIAL_ENV_VARS in tests_py/conftest.py). With NVIDIA_NIM_API_KEY set, the dashboard
+ * treated NIM's seeded placeholder as a stored credential and the wizard specs saw another flow.
+ */
+const providerCredentialEnvVars = [
+	'AIDO_ANTHROPIC_API_KEY',
+	'AIDO_GEMINI_API_KEY',
+	'AIDO_LITELLM_API_KEY',
+	'AIDO_NVIDIA_API_KEY',
+	'AIDO_OPENAI_COMPATIBLE_API_KEY',
+	'AIDO_OPENROUTER_API_KEY',
+	'ANTHROPIC_API_KEY',
+	'GEMINI_API_KEY',
+	'GOOGLE_API_KEY',
+	'LITELLM_API_KEY',
+	'NGC_API_KEY',
+	'NVIDIA_API_KEY',
+	'NVIDIA_NIM_API_KEY',
+	'OPENAI_API_KEY',
+	'OPENROUTER_API_KEY',
+	'TYPESAFE_API_KEY',
+];
+
+/**
+ * The runner's environment without provider credentials, and with AIDO told not to read variables
+ * persisted in the Windows registry (setx), which it would otherwise find even after removal here.
+ *
+ * @returns {NodeJS.ProcessEnv} Environment for the dashboard and Playwright processes.
+ */
+function hermeticProcessEnv() {
+	const env = { ...process.env, AIDO_IGNORE_PERSISTED_ENVIRONMENT: '1' };
+	// Windows env names are case-insensitive; the spread copy is not, so compare upper-cased.
+	for (const name of Object.keys(env)) {
+		if (providerCredentialEnvVars.includes(name.toUpperCase())) delete env[name];
+	}
+	return env;
+}
+
+/** Database paths this run derived; a PLAYWRIGHT_DB_PATH pinned by the operator is never added. */
+const ownedDatabasePaths = new Set();
+/**
+ * Deletes a file or directory this run owns, without ever letting cleanup change the verdict.
+ *
+ * Runs from the 'exit' event, so it may only do synchronous work. Windows can hold a file for a
+ * moment after its process dies, so a failed attempt pauses and tries again. `rmSync`'s own
+ * `retryDelay` cannot be that pause: on Windows Node 24 sleeps `retryDelay / 1000` ms, and a
+ * SQLite file still open failed with EPERM at once. If the last attempt fails too, it warns and
+ * moves on.
+ *
+ * @param {string} target File or directory to remove; a missing path is not an error.
+ * @returns {boolean} Whether the path is gone.
+ */
+function removeOwnedPath(target) {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			rmSync(target, { recursive: true, force: true });
+			return true;
+		} catch (error) {
+			if (attempt === removalAttempts) {
+				console.warn(`[run-web-tests] could not remove ${target}: ${error.message}`);
+				return false;
+			}
+			Atomics.wait(removalPause, 0, 0, removalRetryDelayMs);
+		}
+	}
+}
+
+/**
+ * Removes what this run created under its own quality root, as the process exits.
+ *
+ * Only a run that owns its root registers this: a supervised run's scratch belongs to the
+ * supervisor. The SQLite databases under scratch were the whole leak (one per chunk, a few MB
+ * each, never read after the run), so scratch always goes. A failed run keeps its evidence for
+ * inspection; a green one leaves nothing behind. It hangs off the 'exit' event so it also covers
+ * uncaught errors.
+ *
+ * @param {number} code Exit code the process is leaving with.
+ */
+function releaseOwnedQualityRoot(code) {
+	const removed = removeOwnedPath(code === 0 ? ownedQualityRoot : qualityScratch);
+	if (removed && code !== 0) {
+		console.warn(`[run-web-tests] evidence kept at ${qualityRetained}`);
+	}
+}
+
+/**
+ * Removes the Playwright output of a green run, as the process exits.
+ *
+ * The run owns its artifact root only while PLAYWRIGHT_ARTIFACT_ROOT is unset (inside its own
+ * evidence directory when it owns a quality root, `.tmp/playwright-artifacts-<pid>` otherwise); the
+ * supervised quality runner always sets it to its own evidence directory, so that path is never
+ * touched. A green run's output holds nothing worth keeping. A red one is exactly the traces and
+ * screenshots someone needs to read, so it stays and the path is reported.
+ *
+ * @param {number} code Exit code the process is leaving with.
+ */
+function releaseOwnedArtifactRoot(code) {
+	if (code === 0) {
+		removeOwnedPath(artifactRoot);
+	} else if (existsSync(artifactRoot)) {
+		console.warn(`[run-web-tests] Playwright output kept at ${artifactRoot}`);
+	}
+}
+
+/**
+ * Removes the databases this run derived inside a scratch it does not own, as the process exits.
+ *
+ * A supervised run's scratch belongs to the supervisor, which never deletes it, so the per-chunk
+ * databases (a few MB each) outlived every supervised run. Only the exact paths this run computed
+ * go, with their -shm/-wal companions and migration lock: the supervisor's other files and a concurrent run's stay.
+ */
+function releaseOwnedDatabases() {
+	for (const databasePath of ownedDatabasePaths) {
+		for (const file of [databasePath, `${databasePath}-shm`, `${databasePath}-wal`, `${databasePath}.migrate.lock`]) {
+			removeOwnedPath(file);
+		}
+	}
+}
+
+if (ownedQualityRoot) {
+	mkdirSync(qualityScratch, { recursive: true });
+	mkdirSync(qualityRetained, { recursive: true });
+	process.on('exit', releaseOwnedQualityRoot);
+} else {
+	process.on('exit', releaseOwnedDatabases);
+}
+const dbPath = process.env.PLAYWRIGHT_DB_PATH || path.join(qualityScratch, `playwright-control-center-${process.pid}.sqlite`);
 const playwrightProjects = ['desktop', 'mobile'];
 const testsPerChunk = Number.parseInt(process.env.PLAYWRIGHT_TESTS_PER_CHUNK || '4', 10);
 const dashboardPortNumber = Number.parseInt(dashboardPort, 10);
-const artifactRoot = process.env.PLAYWRIGHT_ARTIFACT_ROOT || `.tmp/playwright-artifacts-${process.pid}`;
+/**
+ * A standalone run keeps its Playwright output inside its own evidence directory, the same
+ * contract the supervised runner uses; the lifecycle spec refuses to retain evidence anywhere
+ * else.
+ */
+const artifactRoot =
+	process.env.PLAYWRIGHT_ARTIFACT_ROOT ||
+	(ownedQualityRoot ? path.join(qualityRetained, 'playwright-artifacts') : `.tmp/playwright-artifacts-${process.pid}`);
+if (!process.env.PLAYWRIGHT_ARTIFACT_ROOT) {
+	process.on('exit', releaseOwnedArtifactRoot);
+}
+const argumentsList = process.argv.slice(2);
+const grepIndex = argumentsList.indexOf('--grep');
+const selectedGrep = grepIndex < 0 ? null : argumentsList.splice(grepIndex, 2)[1];
+if (grepIndex >= 0 && !selectedGrep) throw new Error('--grep requires a test title pattern');
+const selectedTestFiles = argumentsList;
+const privateServerTests = new Set();
+for (const file of selectedTestFiles) {
+	const relative = path.relative(path.resolve('tests_web'), path.resolve(file));
+	if (relative.startsWith('..') || path.isAbsolute(relative) || !existsSync(file) || !file.endsWith('.spec.js')) {
+		throw new Error(`Focused web tests must be existing files under tests_web: ${file}`);
+	}
+}
 
 function runNode(args, options = {}) {
 	return spawnSync(process.execPath, args, {
@@ -48,14 +214,13 @@ function dashboardServerCommand(port, sqlitePath) {
 		'--workspace',
 		'.',
 	];
+	if (process.env.PLAYWRIGHT_STATIC_DIR) {
+		dashboardArgs.push('--static-dir', process.env.PLAYWRIGHT_STATIC_DIR);
+	}
 	if (existsSync(pythonPath)) {
 		return { command: pythonPath, args: dashboardArgs };
 	}
 	return { command: 'uv', args: ['run', 'python', ...dashboardArgs] };
-}
-
-function cleanup(env = process.env) {
-	return runNode([cleanupScript], { env }).status ?? 1;
 }
 
 function escapeRegExp(value) {
@@ -65,9 +230,18 @@ function escapeRegExp(value) {
 function chunkTests(tests) {
 	const chunkSize = Number.isFinite(testsPerChunk) && testsPerChunk > 0 ? testsPerChunk : 1;
 	const chunks = [];
-	for (let index = 0; index < tests.length; index += chunkSize) {
-		chunks.push(tests.slice(index, index + chunkSize));
+	let pending = [];
+	for (const title of tests) {
+		if (privateServerTests.has(title)) {
+			if (pending.length) chunks.push(pending);
+			pending = [];
+			chunks.push([title]);
+		} else {
+			pending.push(title);
+			if (pending.length === chunkSize) { chunks.push(pending); pending = []; }
+		}
 	}
+	if (pending.length) chunks.push(pending);
 	return chunks;
 }
 
@@ -100,33 +274,24 @@ async function waitForExit(childProcess, timeoutMs) {
 
 async function stopDashboardServer(childProcess) {
 	if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
-		return;
+		throw new Error('Dashboard root exited before owned-tree cleanup; outer supervisor cleanup is required.');
 	}
-	childProcess.kill();
-	if (await waitForExit(childProcess, 5000)) {
-		return;
+	if (!Number.isFinite(childProcess.aidoCreatedAt)) {
+		throw new Error('Dashboard identity is unverified; outer supervisor cleanup is required.');
 	}
-	if (process.platform === 'win32' && childProcess.pid) {
-		spawnSync(
-			'powershell',
-			[
-				'-NoProfile',
-				'-ExecutionPolicy',
-				'Bypass',
-				'-Command',
-				`Stop-Process -Id ${childProcess.pid} -Force -ErrorAction SilentlyContinue`,
-			],
-			{ stdio: 'inherit' },
-		);
-		return;
+	const result = processTreeCommand('stop', childProcess.pid, childProcess.aidoCreatedAt);
+	if (result.remainingCount !== 0 || !(await waitForExit(childProcess, 5000))) {
+		throw new Error('Owned dashboard tree did not exit; supervisor cleanup is required.');
 	}
-	if (childProcess.pid) {
-		try {
-			process.kill(childProcess.pid, 'SIGKILL');
-		} catch {
-			// The process may have exited between the graceful and forced stop.
-		}
-	}
+}
+
+function processTreeCommand(action, pid, createdAt) {
+	const python = process.platform === 'win32' ? windowsPython : posixPython;
+	const args = ['-m', 'local_control_center.quality.owned_tree', action, '--pid', String(pid), '--parent-pid', String(process.pid)];
+	if (createdAt !== undefined) args.push('--created-at', String(createdAt));
+	const result = spawnSync(python, args, { encoding: 'utf8', timeout: 20000 });
+	if (result.status !== 0) throw new Error(`Owned-tree ${action} failed: ${result.stderr || result.error || result.status}`);
+	return JSON.parse(result.stdout);
 }
 
 async function waitForDashboardHealth(port, childProcess) {
@@ -152,7 +317,7 @@ async function waitForDashboardHealth(port, childProcess) {
 }
 
 function listProjectTests(project, env) {
-	const result = runNodeCaptured([playwrightCli, 'test', `--project=${project}`, '--list'], {
+	const result = runNodeCaptured([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--list', ...(selectedGrep ? ['--grep', selectedGrep] : [])], {
 		env: { ...env, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
 	});
 	if ((result.status ?? 1) !== 0) {
@@ -166,12 +331,18 @@ function listProjectTests(project, env) {
 	for (const line of output.split(/\r?\n/)) {
 		if (!line.includes(marker)) continue;
 		const title = line.split(' › ').pop()?.trim();
-		if (title) tests.push(title);
+		if (title) {
+			tests.push(title);
+			if (line.includes('thread-lifecycle-e2e.spec.js:')) privateServerTests.add(title);
+		}
 	}
 	return Array.from(new Set(tests));
 }
 
 async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
+	if (chunk.length === 1 && privateServerTests.has(chunk[0])) {
+		return executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
+	}
 	const dashboard = dashboardServerCommand(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, chunkEnv.PLAYWRIGHT_DB_PATH);
 	const dashboardProcess = spawn(dashboard.command, dashboard.args, {
 		env: chunkEnv,
@@ -182,11 +353,9 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 		dashboardExitedEarly = true;
 	});
 	try {
+		dashboardProcess.aidoCreatedAt = processTreeCommand('identify', dashboardProcess.pid).createdAt;
 		await waitForDashboardHealth(chunkEnv.PLAYWRIGHT_DASHBOARD_PORT, dashboardProcess);
-		const grep = `(?:${chunk.map(escapeRegExp).join('|')})`;
-		const result = runNode([playwrightCli, 'test', `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
-			env: { ...chunkEnv, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
-		}).status ?? 1;
+		const result = executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
 		if (result === 0 && dashboardExitedEarly) {
 			console.error('Dashboard server exited before Playwright chunk cleanup.');
 			return 1;
@@ -200,7 +369,14 @@ async function runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
 	}
 }
 
-let status = cleanup();
+function executePlaywrightChunk(project, chunk, chunkEnv, chunkOutput) {
+	const grep = `(?:${chunk.map(escapeRegExp).join('|')})`;
+	return runNode([playwrightCli, 'test', ...selectedTestFiles, `--project=${project}`, '--reporter=line', '--output', chunkOutput, '--grep', grep], {
+		env: { ...chunkEnv, PLAYWRIGHT_EXTERNAL_SERVER: '1' },
+	}).status ?? 1;
+}
+
+let status = 0;
 
 if (status === 0) {
 	status = runNode([
@@ -216,7 +392,10 @@ if (status === 0) {
 		const project = playwrightProjects[projectIndex];
 		const projectDbPath = process.env.PLAYWRIGHT_DB_PATH || dbPath.replace(/\.sqlite$/, `-${project}.sqlite`);
 		const projectEnv = {
-			...process.env,
+			...hermeticProcessEnv(),
+			...(supervised ? {} : { TEMP: qualityScratch, TMP: qualityScratch, TMPDIR: qualityScratch }),
+			AIDO_QUALITY_SCRATCH: qualityScratch,
+			AIDO_QUALITY_RETAINED: qualityRetained,
 			PLAYWRIGHT_DASHBOARD_PORT: dashboardPort,
 			PLAYWRIGHT_DB_PATH: projectDbPath,
 		};
@@ -227,9 +406,6 @@ if (status === 0) {
 		}
 		const chunks = chunkTests(tests);
 		for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-			// Always increment per chunk from the (env or default) base. Reusing one fixed port
-			// across sequential chunks can hit a TIME_WAIT bind collision (abnormal exit); a unique
-			// port per chunk avoids both that and the reserved-range failure.
 			const chunkPort = Number.isFinite(dashboardPortNumber)
 				? String(dashboardPortNumber + projectIndex * 200 + chunkIndex + 1)
 				: dashboardPort;
@@ -238,25 +414,15 @@ if (status === 0) {
 				PLAYWRIGHT_DASHBOARD_PORT: chunkPort,
 				PLAYWRIGHT_DB_PATH: process.env.PLAYWRIGHT_DB_PATH || projectDbPath.replace(/\.sqlite$/, `-chunk${chunkIndex + 1}.sqlite`),
 			};
+			if (!process.env.PLAYWRIGHT_DB_PATH) ownedDatabasePaths.add(chunkEnv.PLAYWRIGHT_DB_PATH);
 			const chunkOutput = path.join(artifactRoot, safePathSegment(project), `chunk-${chunkIndex + 1}`);
 			mkdirSync(chunkOutput, { recursive: true });
-			status = cleanup(chunkEnv);
-			if (status !== 0) break;
 			const chunk = chunks[chunkIndex];
 			status = await runPlaywrightChunk(project, chunk, chunkEnv, chunkOutput);
-			const projectCleanupStatus = cleanup(chunkEnv);
-			if (status === 0 && projectCleanupStatus !== 0) {
-				status = projectCleanupStatus;
-			}
 			if (status !== 0) break;
 		}
 		if (status !== 0) break;
 	}
-}
-
-const cleanupStatus = cleanup();
-if (status === 0 && cleanupStatus !== 0) {
-	status = cleanupStatus;
 }
 
 process.exit(status);

@@ -3,13 +3,14 @@
  *
  * Centralizes theme reads/writes so the pre-paint bootstrap and the runtime toggle
  * share one storage key and one DOM attribute, keeping `color-scheme` consistent.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useCallback, useEffect, useState } from 'react';
 
 export type Theme = 'dark' | 'light';
 
 const THEME_STORAGE_KEY = 'aido:theme';
+const THEME_CHANGE_EVENT = 'aido:theme-setting';
 
 /**
  * Theme is dark-first by design; light is an opt-in override wired through
@@ -33,6 +34,7 @@ function persistTheme(theme: Theme) {
 	try {
 		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
 	} catch {}
+	window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
 }
 
 /** Applies the persisted theme to <html> before React renders, avoiding a flash. */
@@ -40,7 +42,8 @@ export function applyStoredTheme() {
 	applyTheme(readStoredTheme());
 }
 
-/** Exposes the current theme and a toggle that persists the new choice and updates `<html>`. */
+/** Exposes the current theme, a direct setter, and a toggle; both persist and update `<html>`.
+ *  Instances stay in sync via a window event (StatusBar, MenuBar and Settings share state). */
 export function useTheme() {
 	const [theme, setThemeState] = useState<Theme>(readStoredTheme);
 
@@ -48,13 +51,22 @@ export function useTheme() {
 		applyTheme(theme);
 	}, [theme]);
 
-	const toggleTheme = useCallback(() => {
-		setThemeState((current) => {
-			const next: Theme = current === 'dark' ? 'light' : 'dark';
-			persistTheme(next);
-			return next;
-		});
+	useEffect(() => {
+		const sync = () => setThemeState(readStoredTheme());
+		window.addEventListener(THEME_CHANGE_EVENT, sync);
+		return () => window.removeEventListener(THEME_CHANGE_EVENT, sync);
 	}, []);
 
-	return { theme, toggleTheme };
+	const setTheme = useCallback((next: Theme) => {
+		persistTheme(next);
+		setThemeState(next);
+	}, []);
+
+	const toggleTheme = useCallback(() => {
+		const next: Theme = readStoredTheme() === 'dark' ? 'light' : 'dark';
+		persistTheme(next);
+		setThemeState(next);
+	}, []);
+
+	return { theme, setTheme, toggleTheme };
 }

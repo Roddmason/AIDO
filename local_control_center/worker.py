@@ -3,7 +3,7 @@
 Mantiene la ruta de import `local_control_center.worker` que esperan tests y entrypoints,
 delegando la implementación real en `jobs_approvals.worker`.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from .jobs_approvals.worker import ConcurrentWorker, execute_job

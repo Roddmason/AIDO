@@ -3,10 +3,10 @@
 Habla el protocolo propio de Anthropic: auth `x-api-key` + `anthropic-version`, endpoint
 `/messages`, mensajes `system` extraidos aparte y `max_tokens` obligatorio. Suma los
 tokens de cacheo (creacion + lectura) en `cached_input_tokens` y, como no hay tarifa
-publicada aqui, deja el costo como desconocido. Las llamadas reales quedan tras el
-interruptor compartido `real_provider_calls_enabled()` y los payloads se redactan.
+publicada aqui, deja el costo como desconocido. La autoridad de ejecución vive en la
+política SQLite de runtime; este proveedor valida config/credencial y redacta payloads.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .base import (
     ProviderHealth,
     UsageRecord,
 )
-from .openai_compatible import real_provider_calls_enabled
+from .http_transport import urlopen_fail_closed
 
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"
@@ -49,19 +49,41 @@ class AnthropicAPIProvider(ModelProvider):
 
     provider_id = "anthropic_api"
 
-    def __init__(self, *, base_url: str | None = None, credential_ref: str | None = None):
-        runtime_configuration = runtime_provider_configuration(self.provider_id)
-        self.base_url = (
-            base_url
-            or (runtime_configuration.value("baseUrl") if runtime_configuration else None)
-            or os.environ.get("AIDO_ANTHROPIC_BASE_URL")
-            or DEFAULT_ANTHROPIC_BASE_URL
-        ).rstrip("/")
-        self.credential_ref = (
-            credential_ref
-            or (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
-            or "env:AIDO_ANTHROPIC_API_KEY"
+    def __init__(
+        self,
+        *,
+        provider_id: str = "anthropic_api",
+        base_url: str | None = None,
+        credential_ref: str | None = None,
+    ):
+        is_legacy_provider = provider_id == "anthropic_api"
+        runtime_configuration = (
+            runtime_provider_configuration("anthropic_api") if is_legacy_provider else None
         )
+        resolved_base_url = (
+            base_url
+            if base_url is not None
+            else (
+                (runtime_configuration.value("baseUrl") if runtime_configuration else None)
+                or os.environ.get("AIDO_ANTHROPIC_BASE_URL")
+                or DEFAULT_ANTHROPIC_BASE_URL
+                if is_legacy_provider
+                else ""
+            )
+        )
+        resolved_credential_ref = (
+            credential_ref
+            if credential_ref is not None
+            else (
+                (runtime_configuration.configured_env_ref("apiKey") if runtime_configuration else None)
+                or "env:AIDO_ANTHROPIC_API_KEY"
+                if is_legacy_provider
+                else ""
+            )
+        )
+        self.provider_id = provider_id
+        self.base_url = resolved_base_url.rstrip("/")
+        self.credential_ref = resolved_credential_ref
         self.credential_resolver = CredentialResolver()
 
     def _credential(self) -> str:
@@ -81,12 +103,12 @@ class AnthropicAPIProvider(ModelProvider):
             headers=self._headers(),
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urlopen_fail_closed(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return payload if isinstance(payload, dict) else {}
 
     def health_check(self) -> ProviderHealth:
-        """Valida credencial y URL sin red; solo toca `/models` si las llamadas reales estan activas."""
+        """Valida credencial/URL y prueba `/models`; la política runtime se aplica aguas arriba."""
         credential = self.credential_resolver.resolve(self.credential_ref, fetch=False)
         if credential.status == "invalid":
             return ProviderHealth(
@@ -109,13 +131,6 @@ class AnthropicAPIProvider(ModelProvider):
                 healthStatus="misconfigured",
                 message="Anthropic base URL is not configured.",
             )
-        if not real_provider_calls_enabled():
-            return ProviderHealth(
-                providerId=self.provider_id,
-                status="disabled",
-                healthStatus="unknown",
-                message="Real provider calls are disabled",
-            )
         try:
             self._get_json("/models")
         except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
@@ -133,10 +148,11 @@ class AnthropicAPIProvider(ModelProvider):
         )
 
     def list_models(self) -> list[ModelInfo]:
-        """Descubre modelos via `/models`. Raises si las llamadas reales estan deshabilitadas."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider discovery is disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
-        payload = self._get_json("/models")
+        """Descubre modelos via `/models`."""
+        try:
+            payload = self._get_json("/models")
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError):
+            return []
         models = payload.get("data", []) if isinstance(payload, dict) else []
         return [
             ModelInfo(
@@ -150,9 +166,7 @@ class AnthropicAPIProvider(ModelProvider):
         ]
 
     def chat_completion(self, request: ModelRequest) -> ModelResponse:
-        """Postea a `/messages` con el payload nativo de Anthropic y normaliza la respuesta. Raises si falta config o las llamadas reales estan off."""
-        if not real_provider_calls_enabled():
-            raise RuntimeError("Real provider calls are disabled by AIDO_ENABLE_REAL_PROVIDER_CALLS=false")
+        """Postea a `/messages` con el payload nativo de Anthropic y normaliza la respuesta."""
         if not self.base_url or not self._credential():
             raise RuntimeError("Anthropic provider is missing base_url or credential_ref")
         payload = json.dumps(self._messages_payload(request)).encode("utf-8")
@@ -162,7 +176,7 @@ class AnthropicAPIProvider(ModelProvider):
             headers=self._headers(),
             method="POST",
         )
-        with urllib.request.urlopen(http_request, timeout=60) as response:
+        with urlopen_fail_closed(http_request, timeout=60) as response:
             raw = json.loads(response.read().decode("utf-8"))
         return ModelResponse(
             providerId=self.provider_id,

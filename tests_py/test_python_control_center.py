@@ -1,30 +1,50 @@
 import json
+import os
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, closing
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+import pytest
 
 from local_control_center.agents_runtime import GatedAgentsPlanner
 from local_control_center.app import create_app
+from local_control_center.control_plane.overview import (
+    OVERVIEW_AGENT_RUN_LIMIT,
+    OVERVIEW_AGENT_TOOL_CALL_LIMIT,
+    OVERVIEW_AUDIT_EVENT_LIMIT,
+    OVERVIEW_COST_USAGE_LIMIT,
+    OVERVIEW_EVENT_LIMIT,
+    OVERVIEW_EVIDENCE_LIMIT,
+    OVERVIEW_PERMISSION_DECISION_LIMIT,
+    OVERVIEW_TEST_RESULT_LIMIT,
+)
 from local_control_center.control_plane.runtime import ControlCenterRuntime
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.memory_retrieval.index import RetrievalIndex
 from local_control_center.memory_retrieval.repository import MemoryRepository
 from local_control_center.projects.repository import ProjectsRepository
-from local_control_center.sandbox import WindowsSandbox
 from local_control_center.shared.db import open_sqlite_connection
 from local_control_center.shared.event_bus import EventBus
 from local_control_center.shared.migrations import initialize_platform_schema
+from local_control_center.threads.repository import ThreadsRepository
 from local_control_center.worker import ConcurrentWorker
 from tests_py.control_plane_fixture import ControlPlaneFixture
+from tests_py.execution_client import CompletedExecutionClient as TestClient
+
+
+@pytest.fixture
+def owned_runtime_resources():
+    """Close this test's clients before its borrowed runtimes, including failure paths."""
+    with ExitStack() as resources:
+        yield resources
 
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -76,9 +96,86 @@ def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path
         assert all(job["status"] == "queued" for job in jobs.list_jobs() if job["id"] in claimed_ids)
 
 
-def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monkeypatch) -> None:
+def test_runtime_provider_status_does_not_block_control_plane(tmp_path: Path, monkeypatch) -> None:
+    from fastapi.testclient import TestClient as NativeTestClient
+
+    from local_control_center.agents.runtime_status import RuntimeStatusService
+    from local_control_center.process_supervision.context import CURRENT_EXECUTION
+
+    entered, release = threading.Event(), threading.Event()
+    observed = {}
+
+    def waiting_status(service, *, project_id=None):
+        context = CURRENT_EXECUTION.get()
+        observed.update(requestId=context.request_id, dbPath=context.db_path)
+        assert service.connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        entered.set()
+        assert release.wait(8), "The test must release the deterministic status operation"
+        raise ValueError("synthetic readiness failure")
+
+    monkeypatch.setattr(RuntimeStatusService, "runtime_provider_status", waiting_status)
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "status.sqlite")
+    runtime.init()
+    try:
+        with (
+            NativeTestClient(create_app(runtime=runtime), raise_server_exceptions=False) as client,
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            pending = pool.submit(
+                client.get, "/api/v1/runtime/providers", headers={"X-Correlation-ID": "readiness-held"}
+            )
+            try:
+                assert entered.wait(3)
+                health = pool.submit(client.get, "/healthz").result(timeout=2)
+                assert health.status_code == 200
+                assert not pending.done()
+            finally:
+                release.set()
+            result = pending.result(timeout=3)
+            assert result.status_code == 500
+            assert result.headers["X-Correlation-ID"] == "readiness-held"
+            assert observed == {"requestId": "readiness-held", "dbPath": runtime.db_path}
+    finally:
+        runtime.close()
+
+
+def test_schema_initialization_keeps_credentials_view_safe_for_concurrent_workers(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+
+    barrier = threading.Barrier(8)
+
+    def initialize_from_worker() -> str:
+        barrier.wait(timeout=5)
+        local_connection = open_sqlite_connection(db_path)
+        try:
+            initialize_platform_schema(local_connection)
+            return local_connection.execute("SELECT credentialRef FROM credentials LIMIT 1").description[0][0]
+        finally:
+            local_connection.close()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        columns = list(pool.map(lambda _index: initialize_from_worker(), range(8)))
+
+    migration_source = Path("local_control_center/shared/migrations.py").read_text(encoding="utf-8")
+    phase30_source = migration_source.split("def init_phase30_schema", 1)[1].split(
+        "def init_phase31_schema",
+        1,
+    )[0]
+
+    assert columns == ["credentialRef"] * 8
+    assert "DROP VIEW IF EXISTS credentials" not in phase30_source
+    assert "CREATE VIEW IF NOT EXISTS credentials AS" in phase30_source
+
+
+def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="API", path=tmp_path / "api", template_id="other")
     store.memory.create_memory_item(
@@ -90,7 +187,7 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
         source_ref="test",
     )
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     overview_response = client.get("/api/v1/overview")
     assert overview_response.status_code == 200
@@ -147,7 +244,38 @@ def test_fastapi_contracts_jobs_approvals_sse_and_retrieval(tmp_path: Path, monk
     assert search.json()["results"] == []
 
 
-def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Path, monkeypatch) -> None:
+def test_require_write_rejects_near_miss_token(owned_runtime_resources, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    project = store.create_project(name="Token", path=tmp_path / "token", template_id="other")
+    app = create_app(runtime=store, static_dir=None)
+    client = owned_runtime_resources.enter_context(TestClient(app))
+
+    token = client.get("/api/v1/security/handshake").json()["token"]
+    near_miss = token[:-1] + ("A" if token[-1] != "A" else "B")
+    body = {"projectId": project["id"], "kind": "prompt.optimize"}
+
+    denied = client.post(
+        "/api/v1/jobs",
+        json=body,
+        headers={"X-Local-Control-Token": near_miss, "Origin": "http://127.0.0.1"},
+    )
+    assert denied.status_code == 403
+
+    accepted = client.post(
+        "/api/v1/jobs",
+        json=body,
+        headers={"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"},
+    )
+    assert accepted.status_code == 202
+
+
+def test_static_routes_resolve_relative_static_dir_at_app_creation(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     app_root = tmp_path / "app-root"
     static_dir = app_root / "dist"
     other_cwd = tmp_path / "other"
@@ -155,27 +283,33 @@ def test_static_routes_resolve_relative_static_dir_at_app_creation(tmp_path: Pat
     other_cwd.mkdir()
     (static_dir / "index.html").write_text("<html><body>control shell</body></html>", encoding="utf-8")
 
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
 
     monkeypatch.chdir(app_root)
     app = create_app(runtime=store, static_dir=Path("dist"))
     monkeypatch.chdir(other_cwd)
 
-    response = TestClient(app).get("/")
+    response = owned_runtime_resources.enter_context(TestClient(app)).get("/")
 
     assert response.status_code == 200
     assert "control shell" in response.text
 
 
-def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monkeypatch) -> None:
+def test_sse_snapshot_does_not_race_shared_store_connection(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Concurrent", path=tmp_path / "concurrent", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def request(path: str) -> tuple[int, str]:
         response = client.get(path)
@@ -189,14 +323,18 @@ def test_sse_snapshot_does_not_race_shared_store_connection(tmp_path: Path, monk
     assert any("event: snapshot" in body for _, body in responses)
 
 
-def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch) -> None:
+def test_sse_snapshot_uses_isolated_store_connection(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="SSE", path=tmp_path / "sse", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def fail_if_shared_store_is_used():
         raise AssertionError("SSE endpoint must not snapshot through the shared request store")
@@ -210,14 +348,18 @@ def test_sse_snapshot_uses_isolated_store_connection(tmp_path: Path, monkeypatch
     assert "chat.route" in response.text
 
 
-def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monkeypatch) -> None:
+def test_overview_routes_do_not_use_store_read_model_facade(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="Overview", path=tmp_path / "overview", template_id="other")
     store.jobs.create_job(project_id=project["id"], kind="chat.route", payload={"prompt": "hello"})
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
 
     def fail_if_facade_is_used():
         raise AssertionError(
@@ -233,6 +375,249 @@ def test_overview_routes_do_not_use_store_read_model_facade(tmp_path: Path, monk
     assert any(job["id"] for job in overview.json()["jobs"])
     assert events.status_code == 200
     assert "event: snapshot" in events.text
+
+
+def test_overview_returns_bounded_recent_event_snapshot(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    project = store.create_project(
+        name="Overview Events",
+        path=tmp_path / "overview-events",
+        template_id="other",
+    )
+    for index in range(OVERVIEW_EVENT_LIMIT + 25):
+        store.events.record_event(
+            project_id=project["id"],
+            event_type="telemetry.http.request",
+            payload={"sequence": index},
+        )
+    for index in range(OVERVIEW_AUDIT_EVENT_LIMIT + 10):
+        store.events.record_audit(
+            project_id=project["id"],
+            action="audit.test",
+            target=f"target-{index}",
+            payload={"sequence": index},
+        )
+    assert len(store.events.list_events(project_id=project["id"])) == OVERVIEW_EVENT_LIMIT + 25
+    assert len(store.events.list_audit_events(project_id=project["id"])) >= OVERVIEW_AUDIT_EVENT_LIMIT + 10
+
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["events"]) == OVERVIEW_EVENT_LIMIT
+    assert len(overview["auditEvents"]) == OVERVIEW_AUDIT_EVENT_LIMIT
+    event_sequences = [
+        item["payload"].get("sequence") for item in overview["events"] if "sequence" in item["payload"]
+    ]
+    assert max(event_sequences) == OVERVIEW_EVENT_LIMIT + 24
+    audit_sequences = [
+        item["payload"].get("sequence") for item in overview["auditEvents"] if item["action"] == "audit.test"
+    ]
+    assert max(audit_sequences) == OVERVIEW_AUDIT_EVENT_LIMIT + 9
+
+
+def test_overview_bounds_heavy_history_collections(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    project = store.create_project(
+        name="Overview History",
+        path=tmp_path / "overview-history",
+        template_id="other",
+    )
+    for index in range(OVERVIEW_PERMISSION_DECISION_LIMIT + 25):
+        store.security.record_decision(
+            project_id=project["id"],
+            workspace_id=None,
+            agent_id=None,
+            role=None,
+            tool="shell",
+            command=f"echo {index}",
+            path=None,
+            decision="allow",
+            risk_level="low",
+            reason=f"sequence-{index}",
+            payload={"sequence": index},
+        )
+    profile = store.agents.upsert_agent_profile(
+        {
+            "id": "overview_history_agent",
+            "name": "Overview History Agent",
+            "role": "developer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    run = None
+    for index in range(OVERVIEW_AGENT_RUN_LIMIT + 10):
+        run = store.agents.create_agent_run(
+            project_id=project["id"],
+            agent_profile_id=profile["id"],
+            task_id=f"overview-history-{index}",
+            input_payload={},
+            output_payload={},
+        )
+    assert run is not None
+    for index in range(OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15):
+        store.agents.record_agent_tool_call(
+            agent_run_id=run["id"],
+            tool_name="shell",
+            status="completed",
+            payload={"sequence": index},
+        )
+    for _index in range(OVERVIEW_COST_USAGE_LIMIT + 10):
+        store.agents.record_model_call(
+            project_id=project["id"],
+            provider="test-provider",
+            model="test-model",
+            status="completed",
+            cost_usd=0.01,
+        )
+
+    assert len(store.security.list_decisions()) >= OVERVIEW_PERMISSION_DECISION_LIMIT + 25
+    assert len(store.agents.list_agent_runs()) == OVERVIEW_AGENT_RUN_LIMIT + 10
+    assert len(store.agents.list_agent_tool_calls()) == OVERVIEW_AGENT_TOOL_CALL_LIMIT + 15
+    assert len(store.agents.list_cost_usage()) == OVERVIEW_COST_USAGE_LIMIT + 10
+
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["permissionDecisions"]) == OVERVIEW_PERMISSION_DECISION_LIMIT
+    assert len(overview["agentToolCalls"]) == OVERVIEW_AGENT_TOOL_CALL_LIMIT
+    assert len(overview["agentRuns"]) == OVERVIEW_AGENT_RUN_LIMIT
+    assert len(overview["costUsage"]) == OVERVIEW_COST_USAGE_LIMIT
+
+
+def test_overview_compacts_embedded_blobs_and_caps_evidence_history(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
+    # El overview viaja cada 5s: las señales escalares (status, ids) deben sobrevivir,
+    # pero los blobs embebidos (schedules, prompts, snapshots anidados) viven en sus
+    # endpoints de detalle, no en el poll.
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    project = store.create_project(
+        name="Overview Compact",
+        path=tmp_path / "overview-compact",
+        template_id="other",
+    )
+    heavy_blob = {"schedule": "x" * 50_000}
+    profile = store.agents.upsert_agent_profile(
+        {
+            "id": "overview_compact_agent",
+            "name": "Overview Compact Agent",
+            "role": "developer",
+            "runtimeMode": "cli",
+            "permissionProfile": "dev_safe",
+            "allowedTools": ["shell"],
+        }
+    )
+    store.agents.create_agent_run(
+        project_id=project["id"],
+        agent_profile_id=profile["id"],
+        task_id="overview-compact-run",
+        input_payload={"agentProfileId": profile["id"], "teamSchedule": heavy_blob},
+        output_payload={"summary": "ok", "runtimeLog": "y" * 50_000},
+    )
+    for index in range(OVERVIEW_EVIDENCE_LIMIT + 5):
+        store.evidence.create_evidence_package(
+            project_id=project["id"],
+            workflow_run_id=None,
+            task_id=f"overview-compact-{index}",
+            test_results=[
+                {"command": "pnpm test", "status": "passed", "metadata": {"agentRun": heavy_blob}},
+                {"command": "pnpm lint", "status": "passed", "metadata": {"teamSchedule": heavy_blob}},
+            ],
+        )
+
+    response = owned_runtime_resources.enter_context(
+        TestClient(create_app(runtime=store, static_dir=None))
+    ).get("/api/v1/overview")
+
+    assert response.status_code == 200
+    overview = response.json()
+    assert len(overview["evidencePackages"]) == OVERVIEW_EVIDENCE_LIMIT
+    assert len(overview["testResultRecords"]) == OVERVIEW_TEST_RESULT_LIMIT
+    run = overview["agentRuns"][0]
+    assert run["input"]["agentProfileId"] == profile["id"]
+    assert len(json.dumps(run["input"])) < 20_000
+    assert len(json.dumps(run["output"])) < 20_000
+    evidence_item = overview["evidencePackages"][0]
+    statuses = [entry.get("status") for entry in evidence_item["testResults"]]
+    assert statuses == ["passed", "passed"]
+    assert len(json.dumps(evidence_item)) < 40_000
+    test_record = overview["testResultRecords"][0]
+    assert test_record["status"] == "passed"
+    assert len(json.dumps(test_record)) < 20_000
+
+
+def test_phase57_creates_created_at_indexes(tmp_path: Path) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    expected_indexes = {
+        "idx_agent_runs_created_at",
+        "idx_agent_tool_calls_created_at",
+        "idx_model_calls_created_at",
+        "idx_cost_usage_created_at",
+        "idx_events_type_created_at",
+    }
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        initialize_platform_schema(connection)
+        names = {
+            row["name"]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
+        }
+        assert expected_indexes <= names
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version = 57").fetchone()
+
+
+def test_startup_lifespan_prunes_stale_http_request_telemetry(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
+    store.init()
+    store.connection.execute(
+        "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+        " VALUES ('event-old-http', NULL, NULL, 'telemetry.http.request', '{}',"
+        " '2020-01-01T00:00:00.000Z')"
+    )
+    store.connection.execute(
+        "INSERT INTO events (id, job_id, project_id, type, payload, created_at)"
+        " VALUES ('event-old-domain', NULL, NULL, 'job.created', '{}', '2020-01-01T00:00:00.000Z')"
+    )
+
+    with TestClient(create_app(runtime=store, static_dir=None)):
+        pass
+
+    survivors = {
+        row["id"]
+        for row in store.connection.execute(
+            "SELECT id FROM events WHERE id IN ('event-old-http', 'event-old-domain')"
+        ).fetchall()
+    }
+    assert survivors == {"event-old-domain"}
 
 
 def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
@@ -264,7 +649,12 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
     def request(path: str) -> int:
         return client.get(path).status_code
 
-    paths = ["/api/v1/overview", "/api/v1/sessions", "/api/v1/projects", "/api/v1/retrieval/status"] * 4
+    paths = [
+        "/api/v1/overview",
+        "/api/v1/legacy/sessions",
+        "/api/v1/projects",
+        "/api/v1/retrieval/status",
+    ] * 4
     with ThreadPoolExecutor(max_workers=4) as executor:
         statuses = list(executor.map(request, paths))
 
@@ -290,12 +680,16 @@ def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(
     runtime.close()
 
 
-def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_covers_platform_v1_catalog_routes(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     token = client.get("/api/v1/security/handshake").json()["token"]
 
     routes = {
@@ -368,62 +762,72 @@ def test_fastapi_covers_platform_v1_catalog_routes(tmp_path: Path, monkeypatch) 
     )
 
 
-def test_fastapi_covers_v1_sessions_chats_and_pipelines(tmp_path: Path, monkeypatch) -> None:
+def test_fastapi_covers_threads_and_legacy_read_only_cutover(
+    owned_runtime_resources, tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     project = store.create_project(name="V1", path=tmp_path / "v1", template_id="other")
     app = create_app(runtime=store, static_dir=None)
-    client = TestClient(app)
+    client = owned_runtime_resources.enter_context(TestClient(app))
     token = client.get("/api/v1/security/handshake").json()["token"]
     headers = {"X-Local-Control-Token": token, "Origin": "http://127.0.0.1"}
 
     removed_state_path = "/api/" + "state"
     assert client.get(removed_state_path).status_code == 404
 
-    session_response = client.post(
-        "/api/v1/sessions", json={"projectId": project["id"], "name": "Python Session"}, headers=headers
+    assert (
+        client.post(
+            "/api/v1/sessions",
+            json={"projectId": project["id"], "name": "Python Session"},
+            headers=headers,
+        ).status_code
+        == 404
     )
-    assert session_response.status_code == 201
-    session = session_response.json()["session"]
-    assert session["name"] == "Python Session"
+    assert client.get("/api/v1/legacy/sessions").status_code == 200
 
-    chat = client.post(
-        "/api/v1/chats",
-        json={"projectId": project["id"], "sessionId": session["id"], "prompt": "Route this prompt"},
-        headers=headers,
-    )
-    assert chat.status_code == 201
-    chat_id = chat.json()["chat"]["id"]
-
-    pipeline = client.post(
-        "/api/v1/pipelines",
+    thread_response = client.post(
+        "/api/v1/threads",
         json={
             "projectId": project["id"],
-            "sessionId": session["id"],
-            "chatId": chat_id,
-            "title": "Python route",
+            "ownerType": "workspace",
+            "ownerId": project["id"],
+            "title": "Python route thread",
         },
         headers=headers,
     )
-    assert pipeline.status_code == 201
+    assert thread_response.status_code == 201
+    thread_id = thread_response.json()["thread"]["id"]
+
+    message = client.post(
+        f"/api/v1/threads/{thread_id}/messages",
+        json={"content": "Route this prompt"},
+        headers=headers,
+    )
+    assert message.status_code == 200
 
     overview = client.get("/api/v1/overview").json()
-    assert any(item["id"] == session["id"] for item in overview["sessions"])
-    assert any(item["id"] == chat_id for item in overview["chats"])
-    assert any(item["id"] == pipeline.json()["pipeline"]["id"] for item in overview["pipelines"])
+    assert "sessions" not in overview
+    assert "chats" not in overview
+    assert "pipelines" not in overview
+    assert any(item["id"] == thread_id for item in overview["threads"])
 
 
 def test_retrieval_status_reports_configuration_required_without_real_embeddings(
-    tmp_path: Path, monkeypatch
+    owned_runtime_resources, tmp_path: Path, monkeypatch
 ) -> None:
     from local_control_center.memory_retrieval import index as retrieval_index
 
     monkeypatch.setattr(retrieval_index, "faiss", None)
-    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = owned_runtime_resources.enter_context(
+        closing(ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite"))
+    )
     store.init()
     app = create_app(runtime=store, static_dir=None)
-    status = TestClient(app).get("/api/v1/retrieval/status")
+    status = owned_runtime_resources.enter_context(TestClient(app)).get("/api/v1/retrieval/status")
     assert status.status_code == 200
     body = status.json()
     assert body["status"] == "configuration_required"
@@ -441,12 +845,38 @@ def test_package_manager_is_pnpm_only() -> None:
     assert re.search(r"(?<!p)npm\s+run", start_script) is None
 
 
+@pytest.mark.skipif(os.name != "nt", reason="WindowsSelectorEventLoopPolicy solo existe en Windows.")
 def test_cli_configures_windows_selector_event_loop_policy() -> None:
     from local_control_center import cli
 
     assert cli.configure_windows_event_loop_policy(platform_name="nt") is True
     assert Path("pnpm-lock.yaml").exists()
     assert not Path("package-lock.json").exists()
+
+
+def test_validate_dashboard_host_accepts_loopback() -> None:
+    from local_control_center import cli
+
+    assert cli.validate_dashboard_host("127.0.0.1") == "127.0.0.1"
+    assert cli.validate_dashboard_host("localhost") == "localhost"
+    assert cli.validate_dashboard_host("::1") == "::1"
+
+
+def test_validate_dashboard_host_rejects_wildcard() -> None:
+    import pytest
+
+    from local_control_center import cli
+
+    with pytest.raises(SystemExit, match="loopback"):
+        cli.validate_dashboard_host("0.0.0.0")
+    with pytest.raises(SystemExit, match="loopback"):
+        cli.validate_dashboard_host("192.168.1.10")
+
+
+def test_validate_dashboard_host_env_override() -> None:
+    from local_control_center import cli
+
+    assert cli.validate_dashboard_host("0.0.0.0", allow_external=True) == "0.0.0.0"
 
 
 def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
@@ -460,9 +890,11 @@ def test_faiss_cpu_is_optional_not_required_for_python_environment() -> None:
     assert any(dependency.startswith("faiss-cpu") for dependency in optional_dependencies["faiss"])
 
 
-def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Path) -> None:
+def test_worker_records_runs_events_and_rejects_unapproved_actions(
+    tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -494,9 +926,11 @@ def test_worker_records_runs_events_and_rejects_unapproved_actions(tmp_path: Pat
         assert any(event["type"] == "job.failed" for event in EventBus(connection).list_events())
 
 
-def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: Path) -> None:
+def test_worker_fails_unknown_job_kind_instead_of_simulating_success(
+    tmp_path: Path, controlled_domain_host
+) -> None:
     db_path = tmp_path / "platform.sqlite"
-    with open_sqlite_connection(db_path) as connection:
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
         initialize_platform_schema(connection)
         jobs = JobsRepository(connection)
         project = ProjectsRepository(connection).create_project(
@@ -520,10 +954,137 @@ def test_worker_fails_unknown_job_kind_instead_of_simulating_success(tmp_path: P
     assert "Unsupported job kind" in run["summary"]
 
 
+def test_worker_executes_thread_product_loop_job_and_updates_thread(
+    monkeypatch, tmp_path: Path, controlled_domain_host
+) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    captured: dict[str, str] = {}
+
+    def fake_run_user_message(self, **kwargs):
+        captured["thread_id"] = kwargs["thread_id"]
+        captured["project_id"] = kwargs["project_id"]
+        return {
+            "status": "awaiting_approval",
+            "reason": "Evidence-backed Product Loop result awaits operator approval.",
+            "loop": {"id": "product-loop-controlled", "state": "awaiting_approval"},
+            "evidencePackage": {"id": "evidence-controlled"},
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.product_loop.coordinator.ProductLoopCoordinator.run_user_message",
+        fake_run_user_message,
+    )
+
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Thread Worker",
+            path=tmp_path / "thread-worker",
+            template_id="other",
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Thread worker",
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="thread.product_loop.run",
+            payload={
+                "threadId": thread["id"],
+                "message": "Implement the thread console.",
+                "title": "Thread console",
+                "root": str(tmp_path),
+            },
+        )["job"]
+
+    result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-thread")
+
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        repo = ThreadsRepository(connection)
+        refreshed = repo.get_thread(thread["id"])
+        events = repo.list_events(thread["id"])
+        messages = repo.list_messages(thread["id"])
+
+    assert result["job"]["id"] == job["id"]
+    assert result["job"]["status"] == "completed"
+    assert captured == {"thread_id": thread["id"], "project_id": project["id"]}
+    assert refreshed["status"] == "awaiting_approval"
+    assert "worker_claimed" in [event["type"] for event in events]
+    assert "approval_required" in [event["type"] for event in events]
+    assert messages[-1]["kind"] == "aido_lead"
+
+
+def test_worker_passes_plan_only_thread_job_and_marks_plan_ready(
+    monkeypatch, tmp_path: Path, controlled_domain_host
+) -> None:
+    db_path = tmp_path / "platform.sqlite"
+    captured: dict[str, object] = {}
+
+    def fake_run_user_message(self, **kwargs):
+        captured["plan_only"] = kwargs["run_metadata"]["planOnly"]
+        captured["thread_id"] = kwargs["thread_id"]
+        return {
+            "status": "plan_ready",
+            "reason": "Product plan is ready without runtime execution.",
+            "loop": {"id": "product-loop-plan-only", "state": "backlog_ready"},
+            "evidencePackage": {"id": "evidence-plan-only"},
+        }
+
+    monkeypatch.setattr(
+        "local_control_center.product_loop.coordinator.ProductLoopCoordinator.run_user_message",
+        fake_run_user_message,
+    )
+
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        project = ProjectsRepository(connection).create_project(
+            name="Plan Worker",
+            path=tmp_path / "plan-worker",
+            template_id="other",
+        )
+        thread = ThreadsRepository(connection).create_thread(
+            project_id=project["id"],
+            owner_type="workspace",
+            owner_id="workspace-1",
+            title="Plan worker",
+        )
+        job = JobsRepository(connection).create_job(
+            project_id=project["id"],
+            kind="thread.product_loop.run",
+            payload={
+                "threadId": thread["id"],
+                "message": "Plan the thread console.",
+                "title": "Plan thread console",
+                "root": str(tmp_path),
+                "planOnly": True,
+            },
+        )["job"]
+
+    result = ConcurrentWorker(db_path=db_path).run_once(worker_id="worker-plan")
+
+    with closing(open_sqlite_connection(db_path)) as connection, connection:
+        initialize_platform_schema(connection)
+        repo = ThreadsRepository(connection)
+        refreshed = repo.get_thread(thread["id"])
+        events = repo.list_events(thread["id"])
+        messages = repo.list_messages(thread["id"])
+
+    assert result["job"]["id"] == job["id"]
+    assert result["job"]["status"] == "completed"
+    assert captured == {"plan_only": True, "thread_id": thread["id"]}
+    assert refreshed["status"] == "open"
+    assert "plan_ready" in [event["type"] for event in events]
+    assert "blocked" not in [event["type"] for event in events]
+    assert messages[-1]["kind"] == "aido_lead"
+
+
 def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebuildable(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Retrieval",
@@ -619,7 +1180,7 @@ def test_retrieval_index_uses_persisted_real_embeddings_per_project_and_is_rebui
 def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_required(
     tmp_path: Path,
 ) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="No Embeddings",
@@ -645,7 +1206,7 @@ def test_retrieval_reindex_without_persisted_real_embeddings_is_configuration_re
 
 
 def test_retrieval_reindex_ignores_non_api_embedding_providers(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Manual Embeddings",
@@ -677,7 +1238,7 @@ def test_retrieval_reindex_ignores_non_api_embedding_providers(tmp_path: Path) -
 
 
 def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> None:
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         tables = {
             row[0]
@@ -686,21 +1247,9 @@ def test_sqlite_schema_contains_python_control_plane_tables(tmp_path: Path) -> N
     assert {"jobs", "job_runs", "events", "audit_events", "action_requests", "memory_embeddings"} <= tables
 
 
-def test_sandbox_denies_dangerous_subprocess_without_docker(tmp_path: Path, monkeypatch) -> None:
-    sandbox = WindowsSandbox(workspace=tmp_path)
-    monkeypatch.setattr(sandbox, "docker_available", lambda: False)
-
-    denied = sandbox.assess(["git", "push"])
-    allowed = sandbox.assess(["python", "--version"])
-
-    assert denied.allowed is False
-    assert denied.mode == "restricted-subprocess"
-    assert allowed.allowed is True
-
-
 def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Agents", path=tmp_path / "agents", template_id="other"
@@ -719,7 +1268,7 @@ def test_agents_planner_is_gated_when_sdk_or_key_is_missing(tmp_path: Path, monk
 
 def test_agents_planner_records_proposals_through_jobs_repository(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    with open_sqlite_connection(tmp_path / "platform.sqlite") as connection:
+    with closing(open_sqlite_connection(tmp_path / "platform.sqlite")) as connection, connection:
         initialize_platform_schema(connection)
         project = ProjectsRepository(connection).create_project(
             name="Agents Proposal",

@@ -5,18 +5,41 @@ input/output JSON schema, plus the logic that decides whether an optional model 
 is eligible to assist. The deterministic controls are always executable; the model
 runtime only augments them and never overrides the deterministic verdict.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from .provider_catalog import MODEL_PROVIDER_FAMILIES, REMOTE_MODEL_PROVIDER_FAMILIES
+from .runtime_selection import runtime_disabled_by_operator
+
 SECURITY_AGENT_ID = "security_agent"
-SECURITY_AGENT_ALLOWED_TOOLS = ["shell", "openai_compatible", "ollama"]
-SECURITY_AGENT_MODEL_RUNTIMES = {"openai_compatible", "ollama"}
-SECURITY_AGENT_RUNTIME_ORDER = ["openai_compatible", "ollama"]
+SECURITY_AGENT_ALLOWED_TOOLS = [
+    "shell",
+    *sorted(MODEL_PROVIDER_FAMILIES),
+]
+SECURITY_AGENT_REMOTE_API_RUNTIMES = set(REMOTE_MODEL_PROVIDER_FAMILIES)
+SECURITY_AGENT_MODEL_RUNTIMES = set(MODEL_PROVIDER_FAMILIES)
+_LEGACY_REMOTE_RUNTIME_ORDER = [
+    "openai_compatible",
+    "openrouter",
+    "nvidia_nim",
+    "anthropic_api",
+]
+SECURITY_AGENT_RUNTIME_ORDER = [
+    "ollama",
+    *_LEGACY_REMOTE_RUNTIME_ORDER,
+    *sorted(REMOTE_MODEL_PROVIDER_FAMILIES - set(_LEGACY_REMOTE_RUNTIME_ORDER)),
+]
 SECURITY_AGENT_VERDICTS = {"passed", "risk", "blocked"}
+
+
+def _security_runtime_family(runtime: dict[str, Any]) -> str:
+    runtime_id = str(runtime.get("id") or "")
+    provider_family = str(runtime.get("providerFamily") or "")
+    return "ollama" if runtime_id == "ollama" or provider_family == "ollama" else provider_family
 
 
 def security_agent_contract() -> dict[str, Any]:
@@ -78,13 +101,15 @@ def is_security_model_runtime(runtime: dict[str, Any]) -> bool:
     Requires an eligible runtime id with an executable, and (for Ollama) at least one
     available chat model.
     """
-    runtime_id = str(runtime.get("id") or "")
-    if runtime_id not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
+    runtime_family = _security_runtime_family(runtime)
+    if runtime_disabled_by_operator(runtime):
+        return False
+    if runtime_family not in SECURITY_AGENT_MODEL_RUNTIMES or not runtime.get("executable"):
         return False
     capabilities = set(runtime.get("capabilities") or [])
-    if runtime_id == "openai_compatible":
-        return "chat" in capabilities or not capabilities
-    if runtime_id == "ollama":
+    if runtime_family in SECURITY_AGENT_REMOTE_API_RUNTIMES:
+        return "chat" in capabilities
+    if runtime_family == "ollama":
         return "chat" in capabilities and bool(runtime.get("models"))
     return False
 
@@ -96,17 +121,12 @@ def security_agent_status(runtime_statuses: list[dict[str, Any]]) -> dict[str, A
     model runtimes are ranked by the configured runtime order to select a candidate.
     """
     deterministic_controls_executable = bool(SECURITY_AGENT_ALLOWED_TOOLS)
-    model_candidates = [
-        runtime
-        for runtime in runtime_statuses
-        if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
-        and is_security_model_runtime(runtime)
-    ]
+    model_candidates = [runtime for runtime in runtime_statuses if is_security_model_runtime(runtime)]
     ordered = sorted(
         model_candidates,
         key=lambda item: (
-            SECURITY_AGENT_RUNTIME_ORDER.index(str(item["id"]))
-            if str(item["id"]) in SECURITY_AGENT_RUNTIME_ORDER
+            SECURITY_AGENT_RUNTIME_ORDER.index(_security_runtime_family(item))
+            if _security_runtime_family(item) in SECURITY_AGENT_RUNTIME_ORDER
             else len(SECURITY_AGENT_RUNTIME_ORDER)
         ),
     )

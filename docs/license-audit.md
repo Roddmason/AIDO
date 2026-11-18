@@ -60,15 +60,17 @@ Current status:
   `@xyflow/react` are compatible with the MIT project.
 - `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu` and
   `@radix-ui/react-tooltip` were **removed**: zero imports in `web/src` (the
-  Dialog/Drawer/Tooltip UI is hand-rolled in `components/primitives.tsx`).
+  Dialog/Drawer/Tooltip UI is hand-rolled in `components/ui/`).
 - New justified dependencies — added at **exact** versions, all **MIT**, with
   peer ranges compatible with React 18.3.1 and Vite 6:
   - `motion@12.40.0` — shell/UI animations (planned consumer: replaces the
     hand-rolled `motion/useControlMotion.ts`).
   - `react-resizable-panels@4.11.2` — resizable IDE shell panels (planned
     consumer: Explorer/Inspector split in `app/AppShell.tsx`).
-  - `@tanstack/react-virtual@3.14.3` — list/table virtualization (planned
-    consumer: long logs / usage-ledger tables).
+- `@tanstack/react-virtual@3.14.3` was removed from the manifest and lockfile
+  on 2026-09-06: the planned logs / usage-ledger consumer was never implemented.
+  The existing installation is retained; isolated validation is recorded in
+  [post-p0-cleanup.md](cleanup/post-p0-cleanup.md).
 - TanStack supply-chain note: `@tanstack/react-virtual` is MIT, headless,
   dependency-light and actively maintained by the TanStack org; approved for
   use. This supersedes the prior "avoid TanStack" hold.

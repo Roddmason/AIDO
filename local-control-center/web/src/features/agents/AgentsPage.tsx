@@ -4,67 +4,74 @@
  * runtime detection. Profile creation is blocked until the model-gateway catalogs
  * (providers, routing profiles, role policies) and runtime modes all load, so a profile
  * can never reference an option the backend hasn't confirmed exists.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 import { useEffect, useMemo, useState } from 'react';
 
 import {
+	type AgentProfileProjectOverrideRequest,
 	createAgentProfile,
+	getAgentProfiles,
 	getModelGatewayProviders,
 	getModelGatewayRolePolicies,
 	getModelGatewayRoutingProfiles,
 	getRuntimeProviders,
+	upsertAgentProfileProjectOverride,
 } from '../../api/client';
 import type {
+	AgentProfile,
 	AgentRole,
 	AgentRuntimeMode,
 	Overview,
 	PermissionProfile,
 	RuntimeProviders,
 } from '../../api/types';
-import { Badge, DataTable, EmptyState, PageHeader, Surface } from '../../components/primitives';
+import {
+	StatusChip as Badge,
+	Button,
+	DataTable,
+	EmptyState,
+	ErrorState,
+	PageHeader,
+	Surface,
+} from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { type AsyncError, resolveAsyncError, toAsyncError } from '../../lib/asyncError';
 import { toneForStatus } from '../../lib/format';
+import { mergeNewestById, upsertNewestById } from '../../lib/records';
 
-const runtimeModeOptions: AgentRuntimeMode[] = ['api', 'cli', 'ollama', 'hybrid', 'manual'];
+const runtimeModeOptions: AgentRuntimeMode[] = [
+	'api',
+	'cli',
+	'local',
+	'ollama',
+	'hybrid',
+	'manual',
+];
 const agentRoles: AgentRole[] = [
 	'analyst',
+	'assessor',
+	'aido_lead',
 	'product_owner',
+	'project_manager',
+	'scrum_master',
+	'architect',
 	'technical_lead',
 	'technical_lead_shadow',
 	'developer',
 	'backend_engineer',
 	'frontend_engineer',
 	'implementer',
+	'devops',
+	'devops_engineer',
 	'qa',
+	'qa_engineer',
 	'qa_reviewer',
+	'security_engineer',
 	'security_reviewer',
+	'researcher',
 	'release_manager',
 ];
-
-function recordTimestamp(record: { updatedAt?: string; createdAt?: string }) {
-	const parsed = Date.parse(String(record.updatedAt ?? record.createdAt ?? ''));
-	return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function upsertNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	records: T[],
-	incoming: T,
-) {
-	const existing = records.find((record) => record.id === incoming.id);
-	if (existing && recordTimestamp(existing) > recordTimestamp(incoming)) return records;
-	return existing
-		? records.map((record) => (record.id === incoming.id ? incoming : record))
-		: [incoming, ...records];
-}
-
-function mergeNewestById<T extends { id: string; updatedAt?: string; createdAt?: string }>(
-	current: T[],
-	incoming: T[],
-) {
-	return incoming.reduce((merged, record) => upsertNewestById(merged, record), current);
-}
 
 function numericLabel(value: unknown, fallback: string) {
 	if (value === null || value === undefined || value === '') return fallback;
@@ -76,6 +83,22 @@ function moneyLabel(value: unknown, fallback: string) {
 	if (value === null || value === undefined || value === '') return fallback;
 	const number = Number(value);
 	return Number.isFinite(number) ? `$${number.toFixed(2)}` : fallback;
+}
+
+function stringArray(value: unknown) {
+	return Array.isArray(value)
+		? value.filter((item): item is string => typeof item === 'string')
+		: [];
+}
+
+function runtimePolicyForOverride(profile: AgentProfile) {
+	const policy = profile.defaultRuntimePolicy as Record<string, unknown>;
+	const requiredCapabilities = stringArray(policy.requiredCapabilities);
+	return {
+		...profile.defaultRuntimePolicy,
+		providerCandidates: ['ollama'],
+		requiredCapabilities: requiredCapabilities.length ? requiredCapabilities : ['chat'],
+	};
 }
 
 /**
@@ -97,6 +120,7 @@ export function AgentsPage({
 }) {
 	const { t } = useI18n();
 	const [agentProfiles, setAgentProfiles] = useState(overview.agentProfiles);
+	const [selectedProjectId, setSelectedProjectId] = useState(overview.projects[0]?.id ?? '');
 	const [profileId, setProfileId] = useState('agent-hybrid');
 	const [name, setName] = useState('Hybrid Implementer');
 	const [role, setRole] = useState<AgentRole>('developer');
@@ -121,11 +145,19 @@ export function AgentsPage({
 		runtimeProviders,
 	);
 	const [error, setError] = useState('');
+	const [agentProfilesError, setAgentProfilesError] = useState<AsyncError | null>(null);
 	const [runtimeProviderError, setRuntimeProviderError] = useState<AsyncError | null>(null);
 	const [gatewayCatalogError, setGatewayCatalogError] = useState<AsyncError | null>(null);
+	const agentProfilesErrorText = resolveAsyncError(agentProfilesError, t);
 	const runtimeProviderErrorText = resolveAsyncError(runtimeProviderError, t);
 	const gatewayCatalogErrorText = resolveAsyncError(gatewayCatalogError, t);
 	const [profileBusy, setProfileBusy] = useState(false);
+	const [overrideBusyProfileId, setOverrideBusyProfileId] = useState('');
+	const [refreshController, setRefreshController] = useState(() => new AbortController());
+	const reload = () => {
+		refreshController.abort();
+		setRefreshController(new AbortController());
+	};
 	const modes =
 		runtimeProviderState?.runtimeModes.filter((mode): mode is AgentRuntimeMode =>
 			runtimeModeOptions.includes(mode as AgentRuntimeMode),
@@ -142,8 +174,45 @@ export function AgentsPage({
 		runtimeOptions.length > 0;
 
 	useEffect(() => {
-		setAgentProfiles((current) => mergeNewestById(current, overview.agentProfiles));
-	}, [overview.agentProfiles]);
+		if (!selectedProjectId) {
+			setAgentProfiles((current) => mergeNewestById(current, overview.agentProfiles));
+		}
+	}, [overview.agentProfiles, selectedProjectId]);
+
+	useEffect(() => {
+		const firstProjectId = overview.projects[0]?.id ?? '';
+		if (!selectedProjectId && firstProjectId) {
+			setSelectedProjectId(firstProjectId);
+			return;
+		}
+		if (
+			selectedProjectId &&
+			!overview.projects.some((project) => project.id === selectedProjectId)
+		) {
+			setSelectedProjectId(firstProjectId);
+		}
+	}, [overview.projects, selectedProjectId]);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
+		getAgentProfiles(selectedProjectId || undefined, signal)
+			.then((result) => {
+				if (signal.aborted) return;
+				setAgentProfilesError(null);
+				setAgentProfiles(result.agentProfiles);
+			})
+			.catch((loadError) => {
+				if (!signal.aborted) {
+					setAgentProfilesError(
+						toAsyncError(loadError, 'app.agents.errProfilesLoad', 'Agent profiles load failed.'),
+					);
+				}
+			});
+		return () => {
+			controller.abort();
+		};
+	}, [refreshController, selectedProjectId]);
 
 	useEffect(() => {
 		if (runtimeProviders) setRuntimeProviderState(runtimeProviders);
@@ -151,13 +220,15 @@ export function AgentsPage({
 
 	useEffect(() => {
 		const controller = new AbortController();
-		getRuntimeProviders(controller.signal)
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
+		getRuntimeProviders(signal)
 			.then((providers) => {
+				if (signal.aborted) return;
 				setRuntimeProviderError(null);
 				setRuntimeProviderState(providers);
 			})
 			.catch((loadError) => {
-				if (!controller.signal.aborted) {
+				if (!signal.aborted) {
 					setRuntimeProviderError(
 						toAsyncError(
 							loadError,
@@ -170,17 +241,18 @@ export function AgentsPage({
 		return () => {
 			controller.abort();
 		};
-	}, []);
+	}, [refreshController]);
 
 	useEffect(() => {
-		let mounted = true;
+		const controller = new AbortController();
+		const signal = AbortSignal.any([controller.signal, refreshController.signal]);
 		Promise.all([
-			getModelGatewayProviders(),
-			getModelGatewayRoutingProfiles(),
-			getModelGatewayRolePolicies(),
+			getModelGatewayProviders(signal),
+			getModelGatewayRoutingProfiles(signal),
+			getModelGatewayRolePolicies(signal),
 		])
 			.then(([providers, profiles, policies]) => {
-				if (!mounted) return;
+				if (signal.aborted) return;
 				setGatewayCatalogError(null);
 				setGatewayCatalog({
 					providers: Array.from(
@@ -205,7 +277,7 @@ export function AgentsPage({
 				});
 			})
 			.catch((loadError) => {
-				if (!mounted) return;
+				if (signal.aborted) return;
 				setGatewayCatalog({ providers: [], routingProfiles: [], rolePolicies: [] });
 				setGatewayCatalogError(
 					toAsyncError(
@@ -216,9 +288,9 @@ export function AgentsPage({
 				);
 			});
 		return () => {
-			mounted = false;
+			controller.abort();
 		};
-	}, []);
+	}, [refreshController]);
 
 	const createProfile = async () => {
 		if (!/^[a-z0-9_-]{3,64}$/.test(profileId)) {
@@ -247,11 +319,11 @@ export function AgentsPage({
 		const approvalThreshold = requiresApprovalOverUsd.trim()
 			? Number(requiresApprovalOverUsd)
 			: null;
-		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 200000) {
+		if (!Number.isInteger(tokenLimit) || tokenLimit < 0 || tokenLimit > 2000000) {
 			setError(
 				t(
-					'ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.200000.9abcec39',
-					'Max tokens per run must be an integer between 0 and 200000.',
+					'ui.static.max.tokens.per.run.must.be.an.integer.between.0.and.2000000.5e4aa8b5',
+					'Max tokens per run must be an integer between 0 and 2000000.',
 				),
 			);
 			return;
@@ -303,6 +375,40 @@ export function AgentsPage({
 			);
 		} finally {
 			setProfileBusy(false);
+		}
+	};
+
+	const saveProjectOverride = async (profile: AgentProfile) => {
+		if (!selectedProjectId) {
+			setError(
+				t('app.agents.selectProjectForOverride', 'Select a project before saving an override.'),
+			);
+			return;
+		}
+		setError('');
+		setOverrideBusyProfileId(profile.id);
+		const body: AgentProfileProjectOverrideRequest = {
+			runtimeMode: 'ollama',
+			allowedProviders: ['ollama'],
+			allowedRuntimes: ['ollama'],
+			defaultRuntimePolicy: runtimePolicyForOverride(profile),
+			reason: 'Use local runtime for this project when available.',
+			status: 'active',
+		};
+		try {
+			const result = await mutate(
+				(token) => upsertAgentProfileProjectOverride(token, selectedProjectId, profile.id, body),
+				{ awaitRefresh: false },
+			);
+			setAgentProfiles((current) => upsertNewestById(current, result.agentProfile));
+		} catch (saveError) {
+			setError(
+				saveError instanceof Error
+					? saveError.message
+					: t('app.agents.errProjectOverrideSave', 'Agent project override save failed.'),
+			);
+		} finally {
+			setOverrideBusyProfileId('');
 		}
 	};
 
@@ -493,7 +599,7 @@ export function AgentsPage({
 							className="input"
 							type="number"
 							min="0"
-							max="200000"
+							max="2000000"
 							value={maxTokensPerRun}
 							onChange={(event) => setMaxTokensPerRun(event.target.value)}
 						/>
@@ -542,9 +648,15 @@ export function AgentsPage({
 						</label>
 					</div>
 					{gatewayCatalogErrorText || runtimeProviderErrorText ? (
-						<div className="form-error" role="alert">
-							configuration_required: {gatewayCatalogErrorText || runtimeProviderErrorText}
-						</div>
+						<ErrorState
+							title={t('app.agents.errCatalogTitle', 'Could not load agent configuration catalogs')}
+							body={`configuration_required: ${gatewayCatalogErrorText || runtimeProviderErrorText}`}
+							action={
+								<Button variant="secondary" onClick={reload}>
+									{t('app.agents.errRetry', 'Retry')}
+								</Button>
+							}
+						/>
 					) : null}
 					{error ? (
 						<div className="form-error" role="alert">
@@ -553,6 +665,7 @@ export function AgentsPage({
 					) : null}
 					<button
 						className="button primary"
+						type="button"
 						disabled={profileBusy || !catalogAvailable}
 						onClick={() => {
 							void createProfile();
@@ -589,16 +702,28 @@ export function AgentsPage({
 					<DataTable
 						rows={runtimeRows}
 						empty={
-							<EmptyState
-								title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
-								body={
-									runtimeProviderErrorText ||
-									t(
+							runtimeProviderErrorText ? (
+								<ErrorState
+									title={t(
+										'app.agents.errRuntimeProvidersTitle',
+										'Could not load runtime providers',
+									)}
+									body={runtimeProviderErrorText}
+									action={
+										<Button variant="secondary" onClick={reload}>
+											{t('app.agents.errRetry', 'Retry')}
+										</Button>
+									}
+								/>
+							) : (
+								<EmptyState
+									title={t('ui.static.no.runtime.providers.c1247c5c', 'No runtime providers')}
+									body={t(
 										'app.agents.runtimeProvidersDiscoveryPending',
 										'Runtime providers are not executable until provider discovery returns status.',
-									)
-								}
-							/>
+									)}
+								/>
+							)
 						}
 						columns={[
 							{
@@ -662,6 +787,128 @@ export function AgentsPage({
 					/>
 				</Surface>
 			</div>
+			<Surface title={t('app.agents.teamPanel', 'Team panel')}>
+				<div className="toolbar-row">
+					<label className="field compact" htmlFor="team-project">
+						<span>{t('ui.static.project.f6f4da8d', 'Project')}</span>
+						<select
+							id="team-project"
+							className="select"
+							value={selectedProjectId}
+							onChange={(event) => setSelectedProjectId(event.target.value)}
+						>
+							<option value="">{t('app.settings.scope.general', 'General')}</option>
+							{overview.projects.map((project) => (
+								<option key={project.id} value={project.id}>
+									{project.name}
+								</option>
+							))}
+						</select>
+					</label>
+				</div>
+				{agentProfilesErrorText && agentProfiles.length ? (
+					<div className="form-error" role="alert">
+						{agentProfilesErrorText}
+					</div>
+				) : null}
+				<DataTable
+					rows={agentProfiles}
+					empty={
+						agentProfilesErrorText ? (
+							<ErrorState
+								title={t('app.agents.errProfilesLoadTitle', 'Could not load agent profiles')}
+								body={agentProfilesErrorText}
+								action={
+									<Button variant="secondary" onClick={reload}>
+										{t('app.agents.errRetry', 'Retry')}
+									</Button>
+								}
+							/>
+						) : (
+							<EmptyState
+								title={t('ui.static.no.agent.profiles.056f31a8', 'No agent profiles')}
+								body={t('app.agents.noTeamProfiles', 'No active team profiles.')}
+							/>
+						)
+					}
+					columns={[
+						{
+							key: 'role',
+							label: t('ui.static.role.c3f104d1', 'Role'),
+							render: (row) => <span className="mono">{row.role}</span>,
+						},
+						{
+							key: 'agent',
+							label: t('ui.static.agent.90e8dbb1', 'Agent'),
+							render: (row) => row.name,
+						},
+						{
+							key: 'runtime',
+							label: t('ui.static.runtime.c4740e4c', 'Runtime'),
+							render: (row) => (
+								<div className="stack compact">
+									<Badge>{row.runtimeMode}</Badge>
+									<span className="mono">{row.allowedProviders.join(', ') || 'policy'}</span>
+								</div>
+							),
+						},
+						{
+							key: 'runtimeAvailability',
+							label: t('app.agents.runtimeAvailability', 'Runtime availability'),
+							render: (row) => {
+								const runtimeAvailability = row.runtimeAvailability;
+								return (
+									<div className="inline">
+										<Badge tone={runtimeAvailability?.available ? 'ok' : 'warn'}>
+											{runtimeAvailability?.status ?? 'unknown'}
+										</Badge>
+										{runtimeAvailability?.selectedProviderId ? (
+											<Badge>{runtimeAvailability.selectedProviderId}</Badge>
+										) : null}
+									</div>
+								);
+							},
+						},
+						{
+							key: 'blockedReason',
+							label: t('app.agents.blockedReason', 'Blocked reason'),
+							render: (row) =>
+								row.runtimeAvailability?.blockedReason || t('app.runtime.card.none', 'none'),
+						},
+						{
+							key: 'projectOverride',
+							label: t('app.agents.projectOverride', 'Project override'),
+							render: (row) =>
+								row.projectOverride ? (
+									<div className="stack compact">
+										<Badge tone="info">{row.projectOverride.status}</Badge>
+										<span>{row.projectOverride.reason}</span>
+									</div>
+								) : (
+									t('app.settings.chip.source.inherited', 'Inherited')
+								),
+						},
+						{
+							key: 'override',
+							label: t('ui.static.override.3dca7cca', 'Override'),
+							render: (row) => (
+								<button
+									className="button"
+									type="button"
+									disabled={!selectedProjectId || overrideBusyProfileId === row.id}
+									onClick={() => {
+										void saveProjectOverride(row);
+									}}
+								>
+									{overrideBusyProfileId === row.id
+										? t('app.status.saving', 'Saving')
+										: t('app.settings.action.setForProject', 'Set for this project')}
+								</button>
+							),
+						},
+					]}
+				/>
+			</Surface>
 			<Surface title={t('ui.static.agent.profiles.307157c5', 'Agent profiles')}>
 				<DataTable
 					rows={agentProfiles}

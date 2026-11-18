@@ -7,13 +7,14 @@ The verdict is deterministic: any critical finding blocks, otherwise risk/passed
 model analysis is advisory only and can never override the deterministic verdict; missing
 scanners are recorded as skipped_with_reason, never silently passed.
 
-@author Rodrigo Mason
+@author AIDO contributors
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -31,16 +32,21 @@ from local_control_center.evidence.quality import evidence_package_contract_erro
 from local_control_center.evidence.repository import EvidenceRepository
 from local_control_center.jobs_approvals.repository import JobsRepository
 from local_control_center.security_policy.repository import SecurityPolicyRepository
+from local_control_center.security_policy.sandbox import path_is_inside as _inside
 from local_control_center.shared.redaction import redact_secrets
-from local_control_center.shared.serialization import json_dumps
+from local_control_center.shared.serialization import json_dumps, prompt_json_dumps
 from local_control_center.workspaces_projects.repository import WorkspacesRepository
 
+from .local_model_call_input import local_model_call_input
 from .repository import AgentsRepository
+from .runtime_selection import runtime_provider_family, runtime_requires_network
 from .runtime_status import RuntimeStatusService
 from .security_agent_contract import (
     SECURITY_AGENT_ALLOWED_TOOLS,
     SECURITY_AGENT_ID,
     SECURITY_AGENT_MODEL_RUNTIMES,
+    SECURITY_AGENT_REMOTE_API_RUNTIMES,
+    is_security_model_runtime,
     security_agent_contract,
     security_agent_status,
 )
@@ -89,22 +95,36 @@ DANGEROUS_FLAGS = {
 DOCKER_CRITICAL_FLAGS = {"--mount", "--network=host", "--privileged", "--volume", "-v"}
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES_SCANNED = 5000
+ANALYSIS_PROMPT_FINDINGS_LIMIT = 100
+"""Tope de findings que viajan al prompt del análisis opcional; el resto se reporta como conteo."""
 EXTERNAL_SCANNER_TIMEOUT_SECONDS = 120
+
+
 SCANNER_REPORT_DIR = "security-scanner-reports"
 SEMGREP_CONFIG_CANDIDATES = (".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml")
 GITLEAKS_CONFIG_CANDIDATES = (".gitleaks.toml", "gitleaks.toml")
 
 
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.resolve(strict=False).relative_to(root.resolve(strict=False))
-        return True
-    except (OSError, ValueError):
-        return False
-
-
 def _hash_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _workspace_candidates(workspace: Path) -> list[Path]:
+    """Lista archivos y symlinks del workspace podando ``IGNORED_PARTS`` sin descender en ellos."""
+    candidates: list[Path] = []
+    for root, dirnames, filenames in os.walk(workspace):
+        dirnames[:] = [name for name in dirnames if name not in IGNORED_PARTS]
+        base = Path(root)
+        candidates.extend(base / name for name in (*dirnames, *filenames) if name not in IGNORED_PARTS)
+    return sorted(candidates)
 
 
 def _relative_path(path: Path, workspace: Path) -> str:
@@ -175,7 +195,10 @@ class SecurityAgentRunner:
         """Report SecurityAgent readiness from current runtime provider statuses."""
         return security_agent_status(RuntimeStatusService(self.connection).list_provider_statuses())
 
-    def _ensure_profile(self) -> dict[str, Any]:
+    def _ensure_profile(self, runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+        runtime_id = str((runtime or {}).get("id") or "")
+        provider_family = runtime_provider_family(runtime or {})
+        model_runtime = provider_family in SECURITY_AGENT_MODEL_RUNTIMES
         return self.agents.upsert_agent_profile(
             {
                 "id": SECURITY_AGENT_ID,
@@ -184,11 +207,11 @@ class SecurityAgentRunner:
                 "runtimeMode": "manual",
                 "permissionProfile": "qa",
                 "allowedTools": SECURITY_AGENT_ALLOWED_TOOLS,
-                "allowedProviders": list(SECURITY_AGENT_MODEL_RUNTIMES),
-                "allowedRuntimes": list(SECURITY_AGENT_MODEL_RUNTIMES),
+                "allowedProviders": [runtime_id] if model_runtime else [],
+                "allowedRuntimes": [runtime_id] if model_runtime else [],
                 "allowRemote": True,
                 "allowCli": True,
-                "allowApi": True,
+                "allowApi": model_runtime,
                 "outputSchema": security_agent_contract()["outputSchema"],
             }
         )
@@ -237,7 +260,7 @@ class SecurityAgentRunner:
         files_scanned: list[dict[str, Any]] = []
         dependency_files: list[dict[str, Any]] = []
         scanned = 0
-        for path in sorted(workspace.rglob("*")):
+        for path in _workspace_candidates(workspace):
             if scanned >= MAX_FILES_SCANNED:
                 findings.append(
                     _finding(
@@ -248,8 +271,6 @@ class SecurityAgentRunner:
                     )
                 )
                 break
-            if any(part in IGNORED_PARTS for part in path.relative_to(workspace).parts):
-                continue
             if path.is_symlink():
                 findings.append(
                     _finding(
@@ -262,20 +283,21 @@ class SecurityAgentRunner:
                 continue
             if not path.is_file():
                 continue
-            content = path.read_bytes()
-            content_hash = _hash_bytes(content)
+            size_bytes = path.stat().st_size
+            content = path.read_bytes() if size_bytes <= MAX_FILE_BYTES else b""
+            content_hash = _hash_bytes(content) if size_bytes <= MAX_FILE_BYTES else _hash_file(path)
             rel = _relative_path(path, workspace)
-            files_scanned.append({"path": rel, "hash": content_hash, "sizeBytes": len(content)})
+            files_scanned.append({"path": rel, "hash": content_hash, "sizeBytes": size_bytes})
             scanned += 1
             if path.name in DEPENDENCY_FILENAMES:
                 dependency_entry = {
                     "path": rel,
                     "hash": content_hash,
-                    "sizeBytes": len(content),
+                    "sizeBytes": size_bytes,
                     "kind": path.name,
                 }
                 dependency_files.append(dependency_entry)
-                if path.name == "package.json":
+                if path.name == "package.json" and size_bytes <= MAX_FILE_BYTES:
                     try:
                         json.loads(content.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -288,21 +310,18 @@ class SecurityAgentRunner:
                                 evidence={"contentHash": content_hash},
                             )
                         )
-            if len(content) > MAX_FILE_BYTES:
+            if size_bytes > MAX_FILE_BYTES:
                 findings.append(
                     _finding(
                         check_id="file_scan_limit",
                         severity="medium",
                         message=f"File exceeds SecurityAgent text scan limit: {MAX_FILE_BYTES} bytes.",
                         location=_redacted_location(rel),
-                        evidence={"contentHash": content_hash, "sizeBytes": len(content)},
+                        evidence={"contentHash": content_hash, "sizeBytes": size_bytes},
                     )
                 )
                 continue
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
+            text = content.decode("utf-8", errors="replace")
             self._scan_text_for_secrets(text=text, path=rel, content_hash=content_hash, findings=findings)
         return files_scanned, dependency_files
 
@@ -957,14 +976,73 @@ class SecurityAgentRunner:
 
     def _model_runtime(self, preferred_runtime: str | None) -> dict[str, Any] | None:
         statuses = RuntimeStatusService(self.connection).list_provider_statuses()
-        eligible = [
-            runtime for runtime in statuses if str(runtime.get("id") or "") in SECURITY_AGENT_MODEL_RUNTIMES
-        ]
+        eligible = [runtime for runtime in statuses if is_security_model_runtime(runtime)]
         if preferred_runtime:
             return next((runtime for runtime in eligible if runtime.get("id") == preferred_runtime), None)
         status = security_agent_status(statuses)
         selected = status.get("selectedRuntimeId")
         return next((runtime for runtime in eligible if runtime.get("id") == selected), None)
+
+    @staticmethod
+    def _analysis_prompt_view(findings_payload: dict[str, Any]) -> dict[str, Any]:
+        """Copia solo-prompt del payload de hallazgos: lo que el modelo necesita y nada más.
+
+        ``filesScanned`` (un registro por archivo con hash y tamaño) era ~95% del prompt y el
+        análisis solo necesita el conteo; los scanners externos aportan nombre/estado/motivo, y los
+        findings van capados con su conteo de omitidos. El payload real NO se toca: el artefacto,
+        el response body y los hashes de evidencia siguen completos. El veredicto determinista se
+        decide antes de esta llamada, así que la vista no puede alterar ningún gate.
+        """
+        view = {
+            key: value
+            for key, value in findings_payload.items()
+            if key not in {"status", "filesScanned", "dependencyFiles", "externalScanners", "findings"}
+        }
+        view["filesScannedCount"] = len(findings_payload.get("filesScanned") or [])
+        view["dependencyFiles"] = [
+            str(entry.get("path"))
+            for entry in findings_payload.get("dependencyFiles") or []
+            if isinstance(entry, dict)
+        ]
+        view["externalScanners"] = [
+            {
+                "name": scanner.get("name"),
+                "status": scanner.get("status"),
+                "reason": scanner.get("reason"),
+                "findingCount": scanner.get("findingCount"),
+            }
+            for scanner in findings_payload.get("externalScanners") or []
+            if isinstance(scanner, dict)
+        ]
+        findings = [item for item in findings_payload.get("findings") or [] if isinstance(item, dict)]
+        view["findings"] = [
+            {key: value for key, value in finding.items() if key not in {"reportArtifactId", "reportHash"}}
+            for finding in findings[:ANALYSIS_PROMPT_FINDINGS_LIMIT]
+        ]
+        omitted = max(0, len(findings) - ANALYSIS_PROMPT_FINDINGS_LIMIT)
+        if omitted:
+            view["omittedFindingCount"] = omitted
+        return view
+
+    @staticmethod
+    def _model_analysis_prompt(payload: dict[str, Any], findings_payload: dict[str, Any]) -> str:
+        """Arma el prompt del análisis opcional: hallazgos deterministas y, si existen, las specs.
+
+        Las historias con sus criterios de aceptación son el contrato que el cambio debía cumplir:
+        sin ellas el modelo revisa hallazgos sin saber qué se pedía. El loop ya las entrega en el
+        payload, aquí solo entran al prompt.
+        """
+        constitution = str(payload.get("constitution") or "").strip()
+        story_specs = str(payload.get("storySpecs") or "").strip()
+        findings_block = prompt_json_dumps(redact_secrets(findings_payload))
+        parts: list[str] = []
+        if constitution:
+            parts.append(constitution)
+        if story_specs:
+            parts.append(f"Story specs under review:\n{story_specs}")
+        if not parts:
+            return findings_block
+        return "\n\n".join([*parts, f"Deterministic findings:\n{findings_block}"])
 
     def _execute_optional_model_analysis(
         self,
@@ -976,18 +1054,20 @@ class SecurityAgentRunner:
         profile: dict[str, Any],
         payload: dict[str, Any],
         findings_payload: dict[str, Any],
+        runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not payload.get("runModelAnalysis"):
             return None
-        runtime = self._model_runtime(payload.get("preferredRuntime"))
+        runtime = runtime or self._model_runtime(payload.get("preferredRuntime"))
         if not runtime or not runtime.get("executable"):
             return {
                 "status": "unavailable",
                 "reason": "Optional SecurityAgent model analysis skipped because no executable model runtime is configured.",
             }
         runtime_id = str(runtime["id"])
+        provider_family = runtime_provider_family(runtime)
         model = payload.get("model")
-        if runtime_id == "ollama":
+        if provider_family == "ollama":
             model = model or next(iter(runtime.get("models") or []), None)
         broker = ToolBroker(self.connection, artifact_root=self.root)
         result = broker.evaluate_tool_call(
@@ -996,7 +1076,7 @@ class SecurityAgentRunner:
             agent_profile=profile,
             job_id=job["id"],
             tool_call={
-                "tool": runtime_id,
+                "tool": provider_family,
                 "workspaceId": workspace["id"],
                 "workspacePath": workspace["path"],
                 "path": workspace["path"],
@@ -1004,6 +1084,7 @@ class SecurityAgentRunner:
                 "runtimeId": runtime_id,
                 "capability": "chat",
                 "input": {
+                    "providerId": runtime_id,
                     "model": model,
                     "messages": [
                         {
@@ -1013,11 +1094,17 @@ class SecurityAgentRunner:
                                 "Do not override deterministic verdicts. Return concise JSON."
                             ),
                         },
-                        {"role": "user", "content": json_dumps(redact_secrets(findings_payload))},
+                        {
+                            "role": "user",
+                            "content": self._model_analysis_prompt(
+                                payload, self._analysis_prompt_view(findings_payload)
+                            ),
+                        },
                     ],
                     "temperature": 0.1,
+                    **local_model_call_input(self.connection, provider_id=runtime_id, model=model),
                 },
-                "networkRequired": runtime_id == "openai_compatible",
+                "networkRequired": runtime_requires_network(runtime, SECURITY_AGENT_REMOTE_API_RUNTIMES),
                 "secretsRequired": False,
                 "approvalGrantId": payload.get("approvalGrantId"),
                 "execute": True,
@@ -1048,7 +1135,10 @@ class SecurityAgentRunner:
         task_id = str(payload.get("taskId") or "security_agent")
         workflow_run_id = str(payload.get("workflowRunId") or "").strip() or None
         workflow_step_id = str(payload.get("workflowStepId") or "").strip() or None
-        profile = self._ensure_profile()
+        model_runtime = (
+            self._model_runtime(payload.get("preferredRuntime")) if payload.get("runModelAnalysis") else None
+        )
+        profile = self._ensure_profile(model_runtime)
         job_result = self.jobs.create_job(
             project_id=project_id,
             kind="agent.security",
@@ -1115,6 +1205,7 @@ class SecurityAgentRunner:
             profile=profile,
             payload=payload,
             findings_payload=findings_payload,
+            runtime=model_runtime,
         )
         if model_analysis:
             findings_payload["modelAnalysis"] = model_analysis

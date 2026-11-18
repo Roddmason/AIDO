@@ -2,7 +2,7 @@
  * Data hook for the Workbench: scopes the global overview to the selected project and
  * session, builds the team/delivery/timeline rows and blockers, and keeps the session
  * selection valid as projects change. Holds all derivation so WorkbenchPage stays a thin shell.
- * @author Rodrigo Mason
+ * @author AIDO contributors
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -22,15 +22,15 @@ import type { IssueToPatchResponse } from '../../api/client';
 import type { Overview, Project, RuntimeProviders } from '../../api/types';
 import { useI18n } from '../../i18n/I18nProvider';
 import { evidenceDiffChangedFiles } from '../../lib/diff';
-import { shortId } from '../../lib/format';
+import { formatTime, shortId } from '../../lib/format';
 import type { WorkflowTimelineStage } from './timelineModel';
 import { buildWorkflowTimeline, deliveryStatusToTimeline } from './timelineModel';
 import {
 	activeProjects,
 	deriveBlockers,
 	objectRecord,
-	runtimeIsExecutableIssueRuntime,
-	runtimeSupportsIssueToPatch,
+	runtimeIsExecutableCodeEditRuntime,
+	runtimeSupportsCodeEdit,
 	sortByTimeDesc,
 } from './workbenchSelectors';
 
@@ -38,13 +38,6 @@ type JsonRecord = Record<string, unknown>;
 
 /** Sentinel session id meaning "compose a brand-new work session". Shared with the page. */
 export const NEW_SESSION_ID = '__new_work_session__';
-
-/** Renders an ISO timestamp in the user's locale, falling back to the raw/empty label when unparseable. */
-export function formatTime(value: string | undefined, notRecordedLabel = 'not recorded') {
-	if (!value) return notRecordedLabel;
-	const parsed = Date.parse(value);
-	return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
-}
 
 function asRecord(value: unknown): JsonRecord {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};
@@ -204,14 +197,6 @@ function roleMatches(blueprintRole: string, roleValue: string, idOrName = '') {
 	return normalizedRole === blueprintRole;
 }
 
-function stageName(stage: JsonRecord) {
-	return textValue(stage.name ?? stage.id ?? stage.stage, 'stage');
-}
-
-function stageStatus(stage: JsonRecord) {
-	return textValue(stage.status, 'pending');
-}
-
 type UseWorkbenchDataParams = {
 	overview: Overview;
 	selectedProject: Project | null;
@@ -257,9 +242,9 @@ export function useWorkbenchData({
 	const projectSessions = useMemo(
 		() =>
 			sortByTimeDesc(
-				project ? overview.sessions.filter((session) => session.projectId === project.id) : [],
+				project ? overview.threads.filter((thread) => thread.projectId === project.id) : [],
 			),
-		[overview.sessions, project],
+		[overview.threads, project],
 	);
 	const activeSession =
 		selectedSessionId === NEW_SESSION_ID
@@ -267,26 +252,8 @@ export function useWorkbenchData({
 			: (projectSessions.find((session) => session.id === selectedSessionId) ??
 				projectSessions[0] ??
 				null);
-	const projectChats = useMemo(
-		() =>
-			sortByTimeDesc(project ? overview.chats.filter((chat) => chat.projectId === project.id) : []),
-		[overview.chats, project],
-	);
-	const sessionChats = activeSession
-		? projectChats.filter((chat) => chat.sessionId === activeSession.id)
-		: projectChats;
-	const projectPipelines = useMemo(
-		() =>
-			sortByTimeDesc(
-				project ? overview.pipelines.filter((pipeline) => pipeline.projectId === project.id) : [],
-			),
-		[overview.pipelines, project],
-	);
-	const sessionPipelines = activeSession
-		? projectPipelines.filter(
-				(pipeline) => pipeline.sessionId === activeSession.id || !pipeline.sessionId,
-			)
-		: projectPipelines;
+	const projectChats = projectSessions;
+	const sessionChats = activeSession ? [activeSession] : projectChats;
 	const projectWorkflows = useMemo(
 		() =>
 			sortByTimeDesc(
@@ -364,19 +331,16 @@ export function useWorkbenchData({
 
 	const runtimeRows = runtimeProviders?.providers ?? [];
 	const executableRuntimes = useMemo(
-		() => runtimeRows.filter(runtimeIsExecutableIssueRuntime),
+		() => runtimeRows.filter(runtimeIsExecutableCodeEditRuntime),
 		[runtimeRows],
 	);
 	const hasExecutableRuntime = executableRuntimes.length > 0;
 	const unavailableIssueRuntime = runtimeRows.find(
-		(runtime) => runtimeSupportsIssueToPatch(runtime) && runtime.executable !== true,
+		(runtime) => runtimeSupportsCodeEdit(runtime) && runtime.executable !== true,
 	);
 	const runtimeBlockerReason = runtimeProviders
 		? (unavailableIssueRuntime?.reason ??
-			t(
-				'app.workbench.task.runtimeNoExecutable',
-				'No executable issue_to_patch/code_edit runtime is configured.',
-			))
+			t('app.workbench.task.runtimeNoExecutable', 'No executable code-edit runtime is configured.'))
 		: t('app.workbench.task.runtimeDiscovery', 'Runtime provider discovery has not completed.');
 
 	const detectedBranch = branchFromOverview(project, overview);
@@ -421,8 +385,9 @@ export function useWorkbenchData({
 		],
 	);
 
+	const projectId = project?.id;
 	useEffect(() => {
-		if (!project) {
+		if (!projectId) {
 			onResetSession('');
 			return;
 		}
@@ -430,8 +395,7 @@ export function useWorkbenchData({
 		if (selectedSessionId && projectSessions.some((session) => session.id === selectedSessionId))
 			return;
 		onResetSession(projectSessions[0]?.id ?? '');
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [project?.id, projectSessions, selectedSessionId]);
+	}, [projectId, projectSessions, selectedSessionId, onResetSession]);
 
 	const teamRows = expertBlueprints.map((blueprint) => {
 		const matchingProfiles = overview.agentProfiles.filter((profile) =>
@@ -468,21 +432,9 @@ export function useWorkbenchData({
 		};
 	});
 
-	const latestPipeline = sessionPipelines[0] ?? projectPipelines[0] ?? null;
 	const ownerLabel = t('app.workbench.timeline.deliveryOwner', 'Owner');
 	const deliveryTimeline: WorkflowTimelineStage[] = deliveryStageBlueprints.map((stage, index) => {
-		const pipelineStage = latestPipeline?.stages.map(asRecord).find((item) => {
-			const normalized = stageName(item).toLowerCase();
-			return (
-				normalized.includes(stage.id) ||
-				normalized.includes(stage.label.toLowerCase().split(' ')[0])
-			);
-		});
-		const rawStatus = pipelineStage
-			? stageStatus(pipelineStage)
-			: index === 0 && latestPipeline
-				? latestPipeline.status
-				: 'pending';
+		const rawStatus = index === 0 && activeSession ? activeSession.status : 'pending';
 		const reason = `${ownerLabel}: ${stage.owner}`;
 		return {
 			id: `delivery:${stage.id}`,
@@ -498,7 +450,7 @@ export function useWorkbenchData({
 
 	const runTimeline = buildWorkflowTimeline(taskRunResult, isSubmittingTask, hasExecutableRuntime);
 	const hasRun = taskRunResult != null || isSubmittingTask;
-	const hasPipeline = latestPipeline != null;
+	const hasPipeline = activeSession != null;
 
 	return {
 		projects,
@@ -508,7 +460,6 @@ export function useWorkbenchData({
 		activeSession,
 		projectChats,
 		sessionChats,
-		sessionPipelines,
 		projectWorkflows,
 		projectWorkflowRuns,
 		projectWorkflowEvents,

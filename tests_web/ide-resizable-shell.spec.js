@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 
 // Absolute output dir so screenshots land in the repo regardless of the runner's
 // per-chunk working directory; Playwright creates parent dirs for screenshot paths.
-const SHOT_DIR = 'H:/Proyectos/Personales/AIDO/.tmp/ide-shell';
+const SHOT_DIR = fileURLToPath(new URL('../.tmp/ide-shell', import.meta.url));
 
 async function expectShellLoaded(page) {
 	await expect(page.getByRole('heading', { name: 'AIDO Control Center' })).toBeVisible({

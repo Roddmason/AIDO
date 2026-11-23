@@ -45,3 +45,10 @@ test-results/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local project workspaces and SQLite sidecars
+/.aido/
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm

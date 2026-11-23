@@ -113,7 +113,7 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
     tmp_path: Path,
 ) -> None:
     store, client, headers = make_client(tmp_path)
-    project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
+    project_id = store.ensure_runtime_project()["id"]
 
     session = store.sessions_chats.create_session(project_id=project_id, name="Cutover session")
     chat = store.sessions_chats.create_chat(
@@ -196,7 +196,7 @@ def test_legacy_sessions_chats_pipelines_are_read_only_and_migrated_to_threads(
 
 def test_new_thread_messages_do_not_write_sessions_chats_or_pipelines(make_client, tmp_path: Path) -> None:
     store, client, headers = make_client(tmp_path)
-    project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
+    project_id = store.ensure_runtime_project()["id"]
 
     created = client.post(
         "/api/v1/threads",

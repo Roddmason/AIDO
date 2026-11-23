@@ -159,7 +159,6 @@ def create_app(
     """
     platform = runtime or ControlCenterRuntime()
     platform.init()
-    platform.ensure_runtime_project()
     configure_external_telemetry_from_env()
 
     @asynccontextmanager

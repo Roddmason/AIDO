@@ -18,7 +18,7 @@ def test_completion_fixture_preserves_202_and_does_not_drain_other_jobs(tmp_path
     try:
         with TestClient(create_app(runtime=runtime, static_dir=None)) as client:
             headers = {"X-Local-Control-Token": client.get("/api/v1/security/handshake").json()["token"]}
-            project_id = client.get("/api/v1/projects").json()["projects"][0]["id"]
+            project_id = runtime.ensure_runtime_project()["id"]
             job = client.post(
                 "/api/v1/jobs",
                 headers=headers,

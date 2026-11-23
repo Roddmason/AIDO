@@ -2,8 +2,8 @@
 
 Punto unico que el endpoint de overview usa para devolver, en una sola respuesta, las
 colecciones de todos los slices activos (proyectos, threads, jobs, gobernanza, agentes,
-seguridad, etc.). Solo lee: instancia repositorios sobre la conexion recibida, garantiza el
-proyecto runtime y arma el diccionario alineado con ``OverviewResponse``.
+seguridad, etc.). Lee los repositorios sobre la conexion recibida y arma el
+diccionario alineado con ``OverviewResponse``.
 
 @author AIDO contributors
 """
@@ -198,30 +198,11 @@ def _overview_test_results(
     return records
 
 
-def ensure_runtime_project(connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
-    """Devuelve el proyecto del cwd, creandolo si falta; no audita (variante para overview)."""
-    projects = ProjectsRepository(connection)
-    existing = projects.get_project_by_path(cwd)
-    if existing:
-        return existing
-    runtime_path = Path(cwd)
-    return projects.create_project(
-        name=runtime_path.name or "Local Control Center",
-        path=runtime_path,
-        template_id="other",
-        create_directory=True,
-        source="runtime",
-    )
-
-
 def build_overview_from_connection(*, connection: sqlite3.Connection, cwd: str | Path) -> dict[str, Any]:
     """Agrega y devuelve las colecciones de todos los slices como un unico snapshot read-only.
 
-    Garantiza primero el proyecto runtime y luego compone el diccionario cuyas claves camelCase
-    mapean a los campos de ``OverviewResponse``.
+    Las claves camelCase mapean a los campos de ``OverviewResponse``.
     """
-    ensure_runtime_project(connection, cwd)
-
     projects = ProjectsRepository(connection)
     jobs = JobsRepository(connection)
     events = EventBus(connection)

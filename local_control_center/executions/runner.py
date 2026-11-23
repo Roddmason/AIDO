@@ -223,7 +223,6 @@ def main() -> int:
     platform = ControlCenterRuntime(cwd=Path(row[0]), db_path=Path(args.db))
     try:
         platform.init()
-        platform.ensure_runtime_project()
         import psutil
 
         from local_control_center.shared.diagnostics import diagnostic_event

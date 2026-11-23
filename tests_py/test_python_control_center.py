@@ -2,7 +2,6 @@ import json
 import os
 import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing
 from pathlib import Path
@@ -40,6 +39,16 @@ def owned_runtime_resources():
     """Close this test's clients before its borrowed runtimes, including failure paths."""
     with ExitStack() as resources:
         yield resources
+
+
+def test_fresh_dashboard_has_no_projects(tmp_path: Path) -> None:
+    runtime = ControlCenterRuntime(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    with TestClient(create_app(runtime=runtime)) as client:
+        projects = client.get("/api/v1/projects")
+        overview = client.get("/api/v1/overview")
+        assert projects.status_code == overview.status_code == 200
+        assert projects.json()["projects"] == overview.json()["projects"] == []
+        assert client.get("/api/v1/projects").json()["projects"] == []
 
 
 def test_jobs_have_atomic_leases_recovery_and_granular_action_approvals(tmp_path: Path) -> None:
@@ -620,28 +629,10 @@ def test_startup_lifespan_prunes_stale_http_request_telemetry(
     assert survivors == {"event-old-domain"}
 
 
-def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch) -> None:
+def test_parallel_reads_do_not_register_a_project(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_CONTROL_CENTER_DB", str(tmp_path / "platform.sqlite"))
 
-    class GuardedStore(ControlPlaneFixture):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._active_store_call = 0
-            self._active_store_lock = threading.Lock()
-
-        def ensure_runtime_project(self):
-            with self._active_store_lock:
-                if self._active_store_call:
-                    raise AssertionError("shared store accessed concurrently")
-                self._active_store_call += 1
-            try:
-                time.sleep(0.02)
-                return super().ensure_runtime_project()
-            finally:
-                with self._active_store_lock:
-                    self._active_store_call -= 1
-
-    store = GuardedStore(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
+    store = ControlPlaneFixture(cwd=tmp_path, db_path=tmp_path / "platform.sqlite")
     store.init()
     app = create_app(runtime=store, static_dir=None)
     client = TestClient(app)
@@ -659,6 +650,7 @@ def test_api_requests_serialize_shared_store_access(tmp_path: Path, monkeypatch)
         statuses = list(executor.map(request, paths))
 
     assert statuses == [200] * len(paths)
+    assert client.get("/api/v1/projects").json()["projects"] == []
 
 
 def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(
@@ -675,7 +667,7 @@ def test_fastapi_can_bootstrap_with_control_center_runtime_without_store_facade(
 
     assert health.status_code == 200
     assert projects.status_code == 200
-    assert any(project["path"] == str(tmp_path) for project in projects.json()["projects"])
+    assert projects.json()["projects"] == []
     assert overview.status_code == 200
     runtime.close()
 

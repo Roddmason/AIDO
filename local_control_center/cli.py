@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-worker", action="store_true")
     parser.add_argument("--worker-interval-ms", type=int, default=5000)
     parser.add_argument("--worker-count", type=int, choices=(1,), default=1)
-    parser.add_argument("--workspace", default=os.getcwd())
+    parser.add_argument("--workspace", help="Explicitly register this directory as a project.")
     parser.add_argument("--db-path", default=str(default_db_path()))
     parser.add_argument("--static-dir", default=str(Path("local-control-center") / "dist" / "web"))
     return parser.parse_args()
@@ -80,12 +80,13 @@ def main() -> None:
     """
     configure_windows_event_loop_policy()
     args = parse_args()
-    cwd = Path(args.workspace)
+    cwd = Path(args.workspace) if args.workspace is not None else Path.cwd()
     db_path = Path(args.db_path)
 
     runtime = ControlCenterRuntime(cwd=cwd, db_path=db_path)
     runtime.init()
-    runtime.ensure_runtime_project()
+    if args.workspace is not None:
+        runtime.ensure_runtime_project()
 
     if args.worker and args.no_dashboard:
         settings = resolve_worker_settings(runtime.connection)
